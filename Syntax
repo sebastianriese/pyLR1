@@ -1,0 +1,38 @@
+# spg (simple (python) parser generator) grammar
+# for the shellfish language
+
+import SyntaxTree
+
+%lexer
+
+\s+ %restart
+[a-zA-Z][a-zA-Z]* SYM
+[a-zA-Z][a-zA-Z]*: KEY
+[\+\-\*\/\\@:,\.]+ BIN
+
+%parser
+
+doc:
+   %empty
+   doc statement
+
+statment:
+    exp
+    "^" exp
+    exp "." statement
+    SYM ":=" exp "." statement
+
+exp:
+    SYM
+    "(" exp ")"
+    exp SYM
+    exp BIN exp
+    SYM key
+
+key:
+    KEY exp key1
+
+
+key1:
+    %empty
+    KEY exp key1
