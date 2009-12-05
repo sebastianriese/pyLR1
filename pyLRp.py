@@ -30,31 +30,37 @@ class Production(object):
             return None
 
     def SubProduction(self, index0 = 0, index1 = None):
-        """Return a production with left=self.left and syms=self.syms[index0:index1]."""
-        return Production(self.left, self.syms[index0:index1])
+        """
+        Return a production with left=self.left and syms=self.syms[index0:index1].
+        The main use of this is to evaluate the FIRST set of the subproductions.
+        """
+        return Production(None, self.syms[index0:index1])
 
     def Concat(self, other):
-        """Return a new Production with left=None and syms=self.syms+other.syms."""
+        """
+        Return a new Production with left=None and syms=self.syms+other.syms.
+        The main use of this is to evaluate the FIRST set of the concatenation.
+        """
         return Production(None, self.syms + other.syms)
-
-def FirstJoin(iterable):
-    result = set()
-
-    for elem in iterable:
-        result |= elem.First()
-
-    return result
 
 
 class LR1Element(object):
     """A LR(1) element (production, position, lookahead set)"""
     
-    def __init__(self, syntax, prod, pos, la):
-        self.syntax = syntax
+    def __init__(self, prod, pos, la):
         self.prod = prod
         self.pos = pos
         self.la = la
 
+    def Goto(self, symbol):
+        afterDot = self.prod.AtOrNone(self.pos)
+        result = set()
+
+        if afterDot == symbol:
+            result.add(LR1Elment(self.prod, self.pos+1, la).Closure())
+
+        return result
+            
     def Closure(self):
         closure = set(self)
         afterDot = self.prod.AtOrNone(self.pos)
@@ -66,7 +72,7 @@ class LR1Element(object):
                 for la in self.la:
                     laset |= prod.SubProduction(0,self.pos).Concat(la).First()
                     
-                closure.add(LR1Element(self.syntax, prod, 0, laset).Closure())
+                closure.add(LR1Element(prod, 0, laset).Closure())
 
 class Symbol(object):
     """Base class of all symbols in the system (terminal, meta and empty)."""
