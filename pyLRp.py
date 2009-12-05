@@ -50,29 +50,44 @@ class LR1Element(object):
     def __init__(self, prod, pos, la):
         self.prod = prod
         self.pos = pos
-        self.la = la
+        self.la = frozenset(la)
+
+    def __hash__(self):
+        return hash(self.prod) \
+            ^ hash(self.pos) \
+            ^ hash(self.la)
+
+    def __eq__(self, other):
+        return self.prod == other.prod \
+            and self.pos == other.pos \
+            and self.la == other.la
+
+    def AfterDot(self):
+        return self.prod.AtOrNone(self.pos)
 
     def Goto(self, symbol):
-        afterDot = self.prod.AtOrNone(self.pos)
+        afterDot = self.AfterDot()
         result = set()
 
         if afterDot == symbol:
-            result.add(LR1Elment(self.prod, self.pos+1, la).Closure())
+            result |= LR1Element(self.prod, self.pos+1, self.la).Closure()
 
         return result
             
     def Closure(self):
-        closure = set(self)
-        afterDot = self.prod.AtOrNone(self.pos)
+        closure = set([self])
+        afterDot = self.AfterDot()
         
         if afterDot:
             for prod in afterDot:
                 laset = set()
 
                 for la in self.la:
-                    laset |= prod.SubProduction(0,self.pos).Concat(la).First()
+                    laset |= prod.SubProduction(self.pos+1, None).Concat(la).First()
                     
                 closure.add(LR1Element(prod, 0, laset).Closure())
+
+        return closure
 
 class Symbol(object):
     """Base class of all symbols in the system (terminal, meta and empty)."""
@@ -117,7 +132,7 @@ class EOF(Symbol):
     """
 
     def __init__(self):
-        super(Symbol, self).__init__(None, None)
+        super(EOF, self).__init__(None, None)
 
     def __iter__(self):
         return iter([])
@@ -139,7 +154,7 @@ class Empty(Symbol):
         Do not use this method.
         Use Instance() instead.
         """
-        super(Symbol, self).__init__(None, None)
+        super(Empty, self).__init__(None, None)
 
     @classmethod
     def Instance(clazz):
@@ -165,7 +180,7 @@ class Terminal(Symbol):
     """The Terminal symbol class."""
 
     def __init__(self, name, syntax):
-        super(Symbol, self).__init__(name, syntax)
+        super(Terminal, self).__init__(name, syntax)
         
     def __iter__(self):
         return iter([])
@@ -180,7 +195,7 @@ class Meta(Symbol):
     """
 
     def __init__(self, name, syntax):
-        super(Symbol, self).__init__(name, syntax)
+        super(Meta, self).__init__(name, syntax)
         self.prod = []
 
     def __iter__(self):
@@ -365,6 +380,9 @@ class Syntax(object):
     def SetStart(self, start):
         self.start = start
 
+    def Start(self):
+        return self.start
+
     def AddLexingRule(self, lexingrule):
         self.lexer.append(lexingrule)
 
@@ -391,6 +409,66 @@ class Syntax(object):
 
     def Header(self):
         return iter(self.header)
+
+# if it has another name in English Compiler Literature I'm sorry
+# the only thing available for constructing this is a German paper
+class LR1StateTransitionGraph(object):
+    """
+    The LR(1) State Transition Graph.
+    """
+
+    def __init__(self, grammar):
+        self.grammar = grammar
+        self.states = []
+
+        self.start = None
+
+    def Construct(self):
+        # construct the starting point (virtual starting node) and use the RequireElement-method to  build up the tree
+        prod = Production(self.grammar.RequireMeta("$START"), [self.grammar.Start()])
+
+        self.grammar.RequireMeta("$START").AddProd(prod)
+
+        start = LR1Element(prod,0,set([EOF()])).Closure()
+        self.start = self.RequireState(start)
+
+    def RequireState(self, elements):
+        """
+        Check whether a state having the given elements already exists.
+        If it does exist return it else create the new state and determine it's sub states.
+        """
+
+        for state in self.states:
+            if state.elements == elements:
+                return state
+
+        state = LR1StateTransitionGraphElement(self, len(self.states), elements)
+        self.states.append(state)
+        state.GenerateSubStates()
+        return state
+        
+
+    def CreateParseTable(self):
+        # ... generate the parse table
+        pass
+
+class LR1StateTransitionGraphElement(object):
+
+    def __init__(self, graph, number, elements):
+        self.number = number
+        self.graph = graph
+        self.elements = elements
+        self.transitions = set()
+
+    def GenerateSubStates(self):
+        """
+        Determine the substates of this state and add them to the transition graph.
+        """
+
+        for elem in self.elements:
+            if elem.AfterDot():
+                self.transitions.add((elem, self.graph.RequireState(elem.Goto(elem.AfterDot()))))
+
 
 class Writer(object):
 
@@ -488,8 +566,13 @@ if __name__ == '__main__':
     p = Parser(fi)
     syn = p.Parse()
     fi.close()
+
+    graph = LR1StateTransitionGraph(syn)
+    graph.Construct()
+
+    print len(graph.states)
     
-    fo = file('Syntax.py', 'w')
-    writer = Writer(fo)
-    writer.Write(syn)
-    fo.close()
+    #fo = file('Syntax.py', 'w')
+    #writer = Writer(fo)
+    #writer.Write(syn, graph)
+    #fo.close()
