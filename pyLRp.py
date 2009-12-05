@@ -1,83 +1,72 @@
 """
-Module for parsing parser specifications and creating parsers from them
+Parse parser and lexer specifications and create lexers based on the re-module and LR(1) parsers from them.
 """
 
 import re
 
-# this is used to replace dictionaries,
-# if the ordering of the elements shall be preserved
-class AList(object):
-    def __init__(self):
-        self.list = []
-
-    def __len__(self):
-        return len(self.list)
-
-    def __repr__(self):
-        return "AList("+ repr(self.list) + ")"
-
-    def __str__(self):
-        return "AList("+ str(self.list) + ")"
-
-    def __contains__(self, key):
-        return self.has_key(key)
-
-    def at(self, index):
-        return self.list[index]
-
-    def has_key(self, key):
-        for ckey, value in self.list:
-            if ckey == key:
-                return True
-
-        return False
-    
-    def append(self, key, value):
-        if self.has_key(key):
-            raise KeyError()
-
-        self.list.append((key, value))
-
-    def __setitem__(self, key, value):
-        self.append(key, value)
-
-    def __getitem__(self, key):
-        for ckey, value in self.list:
-            if key == ckey:
-                return value
-
-        raise KeyError()
-
-    def __delitem__(self, key):
-        index = 0
-        for ckey, value in self.list:
-            if key == ckey:
-                del self.list[index]
-                return
-
-            index += 1
-
-        raise KeyError()
-
-    def __iter__(self):
-        for item in self.list:
-            yield item
-
 class Production(object):
-    """A production in a grammar."""
+    """A production in a grammar. Productions with left set to None may be used as arbitrary symbol strings."""
 
-    def __init__(self):
-        pass
+    def __init__(self, left, syms = []):
+        self.left = left
+        self.syms = syms
 
-        
+    def AddSym(self, sym):
+        self.syms.append(sym)
 
-class LR1Element(Production):
+    def First(self):
+        for sub in self.syms:
+
+            result |= sub.First() - set([Empty.Instance()])
+
+            if not  sub.ReducesToEmpty():
+                break
+
+    def AtOrNone(self, index):
+        """Return the Symbol in the Production at position index ort None if index is out of range."""
+        try:
+            return self.syms[index]
+        except IndexError:
+            return None
+
+    def SubProduction(self, index0 = 0, index1 = None):
+        """Return a production with left=self.left and syms=self.syms[index0:index1]."""
+        return Production(self.left, self.syms[index0:index1])
+
+    def Concat(self, other):
+        """Return a new Production with left=None and syms=self.syms+other.syms."""
+        return Production(None, self.syms + other.syms)
+
+def FirstJoin(iterable):
+    result = set()
+
+    for elem in iterable:
+        result |= elem.First()
+
+    return result
+
+
+class LR1Element(object):
     """A LR(1) element (production, position, lookahead set)"""
     
-    def __init__(self):
-        super(Production, self).__init__()
+    def __init__(self, syntax, prod, pos, la):
+        self.syntax = syntax
+        self.prod = prod
+        self.pos = pos
+        self.la = la
 
+    def Closure(self):
+        closure = set(self)
+        afterDot = self.prod.AtOrNone(self.pos)
+        
+        if afterDot:
+            for prod in afterDot:
+                laset = set()
 
+                for la in self.la:
+                    laset |= prod.SubProduction(0,self.pos).Concat(la).First()
+                    
+                closure.add(LR1Element(self.syntax, prod, 0, laset).Closure())
 
 class Symbol(object):
     """Base class of all symbols in the system (terminal, meta and empty)."""
@@ -86,19 +75,51 @@ class Symbol(object):
         self.name = name
         self.syntax = syntax
 
+    def Name(self):
+        return self.name
+        
+
+    def Syntax(self):
+        return self.syntax
+
+    def __iter__(self):
+        """Iterate for Productions."""
+        raise NotImplementedError()
+
     def First(self):
         """The FIRST-set of the symbol."""
         raise NotImplementedError()
 
     def ReducesToEmpty(self):
         """Return whether the symbol can be reduced to the empty symbol."""
-        raise NotImplementedError()
+        return False
+
+
+    def ReducesToEmpty(self):
+        return False
+
+    def Productions(self):
+        return []
 
     def IsEmpty(self):
         """Return whether the symbol is the empty symbol."""
         return False
 
-class Emtpy(Symbol):
+class EOF(Symbol):
+    """
+    The EOF symbol.
+    """
+
+    def __init__(self):
+        super(Symbol, self).__init__(None, None)
+
+    def __iter__(self):
+        return iter([])
+
+    def First(self):
+        return set([self])
+
+class Empty(Symbol):
     """
     The empty terminal symbol.
     The class is a singleton, in order to make many of the methods of the other classes
@@ -122,6 +143,9 @@ class Emtpy(Symbol):
 
         return clazz.instance
 
+    def __iter__(self):
+        return iter([])
+
     def First(self):
         return set([self])
 
@@ -134,16 +158,14 @@ class Emtpy(Symbol):
 class Terminal(Symbol):
     """The Terminal symbol class."""
 
-    def __init__(self, name, syntax, regex):
+    def __init__(self, name, syntax):
         super(Symbol, self).__init__(name, syntax)
-        self.regex = regex
         
+    def __iter__(self):
+        return iter([])
+
     def First(self):
         return set([self])
-
-    def ReducesToEmpty(self):
-        return False
-
 
 class Meta(Symbol):
     """
@@ -155,8 +177,15 @@ class Meta(Symbol):
         super(Symbol, self).__init__(name, syntax)
         self.prod = []
 
+    def __iter__(self):
+        return iter(self.prod)
+
     def AddProd(self, prod):
         self.prod.append(prod)
+
+    def Productions(self):
+        # the copying is just a safety measure ...
+        return self.prod[:]
 
     def First(self):
         result = set()
@@ -165,11 +194,8 @@ class Meta(Symbol):
             result.add(Empty.Instance())
 
         for prod in self.prod:
-            for sub in prod:
-                if sub.ReducesToEmpty():
-                    result |= sub.First() - set([Empty.Instance()])
-                else:
-                    break
+            # refactor to the production class
+            result |= prod.First()
 
     def ReducesToEmpty(self):
         
@@ -192,11 +218,34 @@ class Meta(Symbol):
         # the loop's execution was broken, one production contained only expressions reducing to empty
         return True
 
+class LexingRule(object):
+    
+    def __init__(self, state, regex, action):
+        self.state = state
+        self.regex = regex
+        self.action = action
 
-class Syntax(object):
+class LexingAction(object):
+    
+    def __init__(self):
+        pass
+
+class Restart(LexingAction):
+    
+    def __init__(self):
+        super(LexingAction, self).__init__()
+
+
+class Token(LexingAction):
+    
+    def __init__(self, name):
+        super(LexingAction, self).__init__()
+        self.name = name
+
+class Parser(object):
     parser_re = re.compile(r"%parser\s*$")
     lexer_re = re.compile(r"%lexer\s*$")
-    comment_re = re.compile(r"\s+(#.*)?\s*$")
+    comment_re = re.compile(r"\s*(#.*)?\s*$")
 
     lexing_rule_re = re.compile(r"((.|(\\ ))+)\s+(([a-zA-Z_][a-zA-Z_0-9]*)|(%restart))\s*$")
 
@@ -205,22 +254,18 @@ class Syntax(object):
     syntax_stoken_re = re.compile(r'\"((.|\\\")+?)\"')
     syntax_empty_re = re.compile(r'%empty')
 
-    def __init__(self, parser):
-        self.parser_file = parser
+    def __init__(self, grammar_file):
+        self.syntax = Syntax()
+
+        self.grammar_file = grammar_file
         self.line = 0
-
-        self.parser = AList()
-        self.lexer = AList()
-        self.symbols = {}
-
-        self.header = []
 
         # ugly state variable available to the subparsers
         self.current = None
         self.state = self.Header
 
     def Header(self, line):
-        self.header.append(line)
+        self.syntax.AddHeader(line)
 
     def Lexer(self, line):
          match = self.lexing_rule_re.match(line)
@@ -230,57 +275,64 @@ class Syntax(object):
              return
 
          if match.group(4) == "%restart":
-             
-             if not self.lexer.has_key("%restart"):
-                 self.lexer.append("%restart", [])
-
-             self.lexer["%restart"].append(match.group(1))
+             self.syntax.AddLexingRule(LexingRule(None, match.group(1), Restart()))
 
          else:
-             self.lexer.append(match.group(4), match.group(1))
+             self.syntax.RequireTerminal(match.group(4))
+             self.syntax.AddLexingRule(LexingRule(None, match.group(1), Token(match.group(4))))
 
     def Parser(self, line):
         match = self.syntax_rule_re.match(line)
 
         if match:
-            self.current = match.group(1)
-            self.parser[self.current] = {
-                "name" : self.current,
-                "seqs" : [],
-                }
+            symbol = self.syntax.RequireMeta(match.group(1))
+
+            if self.current == None:
+                self.syntax.SetStart(symbol)
+
+            self.current = symbol
+
         else:
-            seq = []
+            prod = Production(self.current)
             line = line.strip()
 
             while line:
                 
                 match = self.syntax_stoken_re.match(line)
-                
-                if match:
-                    seq.append(("stat", match.group(1)))
-                else:
+                elem = None
+
+                # this loop is used to be broken
+                # not beautiful, but more readable than all other solutions
+                while True:
+                    if match:
+                        elem = self.syntax.RequireTerminal(match.group(1))
+                        self.syntax.AddInlineTerminalLexingRule(match.group(1))
+                        break
+                    
                     match = self.syntax_symbol_re.match(line)
                     
                     if match:
-                        seq.append(("symb", match.group(1)))
-                    else:
-                        match = self.syntax_empty_re.match(line)
+                        elem = self.syntax.RequireMeta(match.group(1))
+                        break
+
+                    match = self.syntax_empty_re.match(line)
                         
-                        if match:
-                            seq.append(("emtpy", "%empty"))
-                        else:
-                            print "Syntax error: line %d (%s)" % (self.line,line)
-                            seq.append(("error", line))
+                    if match:
+                        elem = Empty.Instance()
+                        break
+
+                    print "Syntax error: line %d (%s)" % (self.line,line)
+                    return
 
                 line = line[len(match.group(0)):]
                 line = line.strip()
 
-            self.parser[self.current]["seqs"].append(seq)
+                prod.AddSym(elem)
 
     def Parse(self):
         self.line = 0
 
-        for line in self.parser_file:
+        for line in self.grammar_file:
             self.line += 1
 
             if self.comment_re.match(line):
@@ -292,22 +344,66 @@ class Syntax(object):
             else:
                 self.state(line)
 
-    def Closure(self):
-        pass
+        return self.syntax
 
-    def Write(self, parser_file):
+class Syntax(object):
+
+    def __init__(self):
+        self.start = None
+        self.symbols = {}
+        self.header = []
+
+        self.inline_tokens = set()
+        self.lexer = []
         
-        parser_file.write("""# this file was generated automagically by spg
+    def SetStart(self, start):
+        self.start = start
+
+    def AddLexingRule(self, lexingrule):
+        self.lexer.append(lexingrule)
+
+    def AddInlineTerminalLexingRule(self, token):
+        self.inline_tokens.add(token)
+
+    def RequireTerminal(self, name):
+        if name not in self.symbols:
+            self.symbols[name] = Terminal(name, self)
+
+        return self.symbols[name]
+
+    def RequireMeta(self, name):
+        if name not in self.symbols:
+            self.symbols[name] = Meta(name, self)
+
+        return self.symbols[name]
+
+    def AddSymbol(self, symbol):
+        self.symbols[symbol.name] = symbol
+        
+    def AddHeader(self, line):
+        self.header.append(line)
+
+    def Header(self):
+        return iter(self.header)
+
+class Writer(object):
+
+    def __init__(self, parser_file):
+        self.parser_file = parser_file
+
+    def Write(self, syntax):
+        
+        self.parser_file.write("""# this file was generated automagically by spg
 # do not edit, if you want to modify the parser, adapt the grammar file
 
 import re
 
 """)
 
-        for headline in self.header:
-            parser_file.write(headline + "\n")
+        for headline in syntax.Header():
+            self.parser_file.write(headline + "\n")
 
-        parser_file.write("""class Lexer(object):
+        self.parser_file.write("""class Lexer(object):
     def __init__(self, codefile):
         self.code = file(codefile, 'r')
         self.buffer = ""
@@ -328,19 +424,19 @@ import re
             return None
 """)
 
-        for name, regex in self.lexer:
+        for name, regex in syntax.Lexer():
 
         # restart tokens
             if name == "%restart":
                 for ignored in regex:
-                    parser_file.write("""
+                    self.parser_file.write("""
         match = re.match(r"%s", self.buffer)
         if match:
             self.buffer = self.buffer[len(match.group(0)):]
             return self.lex()
 """ % ignored)
             else:
-                parser_file.write("""
+                self.parser_file.write("""
         match = re.match(r"%s", self.buffer)
 
         if match:
@@ -348,7 +444,7 @@ import re
             return ("%s", match.group(0))
 """ % (regex, name))
 
-        parser_file.write("""
+        self.parser_file.write("""
         print "Lexing error: %d (%s)" % (self.line, self.buffer)
         self.buffer = self.buffer[1:]
 
@@ -362,11 +458,7 @@ class Parser(object):
     # actions from the grammar
 """)
         
-        for name, symbol in self.parser:
-            for red in symbol['seqs']:
-                pass
-
-        parser_file.write("""
+        self.parser_file.write("""
 
     # auto generated methods
     def __init__(self, lexer):
@@ -387,10 +479,11 @@ class Parser(object):
             
 if __name__ == '__main__':
     fi = file('Syntax', 'r')
-    p = Syntax(fi)
-    p.Parse()
+    p = Parser(fi)
+    syn = p.Parse()
     fi.close()
     
     fo = file('Syntax.py', 'w')
-    p.Write(fo)
+    writer = Writer(fo)
+    writer.Write(syn)
     fo.close()

@@ -1,7 +1,8 @@
-# spg (simple (python) parser generator) grammar
+# pyLRp grammar
 # for the shellfish language
 
-import SyntaxTree
+# the next line comes directly from the future ...
+# import SyntaxTree
 
 %lexer
 
@@ -10,7 +11,21 @@ import SyntaxTree
 [a-zA-Z][a-zA-Z]*: KEY
 [\+\-\*\/\\@:,\.]+ BIN
 
+# well the current grammar parser is not very nice, a pyLRp parser for pyLRp grammars,
+# which uses only the current, limited command-set would solve the problem.
+# probably such beauties will be possible in the self parsed, bootstrapped version:
+
+# nearly full lex-capability
+# \" %begin(COMMENT), %restart
+# <COMMENT> \" %end, %restart
+# <COMMENT> .* %restart
+
+# \"\"\" %begin(MLSTRING), %restart
+# <MLSTRING> .* %append, %restart
+# <MLSTRING> \"\"\" %collect, MLSTRING
+
 %parser
+
 
 doc:
    %empty
@@ -31,7 +46,6 @@ exp:
 
 key:
     KEY exp key1
-
 
 key1:
     %empty
