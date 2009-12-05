@@ -1,0 +1,92 @@
+# pyLRp grammar file for pyLRp
+# this must be kept parsable with the limited bootstrap parser
+# it is the definite reference on the format
+
+%lexer
+
+
+\#.*\n+ NEWLINE
+
+\n\s+ NEWLINE
+# no lexer stater are available in the pre-parser,
+# space matters here and there (python code ...)
+# therefore anyone who is whitespace ignorant: please notiy us
+\s+ SPACE
+
+\%restart RESTART
+\%lexer LEXER
+\%parser PARSER
+
+.* ARBLINE
+
+\".*\" TEXT
+[A-Za-z_][A-Za-z0-9_]* SYMBOL
+
+\<[A-Z]+\> STATE
+# this could be more concrete
+([^ \t]|\\ )+ REGEX
+
+%parser
+
+file:
+    %empty
+    file part
+
+part:
+    header
+    lexer
+    parser
+
+header:
+    %empty
+    header pycodeline
+
+pycodeline:
+    NEWLINE
+    SPACE ARBLINE NEWLINE
+
+lexer:
+    LEXER SPACE NEWLINE
+    lexerline
+
+lexerline:
+    STATE SPACE REGEX SPACE lexeraction SPACE NEWLINE
+    REGEX SPACE lexeraction SPACE NEWLINE
+
+lexeraction:
+    lexeraction1
+    lexeraction SPACE "," SPACE lexeraction1
+
+lexeraction1:
+    RESTART
+    SYMBOL
+    BEGIN
+    END
+    APPEND
+    COLLECT
+
+parser:
+    PARSER SPACE NEWLINE
+    rule
+
+rule:
+    SYMBOL SPACE ":" SPACE rulebody
+
+rulebody:
+    NEWLINE
+    NEWLINE SPACE EMPTY SPACE "{" action "}" SPACE NEWLINE
+    NEWLINE SPACE prod  SPACE "{" action "}" SPACE NEWLINE
+
+prod:
+    prod1
+    prod SPACE prod1
+
+prod1:
+    SYMBOL
+    TEXT
+
+# clean
+action:
+    SPACE NEWLINE
+    action SPACE ARBLINE NEWLINE
+    
