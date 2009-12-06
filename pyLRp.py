@@ -11,28 +11,35 @@ class Production(object):
     def __init__(self, left, syms):
         self.left = left
         self.syms = syms
-        self.first = None
 
     def __iter__(self):
         return iter(self.syms)
 
+    def __str__(self):
+        text =  (((not self.left) and "None") or self.left.Name()) + " <- "
+
+        for sub in self:
+            text += (sub.Name() or "None") + " "
+
+        return text
+
+
     def AddSym(self, sym):
         self.syms.append(sym)
 
-    def First(self, visited = set()):
-        if self.first != None:
-            return self.first
-
+    def First(self, visited):
         result = set()
 
         for sub in self.syms:
             if sub  not in visited:
-                result |= sub.First(visited) - set([Empty.Instance()])
+                result |= sub.First(visited | set([self])) - set([Empty.Instance()])
 
-            if not sub.ReducesToEmpty():
+            if not sub.ReducesToEmpty(set()):
                 break
 
-        self.first = result
+        else:
+            result.add(Empty.Instance())
+
         return result
 
     def AtOrNone(self, index):
@@ -64,7 +71,6 @@ class LR1Element(object):
         self.prod = prod
         self.pos = pos
         self.la = frozenset(la)
-        self.closure = None
 
     def __str__(self):
         text =  (self.prod.left.Name() or "None") + " <- "
@@ -118,31 +124,27 @@ class LR1Element(object):
         result = set()
 
         if afterDot == symbol:
-            result |= LR1Element(self.prod, self.pos+1, self.la).Closure()
+            result |= LR1Element(self.prod, self.pos+1, self.la).Closure(frozenset())
 
         return result
             
-    def Closure(self, visited = set()):
-
-        if self.closure != None:
-            return self.closure
-
+    def Closure(self, visited):
         closure = set([self])
         afterDot = self.AfterDot()
         
         if afterDot:
-            for prod in afterDot.Productions():
-                laset = set()
+            laset = set()
+                
+            for la in self.la:
+                firstconcat = self.prod.SubProduction(self.pos+1, None).Concat(la)
+                laset |= firstconcat.First(frozenset())
 
-                for la in self.la:
-                    laset |= prod.SubProduction(self.pos+1, None).Concat(la).First()
+            for prod in afterDot.Productions():
 
                 elem = LR1Element(prod, 0, laset)
 
-                if elem not in visited:
-                    closure |= elem.Closure(visited | set([elem]))
-
-        self.closure = closure
+                if self not in visited:
+                    closure |= elem.Closure(visited | set([self]))
 
         return closure
 
@@ -163,16 +165,16 @@ class Symbol(object):
         """Return an iterator over the list of productions"""
         return iter([])
 
-    def First(self, visited = set()):
+    def First(self, visited):
         """The FIRST-set of the symbol."""
         raise NotImplementedError()
 
-    def ReducesToEmpty(self, visited = set()):
+    def ReducesToEmpty(self, visited):
         """Return whether the symbol can be reduced to the empty symbol."""
         return False
 
     def Productions(self):
-        return []
+        return iter([])
 
     def IsEmpty(self):
         """Return whether the symbol is the empty symbol."""
@@ -186,7 +188,7 @@ class EOF(Symbol):
     def __init__(self):
         super(EOF, self).__init__("$EOF", None)
 
-    def First(self, visited = set()):
+    def First(self, visited):
         return set([self])
 
 class Empty(Symbol):
@@ -203,7 +205,7 @@ class Empty(Symbol):
         Do not use this method.
         Use Instance() instead.
         """
-        super(Empty, self).__init__(None, None)
+        super(Empty, self).__init__("$Empty", None)
 
     @classmethod
     def Instance(clazz):
@@ -213,10 +215,10 @@ class Empty(Symbol):
 
         return clazz.instance
 
-    def First(self, visited = set()):
+    def First(self, visited):
         return set([self])
 
-    def ReducesToEmpty(self, visited = set()):
+    def ReducesToEmpty(self, visited):
         return True
 
     def IsEmpty(self):
@@ -228,7 +230,7 @@ class Terminal(Symbol):
     def __init__(self, name, syntax):
         super(Terminal, self).__init__(name, syntax)
  
-    def First(self, visited = set()):
+    def First(self, visited):
         return set([self])
 
 class Meta(Symbol):
@@ -252,14 +254,11 @@ class Meta(Symbol):
         # the copying is just a safety measure ...
         return self.prod[:]
 
-    def First(self, visited = set()):
+    def First(self, visited):
         if self.first != None:
             return self.first
 
         result = set()
-
-        if self.ReducesToEmpty():
-            result.add(Empty.Instance())
 
         for prod in self.prod:
             # refactor to the production class
@@ -268,7 +267,7 @@ class Meta(Symbol):
         self.first = result
         return result
 
-    def ReducesToEmpty(self, visited = set()):
+    def ReducesToEmpty(self, visited):
         
         # sorry this is a little mess ... but I found no more beautiful way
         # using a list or similar stuff is quite as ugly (though maybe more comprehensible)
@@ -375,7 +374,7 @@ class Parser(object):
                 # not beautiful, but more readable than all other solutions
                 while True:
                     if match:
-                        elem = self.syntax.RequireTerminal(match.group(1))
+                        elem = self.syntax.RequireTerminal(match.group(0))
                         self.syntax.AddInlineTerminalLexingRule(match.group(1))
                         break
                     
@@ -480,7 +479,7 @@ class LR1StateTransitionGraph(object):
 
         self.grammar.RequireMeta("$START").AddProd(prod)
 
-        start = LR1Element(prod,0,set([EOF()])).Closure()
+        start = LR1Element(prod,0,set([EOF()])).Closure(frozenset())
         
         self.start = self.RequireState(start)
 

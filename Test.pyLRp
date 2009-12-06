@@ -1,0 +1,17 @@
+# test grammar taken from the paper
+# to check whether everything is done properly
+%lexer
+b B
+a A
+c C
+
+%parser
+
+s:
+    s B
+    B a A
+
+a:
+    A s C
+    A
+    A s B
