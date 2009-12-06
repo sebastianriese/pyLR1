@@ -387,7 +387,7 @@ class Parser(object):
                     match = self.syntax_empty_re.match(line)
                         
                     if match:
-                        elem = Empty.Instance()
+                        # elem = Empty.Instance()
                         break
 
                     print "Syntax error: line %d (%s)" % (self.line,line)
@@ -395,8 +395,9 @@ class Parser(object):
 
                 line = line[len(match.group(0)):]
                 line = line.strip()
-                
-                prod.AddSym(elem)
+
+                if elem:
+                    prod.AddSym(elem)
 
             self.current.AddProd(prod)
 
