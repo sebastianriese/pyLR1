@@ -51,7 +51,7 @@ class Production(object):
 
     def Concat(self, elem):
         """
-        Return a new Production with left=None and syms=self.syms+[Production(None, elem)].
+        Return a new Production with left=None and syms=self.syms+[elem].
         The main use of this is to evaluate the FIRST set of the concatenation.
         """
         return Production(None, self.syms + [elem])
@@ -64,7 +64,6 @@ class LR1Element(object):
         self.prod = prod
         self.pos = pos
         self.la = frozenset(la)
-        self.goto = None
         self.closure = None
 
     def __str__(self):
@@ -115,16 +114,12 @@ class LR1Element(object):
         return self.la
 
     def Goto(self, symbol):
-        if self.goto != None:
-            return self.goto
-
         afterDot = self.AfterDot()
         result = set()
 
         if afterDot == symbol:
             result |= LR1Element(self.prod, self.pos+1, self.la).Closure()
 
-        self.goto = result
         return result
             
     def Closure(self, visited = set()):
@@ -557,6 +552,7 @@ class LR1StateTransitionGraphElement(object):
         """
 
         for elem in self.elements:
+
             if elem.AfterDot():
                 goto = set()
 
