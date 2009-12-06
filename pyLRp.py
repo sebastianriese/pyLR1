@@ -1,5 +1,6 @@
 """
 Parse parser and lexer specifications and create lexers based on the re-module and LR(1) parsers from them.
+It is planned to implement LALR(1) parser support in future.
 """
 
 import re
@@ -7,20 +8,32 @@ import re
 class Production(object):
     """A production in a grammar. Productions with left set to None may be used as arbitrary symbol strings."""
 
-    def __init__(self, left, syms = []):
+    def __init__(self, left, syms):
         self.left = left
         self.syms = syms
+        self.first = None
+
+    def __iter__(self):
+        return iter(self.syms)
 
     def AddSym(self, sym):
         self.syms.append(sym)
 
-    def First(self):
+    def First(self, visited = set()):
+        if self.first != None:
+            return self.first
+
+        result = set()
+
         for sub in self.syms:
+            if sub  not in visited:
+                result |= sub.First(visited) - set([Empty.Instance()])
 
-            result |= sub.First() - set([Empty.Instance()])
-
-            if not  sub.ReducesToEmpty():
+            if not sub.ReducesToEmpty():
                 break
+
+        self.first = result
+        return result
 
     def AtOrNone(self, index):
         """Return the Symbol in the Production at position index ort None if index is out of range."""
@@ -36,12 +49,12 @@ class Production(object):
         """
         return Production(None, self.syms[index0:index1])
 
-    def Concat(self, other):
+    def Concat(self, elem):
         """
-        Return a new Production with left=None and syms=self.syms+other.syms.
+        Return a new Production with left=None and syms=self.syms+[Production(None, elem)].
         The main use of this is to evaluate the FIRST set of the concatenation.
         """
-        return Production(None, self.syms + other.syms)
+        return Production(None, self.syms + [elem])
 
 
 class LR1Element(object):
@@ -51,6 +64,36 @@ class LR1Element(object):
         self.prod = prod
         self.pos = pos
         self.la = frozenset(la)
+        self.goto = None
+        self.closure = None
+
+    def __str__(self):
+        text =  (self.prod.left.Name() or "None") + " <- "
+        count = 0
+
+        for sub in self.prod:
+            if count == self.pos:
+                text += ". "
+
+            text += (sub.Name() or "None") + " "
+            count += 1
+
+        if count == self.pos:
+            text += ". "
+            
+        text += "{ "
+
+        for sub in self.la:
+            text += (sub.Name() or "None") + " "
+
+        text += "}"
+
+        return text
+
+
+    @classmethod
+    def FromCore(clazz, lr0, la):
+        return clazz(lr0.prod, lr0.pos, la)
 
     def __hash__(self):
         return hash(self.prod) \
@@ -65,27 +108,46 @@ class LR1Element(object):
     def AfterDot(self):
         return self.prod.AtOrNone(self.pos)
 
+    def Core(self):
+        return LR1Element(self.prod, self.pos, set())
+
+    def Lookahead(self):
+        return self.la
+
     def Goto(self, symbol):
+        if self.goto != None:
+            return self.goto
+
         afterDot = self.AfterDot()
         result = set()
 
         if afterDot == symbol:
             result |= LR1Element(self.prod, self.pos+1, self.la).Closure()
 
+        self.goto = result
         return result
             
-    def Closure(self):
+    def Closure(self, visited = set()):
+
+        if self.closure != None:
+            return self.closure
+
         closure = set([self])
         afterDot = self.AfterDot()
         
         if afterDot:
-            for prod in afterDot:
+            for prod in afterDot.Productions():
                 laset = set()
 
                 for la in self.la:
                     laset |= prod.SubProduction(self.pos+1, None).Concat(la).First()
-                    
-                closure.add(LR1Element(prod, 0, laset).Closure())
+
+                elem = LR1Element(prod, 0, laset)
+
+                if elem not in visited:
+                    closure |= elem.Closure(visited | set([elem]))
+
+        self.closure = closure
 
         return closure
 
@@ -99,24 +161,19 @@ class Symbol(object):
     def Name(self):
         return self.name
         
-
     def Syntax(self):
         return self.syntax
 
-    def __iter__(self):
-        """Iterate for Productions."""
-        raise NotImplementedError()
+    def Productions(self):
+        """Return an iterator over the list of productions"""
+        return iter([])
 
-    def First(self):
+    def First(self, visited = set()):
         """The FIRST-set of the symbol."""
         raise NotImplementedError()
 
-    def ReducesToEmpty(self):
+    def ReducesToEmpty(self, visited = set()):
         """Return whether the symbol can be reduced to the empty symbol."""
-        return False
-
-
-    def ReducesToEmpty(self):
         return False
 
     def Productions(self):
@@ -132,12 +189,9 @@ class EOF(Symbol):
     """
 
     def __init__(self):
-        super(EOF, self).__init__(None, None)
+        super(EOF, self).__init__("$EOF", None)
 
-    def __iter__(self):
-        return iter([])
-
-    def First(self):
+    def First(self, visited = set()):
         return set([self])
 
 class Empty(Symbol):
@@ -164,13 +218,10 @@ class Empty(Symbol):
 
         return clazz.instance
 
-    def __iter__(self):
-        return iter([])
-
-    def First(self):
+    def First(self, visited = set()):
         return set([self])
 
-    def ReducesToEmpty(self):
+    def ReducesToEmpty(self, visited = set()):
         return True
 
     def IsEmpty(self):
@@ -181,11 +232,8 @@ class Terminal(Symbol):
 
     def __init__(self, name, syntax):
         super(Terminal, self).__init__(name, syntax)
-        
-    def __iter__(self):
-        return iter([])
-
-    def First(self):
+ 
+    def First(self, visited = set()):
         return set([self])
 
 class Meta(Symbol):
@@ -197,8 +245,9 @@ class Meta(Symbol):
     def __init__(self, name, syntax):
         super(Meta, self).__init__(name, syntax)
         self.prod = []
+        self.first = None
 
-    def __iter__(self):
+    def Productions(self):
         return iter(self.prod)
 
     def AddProd(self, prod):
@@ -208,7 +257,10 @@ class Meta(Symbol):
         # the copying is just a safety measure ...
         return self.prod[:]
 
-    def First(self):
+    def First(self, visited = set()):
+        if self.first != None:
+            return self.first
+
         result = set()
 
         if self.ReducesToEmpty():
@@ -216,16 +268,19 @@ class Meta(Symbol):
 
         for prod in self.prod:
             # refactor to the production class
-            result |= prod.First()
+            result |= prod.First(visited | set([self]))
 
-    def ReducesToEmpty(self):
+        self.first = result
+        return result
+
+    def ReducesToEmpty(self, visited = set()):
         
         # sorry this is a little mess ... but I found no more beautiful way
         # using a list or similar stuff is quite as ugly (though maybe more comprehensible)
         for prod in self.prod:
             
             for sub in prod:
-                if not sub.ReducesToEmpty():
+                if sub not in visited and not sub.ReducesToEmpty(visited | set([self])):
                     # the whole production doesn't reduce to empty (because one subsymbol doesn't)
                     break
             else:
@@ -314,11 +369,10 @@ class Parser(object):
             self.current = symbol
 
         else:
-            prod = Production(self.current)
+            prod = Production(self.current, [])
             line = line.strip()
 
             while line:
-                
                 match = self.syntax_stoken_re.match(line)
                 elem = None
 
@@ -347,8 +401,10 @@ class Parser(object):
 
                 line = line[len(match.group(0)):]
                 line = line.strip()
-
+                
                 prod.AddSym(elem)
+
+            self.current.AddProd(prod)
 
     def Parse(self):
         self.line = 0
@@ -430,6 +486,7 @@ class LR1StateTransitionGraph(object):
         self.grammar.RequireMeta("$START").AddProd(prod)
 
         start = LR1Element(prod,0,set([EOF()])).Closure()
+        
         self.start = self.RequireState(start)
 
     def RequireState(self, elements):
@@ -437,11 +494,25 @@ class LR1StateTransitionGraph(object):
         Check whether a state having the given elements already exists.
         If it does exist return it else create the new state and determine it's sub states.
         """
+        
+        # Normalize the element set (each shall core occur only once, the lookahead sets are unioned)
+        cores = {}
+        for elem in elements:
+            if elem.Core() not in cores:
+                cores[elem.Core()] = set()
 
+            cores[elem.Core()] |= elem.Lookahead()
+
+        elements = set()
+        for core in cores:
+            elements.add(LR1Element.FromCore(core, cores[core]))
+
+        # do we already have this state?
         for state in self.states:
             if state.elements == elements:
                 return state
 
+        # instanciate the new state
         state = LR1StateTransitionGraphElement(self, len(self.states), elements)
         self.states.append(state)
         state.GenerateSubStates()
@@ -460,6 +531,26 @@ class LR1StateTransitionGraphElement(object):
         self.elements = elements
         self.transitions = set()
 
+    def __str__(self):
+        lines = []
+        lines.append("state: " + str(self.number))
+        
+        lines.append("elements:")
+
+        for elem in self.elements:
+            lines.append(str(elem))
+
+        lines.append("transitions:")
+        for trans in self.transitions:
+            token, state = trans
+            lines.append((token.Name() or "None") + " -> " + str(state.number))
+
+        text = ""
+        for line in lines:
+            text += line + "\n"
+
+        return text
+
     def GenerateSubStates(self):
         """
         Determine the substates of this state and add them to the transition graph.
@@ -467,7 +558,12 @@ class LR1StateTransitionGraphElement(object):
 
         for elem in self.elements:
             if elem.AfterDot():
-                self.transitions.add((elem, self.graph.RequireState(elem.Goto(elem.AfterDot()))))
+                goto = set()
+
+                for cur in self.elements:
+                    goto |= cur.Goto(elem.AfterDot())
+
+                self.transitions.add((elem.AfterDot(), self.graph.RequireState(goto)))
 
 
 class Writer(object):
@@ -562,7 +658,7 @@ class Parser(object):
 
             
 if __name__ == '__main__':
-    fi = file('Syntax', 'r')
+    fi = file('Test.pyLRp', 'r')
     p = Parser(fi)
     syn = p.Parse()
     fi.close()
@@ -570,8 +666,9 @@ if __name__ == '__main__':
     graph = LR1StateTransitionGraph(syn)
     graph.Construct()
 
-    print len(graph.states)
-    
+    for state in graph.states:
+        print str(state)
+
     #fo = file('Syntax.py', 'w')
     #writer = Writer(fo)
     #writer.Write(syn, graph)
