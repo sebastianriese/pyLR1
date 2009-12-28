@@ -7,9 +7,11 @@
 %lexer
 
 \s+ %restart
-[a-zA-Z][a-zA-Z]* SYM
-[a-zA-Z][a-zA-Z]*: KEY
+self SELF
+[a-zA-Z][a-zA-Z0-9]* SYM
+[a-zA-Z][a-zA-Z0-9]*: KEY
 [\+\-\*\/\\@:,\.]+ BIN
+# (abc)|(def) %restart
 
 # well the current grammar parser is not very nice, a pyLRp parser for pyLRp grammars,
 # which uses only the current, limited command-set would solve the problem.
@@ -22,7 +24,7 @@
 
 # \"\"\" %begin(MLSTRING), %restart
 # <MLSTRING> .* %append, %restart
-# <MLSTRING> \"\"\" %collect, MLSTRING
+# <MLSTRING> \"\"\" %collect, %end, MLSTRING
 
 %parser
 
@@ -30,7 +32,7 @@ doc:
    %empty
    doc statement
 
-statment:
+statement:
     exp
     "^" exp
     exp "." statement
@@ -42,10 +44,28 @@ exp:
     exp SYM
     exp BIN exp
     SYM key
+    "[" optparams optlocals statement "]"
+
+optparams:
+    params "|"
+    %empty
+
+params:
+    params ":" SYM "|"
+    %empty
+
+optlocals:
+    %empty
+    "|" locals "|" 
+
+locals:
+    %empty
+    locals SYM
 
 key:
     KEY exp key1
 
 key1:
+    key
     %empty
-    KEY exp key1
+

@@ -4,13 +4,8 @@
 b B
 a A
 c C
-\n NEWLINE
 
 %parser
-
-file:
-    file s NEWLINE
-    %empty
 
 s:
     s B
