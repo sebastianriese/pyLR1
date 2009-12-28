@@ -11,6 +11,7 @@ class Production(object):
     def __init__(self, left, syms):
         self.left = left
         self.syms = syms
+        # self.first = None
 
     def __iter__(self):
         return iter(self.syms)
@@ -28,6 +29,9 @@ class Production(object):
         self.syms.append(sym)
 
     def First(self, visited):
+        # if self.first != None:
+        #     return self.first
+
         result = set()
 
         for sub in self.syms:
@@ -39,6 +43,9 @@ class Production(object):
 
         else:
             result.add(Empty.Instance())
+
+        # if len(visited) == 0:
+        #     self.first = result
 
         return result
 
@@ -71,6 +78,7 @@ class LR1Element(object):
         self.prod = prod
         self.pos = pos
         self.la = frozenset(la)
+        self.closure = None
 
     def __str__(self):
         text =  (self.prod.left.Name() or "None") + " <- "
@@ -129,6 +137,9 @@ class LR1Element(object):
         return result
             
     def Closure(self, visited):
+        # if self.closure != None:
+        #     return self.closure
+
         closure = set([self])
         afterDot = self.AfterDot()
         
@@ -145,6 +156,9 @@ class LR1Element(object):
 
                 if self not in visited:
                     closure |= elem.Closure(visited | set([self]))
+
+        # if len(visited) == 0:
+        #     self.closure = closure
 
         return closure
 
@@ -246,6 +260,7 @@ class Meta(Symbol):
         super(Meta, self).__init__(name, syntax)
         self.prod = []
         self.first = None
+        self.reduces_to_empty = None
 
     def Productions(self):
         return iter(self.prod)
@@ -258,22 +273,24 @@ class Meta(Symbol):
         return self.prod[:]
 
     def First(self, visited):
-        if self.first != None:
-            return self.first
+        # if self.first != None:
+        #     return self.first
 
         result = set()
 
         for prod in self.prod:
-            # refactor to the production class
             result |= prod.First(visited | set([self]))
 
-        self.first = result
+        # if len(visited) == 0:
+        #     self.first = result
+
         return result
 
     def ReducesToEmpty(self, visited):
         
-        # sorry this is a little mess ... but I found no more beautiful way
-        # using a list or similar stuff is quite as ugly (though maybe more comprehensible)
+        if self.reduces_to_empty != None:
+            return self.reduces_to_empty
+
         for prod in self.prod:
             
             for sub in prod:
@@ -282,14 +299,17 @@ class Meta(Symbol):
                     break
             else:
                 # all subsymbols in the production reduced to empty, break the main loop
-                break
-            
-        else:
-            # there wasn't a production for which all subsymbols reduces to empty, i.e. the loop's execution wasn't broken
-            return False
+                
+                if len(visited) == 0:
+                    self.reduces_to_empty = True
 
-        # the loop's execution was broken, one production contained only expressions reducing to empty
-        return True
+                return True
+
+        # the loop's execution was broken, one production didn't reduce to empty
+        if len(visited) == 0:
+            self.reduces_to_empty = False
+
+        return False
 
 class LexingRule(object):
     
@@ -301,24 +321,54 @@ class LexingRule(object):
     def Regex(self):
         return self.regex
 
-    def PyAction(self):
-        return self.action.Code()
+    def Action(self):
+        return self.action
+
+class LexingActionVisitor(object):
+
+    def Visit(self, action):
+        return action.Accept(self)
+
+    def VisitRestart(self, action):
+        pass
+
+    def VisitToken(self, action):
+        pass
+
+    def VisitGetMatch(self, action):
+        pass
+
+    def VisitList(self, action):
+        pass
 
 class LexingAction(object):
     
     def __init__(self):
         pass
 
-    def Code(self):
+    def Accept(self):
         raise NotImplementedError()
+
+class List(LexingAction):
+    
+    def __init__(self, lst = []):
+        super(LexingAction, self).__init__()
+        self.list = lst
+
+    def Append(self, action):
+        self.list.append(action)
+
+    def Accept(self, visitor):
+        return visitor.VisitList(self)
+
 
 class Restart(LexingAction):
     
     def __init__(self):
         super(LexingAction, self).__init__()
 
-    def Code(self):
-        return "return self.lex()"
+    def Accept(self, visitor):
+        return visitor.VisitRestart(self)
 
 class Token(LexingAction):
     
@@ -326,13 +376,24 @@ class Token(LexingAction):
         super(LexingAction, self).__init__()
         self.name = name
 
-    def Code(self):
-        return "return Token('%s', match.group(0))" % self.name 
+    def Name(self):
+        return self.name
+
+    def Accept(self, visitor):
+        return visitor.VisitToken(self)
+
+class GetMatch(LexingAction):
+
+    def __init__(self):
+        super(LexingAction, self).__init__()
+
+    def Accept(self, visitor):
+        return visitor.VisitGetMatch(self)
 
 class Parser(object):
     parser_re = re.compile(r"%parser\s*$")
     lexer_re = re.compile(r"%lexer\s*$")
-    comment_re = re.compile(r"\s*(#.*)?\s*$")
+    comment_re = re.compile(r"\s*([^\\]|)(#.*)?\s*$")
 
     lexing_rule_re = re.compile(r"((.|(\\ ))+)\s+(([a-zA-Z_][a-zA-Z_0-9]*)|(%restart))\s*$")
 
@@ -538,9 +599,28 @@ class LR1StateTransitionGraph(object):
         return state
         
 
-    def CreateParseTable(self):
-        # ... generate the parse table
-        pass
+    def CreateParseTable(self, terminals, metas):
+        atable = []
+        jtable = []
+        for state in self.states:
+            acur = tuple([] for i in xrange(len(terminals)))
+            jcur = tuple([] for i in xrange(len(metas)))
+
+            atable.append(acur)
+            jtable.append(jcur)
+
+            for elem, tstate in state.Transitions():
+                if elem.IsMeta():
+                    jcur[metas[elem]].append(Shift(tstate.Number()))
+                else:
+                    acur[terminals[elem]].append(tstate.Number())
+
+            for prod in state.Elements():
+                if not prod.AfterDot():
+                    for la in prod.Lookahead():
+                        acur[self.Num(la)].appen(Reduce(self.Rule(prod)))
+
+        return atable, jtable, # ...
 
 class LR1StateTransitionGraphElement(object):
 
@@ -570,6 +650,15 @@ class LR1StateTransitionGraphElement(object):
 
         return text
 
+    def Elements(self):
+        return self.elements
+
+    def Transitions(self):
+        return self.transitions
+    
+    def Number(self):
+        return self.number
+
     def GenerateSubStates(self):
         """
         Determine the substates of this state and add them to the transition graph.
@@ -589,13 +678,15 @@ class AutomatonState(object):
     
     def __init__(self):
         self.transitions = dict()
-        self.clone = None
+        # self.clone = None
+        self.action = None
+        self.priority = None
 
     def Move(self, char):
-        return self.transitions.get(char)
+        return self.transitions.get(char, set())
 
     def EpsilonClosure(self, visited):
-        closure = set()
+        closure = set([self])
 
         if self in visited:
             return closure
@@ -604,7 +695,7 @@ class AutomatonState(object):
 
         nc = set()
         for elem in closure:
-            nc += elem.EpsilonClosure(visited | frozenset([self]))
+            nc |= elem.EpsilonClosure(visited | frozenset([self]))
 
         return closure | nc
 
@@ -633,11 +724,11 @@ class AutomatonState(object):
     def AddTransition(self, char, state):
         if char not in self.transitions:
             self.transitions[char] = set()
-            
+
         self.transitions[char].add(state)
 
-    # def Transitions(self):
-    #     return self.transitions
+    def Transitions(self):
+        return self.transitions.iteritems()
 
     # def Close(self, state, states):
     #     nt = []
@@ -652,12 +743,15 @@ class AutomatonState(object):
 
     #     self.transitions = nt
                 
+    def SetAction(self, priority, action):
+        self.action = action
+        self.priority = priority
 
-class ActionAutomatonState(AutomatonState):
-    
-    def __init__(self, lexerAction):
-        super(ActionAutomatonState, self).__init__()
-        self.action = lexerAction
+    def GetAction(self):
+        return self.action
+
+    def Priority(self):
+        return self.priority
 
 class RegexAST(object):
     """An AST representing a regular expression."""
@@ -668,10 +762,10 @@ class RegexAST(object):
 class CharacterRegex(RegexAST):
     
     def __init__(self, chars):
-        self.chars = chars
+        self.chars = frozenset(chars)
 
     def __str__(self):
-        return "CharacterRegex(%s)" % str(self.chars)
+        return "CharacterRegex()"
 
     def NFA(self):
         start = AutomatonState()
@@ -693,7 +787,9 @@ class SequenceRegex(RegexAST):
         nfa1s, nfa1e = self.regex1.NFA()
         nfa2s, nfa2e = self.regex2.NFA()
 
-        nfa1s.Close(nfa2s, [nfa1e])
+        # chain the end of the first automaton to the start of the second one with an epsilon transition
+        nfa1e.AddTransition('', nfa2s)
+
         return nfa1s, nfa2e
 
 class OptionRegex(RegexAST):
@@ -702,13 +798,13 @@ class OptionRegex(RegexAST):
         self.regex = regex
 
     def __str__(self):
-        return "RepeatorRegex(%s)" % str(self.regex)
+        return "OptionRegex(%s)" % str(self.regex)
 
     def NFA(self):
 
         nfas, nfae = self.regex.NFA()
 
-        nfas.AddTransition(set(['']), nfae)
+        nfas.AddTransition('', nfae)
 
         return nfas, nfae
 
@@ -721,10 +817,13 @@ class RepeatorRegex(RegexAST):
         return "RepeatorRegex(%s)" % str(self.regex)
 
     def NFA(self):
-        nfas, nfae = self.regex.NFA()
+        nfas, nfae = AutomatonState(), AutomatonState()
+        nfars, nfare = self.regex.NFA()
 
-        for chars, state in nfas.Transitions():
-            nfae.AddTransition(chars, state)
+        nfas.AddTransition('', nfae)
+        nfas.AddTransition('', nfars)
+        nfare.AddTransition('', nfars)
+        nfare.AddTransition('', nfae)
 
         return nfas, nfae
         
@@ -740,13 +839,14 @@ class OrRegex(RegexAST):
 
         nfa1s, nfa1e = self.regex1.NFA()
         nfa2s, nfa2e = self.regex2.NFA()
+        start, end = AutomatonState(), AutomatonState()
 
-        start = AutomatonState.Merge(nfa1s, nfa2s)
+        start.AddTransition('', nfa1s)
+        start.AddTransition('', nfa2s)
 
-        end = AutomatonState()
-
-        start.Close(end, [nfa1e, nfa2e])
-
+        nfa1e.AddTransition('', end)
+        nfa2e.AddTransition('', end)
+        
         return start, end
 
 class Regex(object):
@@ -783,6 +883,8 @@ class Regex(object):
         try:
             first = True
             chars = set()
+            prev = None
+            group = False
             negate = False
 
             while True:
@@ -790,18 +892,43 @@ class Regex(object):
                 if first:
                     if char == '^':
                         negate = True
-                        char = set(chr(i) for i in xrange(256))
+                        chars = set(chr(i) for i in xrange(256))
                         continue
                     first = False
 
                 if char == ']':
                     return chars
+
+                elif char == '-':
+                    if prev == None:
+                        raise StopIteration()
+                    else:
+                        group = True
+                    continue
                 
                 cset = set()
                 if char == '\\':
                     cset |= self.ParseEscape(iterator)
                 else:
                     cset |= set(char)
+                
+                if group:
+                    if len(cset) != 1:
+                        raise StopIteration()
+
+                    if len(prev) != 1:
+                        raise StopIteration()
+
+                    # use tuple unpacking to elegantly extract the single values from the sets
+                    c, = cset
+                    p, = prev
+
+                    for char in xrange(ord(p) + 1, ord(c)):
+                        cset.add(chr(char))
+
+                    group = False
+
+                prev = cset
 
                 if negate:
                     chars -= cset
@@ -812,146 +939,205 @@ class Regex(object):
             print "error"
             return None
 
-    def Parse(self):
-        ops = []
-        args = []
+    def lex(self):
+        tokens = []
 
-        def Or():
-            arg2 = args.pop() 
-            arg1 = args.pop()
-
-            args.append(OrRegex(arg1, arg2))
-
-        def Seq():
-            arg2 = args.pop()
-            arg1 = args.pop()
-
-            args.append(SequenceRegex(arg1, arg2))
-
-        def Plus():
-            arg = args.pop()
-            args.append(SequenceRegex(arg, RepeatorRegex(arg)))
-
-        def Mult():
-            arg = args.pop()
-            args.append(RepeatorRegex(arg))
-
-        def Opt():
-            arg = args.pop()
-            args.append(OptionRegex(arg))
-
-        def OParen():
-            print "error"
-            raise StopIteration()
-            
-        def CParen():
-
-            while ops[-1] != '(':
-                prec, act = operators[ops.pop()]
-                act()
-
-            # remove the paren
-            ops.pop()
-
-        operators = {
-            '|' : (-1,Or),
-            ''  : (1,Seq),
-            '+' : (2,Plus),
-            '*' : (2,Mult),
-            '?' : (2,Opt),
-            '(' : (3,OParen),
-            ')' : (3,CParen),
-            }
-
-        def Operate(operation):
-            precop,  actop  = operators[operation]
-            prectop, acttop = 0, None
-            if ops:
-                prectop, acttop = operators[ops[-1]]
-            
-            if precop > prectop:
-                actop()
-            elif precop == prectop:
-                if acttop:
-                    acttop()
-                    ops.pop()
-                ops.append(operation)
-            else:
-                ops.append(operation)
-                
         iterator = iter(self.regex)
-
         try:
-            first = True
-
             while True:
-                # debug
-                # print "ops"
-                # for op in ops:
-                #     print str(op)
-                # print "args"
-                # for arg in args:
-                #     print str(arg)
-
-
                 char = iterator.next()
-
-                if char == '[':
-                    args.append(CharacterRegex(self.ParseChrClass(iterator)))
-                    if not first:
-                        Operate('')
-                    first = False
-
+                if char == '\\':
+                    tokens.append((0, self.ParseEscape(iterator)))
+                elif char == '[':
+                    tokens.append((0, self.ParseChrClass(iterator)))
                 elif char == ']':
-                    print "error"
-                    raise StopIteration()
-
-                elif char == '(':
-                    Operate('(')
-
-                elif char == ')':
-                    Operate(')')
-
+                    raise Exception()
+                elif char in ('+', '?', '*'):
+                    tokens.append((1, char))
                 elif char == '|':
-                    Operate('|')
-                    first = True
-
-                elif char == '+':
-                    Operate('+')
-
-                elif char == '*':
-                    Operate('*')
-
-                elif char == '?':
-                    Operate('?')
-                    
+                    tokens.append((3, '|'))
+                elif char == '(':
+                    tokens.append((2, '('))
+                elif char == ')':
+                    tokens.append((4, ')'))
                 elif char == '.':
-                    cset = set(chr(i) for i in xrange(256))
-                    cset -= set('\n\r')
-                    args.append(CharacterRegex(cset))
-
-                elif char == '\\':
-                    args.append(CharacterRegex(self.ParseEscape(iterator)))
-                    if not first:
-                        Operate('')
-
+                    tokens.append((0, set(chr(i) for i in xrange(0,255)) - set('\n')))
                 else:
-                    args.append(CharacterRegex(set([char])))
-                    if not first:
-                        Operate('')
-                    first = False
-
+                    tokens.append((0, set(char)))
 
         except StopIteration:
+            return tokens
 
-            for op in ops:
-                prec, act = operators[ops.pop()]
-                act()
+    def Parse(self):
+        args = []
+        
+        tokens = self.lex()
+        tokens.append((5,''))
 
-            print str(args[0])
+        # hack to overcome pythons scoping rules
+        # this simulates i in proper static scope
+        class Pos: pass
+        pos = Pos()
+        pos.i = 0
 
+        # matching yacc grammar:
 
-            return None, None # args[0].NFA()
+        # empty : /* empty */ 
+        #       | or
+        #       ;
+        
+        # or : or '|' chain
+        #    | chain
+        #    ;
+
+        # chain : chain op
+        #       | op
+        #       ;
+
+        # op : basic OP
+        #    | basic
+        #    ;
+
+        # basic : '(' empty ')'
+        #       | CHR
+        #       ;
+
+        # CHR is a single character, a character class, a dot or an escape
+        # OP is one of + * ?
+
+        def ParseEmpty():
+            token, lexeme = tokens[pos.i]
+            
+            if token == 0 or token == 2:
+                ParseOr()
+            else:
+                args.append(CharacterRegex(set('')))
+
+        def ParseOr():
+            token, lexeme = tokens[pos.i]
+
+            if token == 0 or token == 2:
+                ParseChain()
+
+                token, lexeme = tokens[pos.i]
+                if token == 3:
+                    pos.i += 1
+                    ParseOr()
+                    a2 = args.pop()
+                    a1 = args.pop()
+                    args.append(OrRegex(a1,a2))
+
+                    
+        def ParseChain():
+            token, lexeme = tokens[pos.i]
+
+            if token == 0 or token == 2:
+                ParseOp()
+                ParseChain1()
+
+        def ParseChain1():
+            token, lexeme = tokens[pos.i]
+            
+            if token == 0 or token == 2:
+                ParseOp()
+
+                a2 = args.pop()
+                a1 = args.pop()
+                args.append(SequenceRegex(a1,a2))
+                ParseChain1()
+                    
+        def ParseOp():
+            token, lexeme = tokens[pos.i]
+
+            if token == 0 or token == 2:
+                ParseBasic()
+            
+                token, lexeme = tokens[pos.i]
+                if token == 1:
+                    arg = args.pop()
+                    if lexeme == '+':
+                        args.append(SequenceRegex(arg, RepeatorRegex(arg)))
+
+                    elif lexeme == '*':
+                        args.append(RepeatorRegex(arg))
+
+                    elif lexeme == '?':
+                        args.append(OptionRegex(arg))
+                    
+                    else:
+                        raise Exception()
+
+                    pos.i += 1
+
+        def ParseBasic():
+            token, lexeme = tokens[pos.i]
+            
+            if token == 0:
+                args.append(CharacterRegex(lexeme))
+                pos.i += 1
+
+            elif token == 2:
+                pos.i += 1
+                ParseEmpty()
+                token, lexeme = tokens[pos.i]
+
+                if token != 4:
+                    raise Exception()
+                pos.i += 1
+            else:
+                raise Exception()
+
+        ParseEmpty()
+
+        if len(args) != 1 or len(tokens) != pos.i + 1:
+            print map(lambda x: str(x), args)
+            raise Exception()
+
+        print args[0]
+        return args[0].NFA()
+
+        # tokens = self.lex()
+        # tokens.append((5, set()))
+        # i = 0
+        # while i <= len(tokens):
+        #     token, lexeme = tokens[i]
+        #     t, d, a = atable[states[-1]][token]
+            
+        #     # print "new\n", t,d,a,states,args,token
+
+        #     while t == 1:
+        #         for j in xrange(d):
+        #             states.pop()
+        #         sym = a(lexeme)
+        #         state = jtable[states[-1]][sym]
+        #         if state == -1:
+        #             for arg in args:
+        #                 print arg
+        #             print states
+        #             raise Exception()
+        #         states.append(state)
+        #         t, d, a = atable[states[-1]][token]
+        #         # print t,d,a,states,args,token
+
+        #     if t == 0:
+        #         states.append(d)
+        #         a(lexeme)
+        #         i += 1
+
+        #     elif t == 2:
+        #         print str(args[0])
+        #         return args[0].NFA()
+
+        #     else:
+        #         for arg in args:
+        #             print arg
+        #         print states
+        #         raise Exception()
+
+        # for arg in args:
+        #     print arg
+        # print states
+        # raise Exception()
   
     def __init__(self, regex):
         self.regex = regex
@@ -959,6 +1145,9 @@ class Regex(object):
 
     def Start(self):
         return self.start
+
+    def End(self):
+        return self.end
 
 class LexingNFA(object):
     
@@ -974,24 +1163,26 @@ class LexingNFA(object):
         # create the automaton parts for the inline tokens
 
         for token in self.lexer.InlineTokens():
-            previous = self.start
+            # print token
+            previous = AutomatonState()
+            self.start.AddTransition('', previous)
 
             # use the same automaton part for common beginnings            
-            for char in token[:-1]:
-
+            for char in token:
                 new = AutomatonState()
                 previous.AddTransition(char, new)
                 previous = new
                 self.states.append(new)
             
-            creator = ActionAutomatonState(Token('"' + token + '"'))
-            previous.AddTransition(token[-1], creator)
+            previous.SetAction(0, Token('"' + token + '"'))
 
+        i = -1
         for lexingRule in self.lexer.Lexer():
             regex = Regex(lexingRule.Regex())
 
-            for chars, state in regex.Start().Transitions():
-                self.start.AddTransition(char, state)
+            self.start.AddTransition('', regex.Start())
+            regex.End().SetAction(i, lexingRule.Action())
+            i -= 1
 
 
     def CreateDFA(self):
@@ -1008,29 +1199,45 @@ class LexingNFA(object):
 
                     move = set()
                     for c in cur:
-                        move += c.Move(char).EpsilonClosure(frozenset())
+                        for m in c.Move(char):
+                            move |= m.EpsilonClosure(frozenset())
                     newState = frozenset(move)
                     
                     if newState not in dfaStates:
+                        # print newState
+
                         todo.append(newState)
                         dfaStates[newState] = AutomatonState()
 
-                    dfaStates[cur].AddTransition(char, newState)
+                        curpri = -len(self.lexer.Lexer())-1
+                        for state in newState:
+                            pri = state.Priority()
+                            if pri != None and pri > curpri:
+                                dfaStates[newState].SetAction(None, state.GetAction())
+                                curpri = pri
+
+                        if len(newState) == 0:
+                            dfaStates[newState].SetAction(None, GetMatch())
+
+                        # print dfaStates[newState].GetAction()
+
+                    dfaStates[cur].AddTransition(char, dfaStates[newState])
                 
         except IndexError:
-            return LexingDFA(self.lexer, dfaStates, si)
+            return LexingDFA(dfaStates, si)
         
         # unreachable
 
 class LexingDFA(object):
 
-    def __init__(self, lexer, states, start):
-        self.lexer = lexer
-        self.states = []
+    def __init__(self, states, start):
+        self.states = dict()
 
         # remove the unnecassary NFA state information
+        i = 0
         for state in states.itervalues():
-            self.states.append(state)
+            self.states[state] = i
+            i += 1
 
         self.start = states[start]
 
@@ -1039,68 +1246,133 @@ class LexingDFA(object):
         pass
 
     def CreateLexTable(self):
-        # ... create the lexing table from the dfa
-        # important: greediness
+        lextable = [tuple([] for i in xrange(0,255)) for i in xrange(len(self.states))]
+        actions = [None for i in xrange(len(self.states))]
+        for state in self.states:
+
+            actions[self.states[state]] = state.GetAction()
+
+            mylist = lextable[self.states[state]]
+
+            for char, nstate in state.Transitions():
+                for cstate in nstate:
+                    mylist[ord(char)].append(self.states[cstate])
+
+        return lextable, self.states[self.start], actions
+
+
+class ActionToCode(LexingActionVisitor):
+    
+    def VisitRestart(self, action):
+        return "self.root = self.position; self.state = self.start"
+
+    def VisitToken(self, action):
+        return "self.current_token = ('%s', self.position)" % action.Name()
+
+    def VisitGetMatch(self, action):
+        return """if self.current_token:
+            raise GotToken()
+        else:
+            raise Exception()"""
+
+    def VisitList(self, action):
         pass
+
+    
 
 class Writer(object):
 
     def __init__(self, parser_file):
         self.parser_file = parser_file
 
-    def Write(self, syntax, graph):
+    def Write(self, syntax, graph, lextable):
         
         self.parser_file.write("""# this file was generated automagically by pyLR1
 # do not edit, if you want to modify the parser, adapt the grammar file
 
-import re
+import mmap
 
 """)
 
         for headline in syntax.Header():
             self.parser_file.write(headline + "\n")
 
-        self.parser_file.write("""class Lexer(object):
+        table, start, actions = lextable
+            
+        # create the string representing the lex-table
+        lextablestr = "("
+        for state in table:
+            lextablestr += str(tuple(a[0] for a in state))
+            lextablestr += ",\n"
+        lextablestr += ")"
+
+        actionstr = "(\n"
+        i = 0
+        for action in actions:
+            if action:
+                actionstr += "            self.action%d" % i + ", \n"
+            else:
+                actionstr += "            None, \n"
+            i += 1
+        actionstr += "        )"
+         
+        self.parser_file.write("""class GotToken(Exception):
+    pass
+
+class Lexer(object):
     def __init__(self, codefile):
-        self.code = file(codefile, 'r')
-        self.buffer = ""
-        self.line = 0
-
-    def fill(self):
-        if not self.buffer:
-            try:
-                self.buffer = self.code.readline()
-                self.line += 1
-            except EOFError:
-                return False
-
-        return True
+        code = file(codefile, 'r')
+        self.buffer = mmap.mmap(code.fileno(), 0, access=mmap.ACCESS_READ)
+        self.size = self.buffer.size()
+        code.close()
+        self.root = 0
+        self.position = 0
+        self.current_token = None
+        self.start = %d
+        self.table = %s
+        self.actions = %s
 
     def lex(self):
-        if self.fill():
-            return None
-""")
-        
+        self.current_token = None
+        self.state = self.start
+        table = self.table
+        actions = self.actions
+        buffer = self.buffer
+        try:
+            while True:
+                self.state = table[self.state][ord(buffer[self.position])]
+                self.position += 1
+                if actions[self.state]:
+                    actions[self.state]()
+        except (GotToken, IndexError):
+            if self.current_token:
+                name, pos = self.current_token
+                text = self.buffer[self.root:pos]
+                self.root = pos
+                self.position = pos
+                return (name, text)
+            else:
+                return ('$EOF', '')
+            
+            
+""" % (start, lextablestr, actionstr))
+        i = 0
+        codeGen = ActionToCode()
+        for action in actions:
+            if action:
+                self.parser_file.write("""
+    def action%d(self):
+""" % (i,))
+                self.parser_file.write("        " + codeGen.Visit(action) + "\n")
 
-        for rule in syntax.Lexer():
-            self.parser_file.write("""
-        match = re.match(r"%s", self.buffer)
-        if match:
-            self.buffer = self.buffer[len(match.group(0)):]""" % rule.Regex())
-
-            self.parser_file.write("""
-            """ + rule.PyAction() + """
-""")
-
+            i += 1
 
         self.parser_file.write("""
-        print "Lexing error: %d (%s)" % (self.line, self.buffer)
-        self.buffer = self.buffer[1:]
-
 class StackObject(object):
-    def __init__(self, state, text):
+    def __init__(self, state, text, position):
         self.state = state
         self.text = text
+        self.position = position
         self.semantic = semantic
 
 class Parser(object):
@@ -1108,7 +1380,6 @@ class Parser(object):
 """)
         
         self.parser_file.write("""
-
     # auto generated methods
     def __init__(self, lexer):
         self.lexer = lexer
@@ -1125,16 +1396,38 @@ class Parser(object):
             
 """ % ())
 
-            
+def PrintLexTable(lexingTable, start, actions):
+    print "start: %d\n" % start
+
+    for action in actions:
+        print action
+
+    print "\n    ",
+    for i in xrange(32, 128):
+        print chr(i).center(2),
+
+    print ""
+    i = 0
+    for state in lexingTable:
+        print str(i).center(2), "-",
+        for a in xrange(32, 128):
+            print str(state[a][0]).center(2),
+        print ""
+        i+=1
+
+  
 if __name__ == '__main__':
     fi = file('Syntax', 'r')
     p = Parser(fi)
     syn = p.Parse()
     fi.close()
+    p = None # make it garbage
 
+    # construct the parser
     graph = LR1StateTransitionGraph(syn)
     graph.Construct()
 
+    # construct the lexer
     lexingNFA = LexingNFA(syn)
     lexingNFA.Construct()
     lexingDFA = lexingNFA.CreateDFA()
@@ -1142,10 +1435,17 @@ if __name__ == '__main__':
     
     lexingDFA.Optimize()
 
+    lexingTable = lexingDFA.CreateLexTable()
+    
+    # PrintLexTable(*lexingTable)
+    
+    # print "Parser States:", len(graph.states)
+    # print "Lexer States:", len(lexingDFA.states)
     # for state in graph.states:
     #     print str(state)
 
+    # write lexer and parser
     fo = file('Syntax.py', 'w')
     writer = Writer(fo)
-    writer.Write(syn, graph)
+    writer.Write(syn, graph, lexingTable)
     fo.close()

@@ -6,12 +6,13 @@
 
 %lexer
 
+"(.|\s)*" %restart
 \s+ %restart
 self SELF
 [a-zA-Z][a-zA-Z0-9]* SYM
 [a-zA-Z][a-zA-Z0-9]*: KEY
+\#([a-zA-Z][a-zA-Z0-9:]*|[\+\-\*\/\\@:,\.\|\&]+) SYMLIT
 [\+\-\*\/\\@:,\.]+ BIN
-# (abc)|(def) %restart
 
 # well the current grammar parser is not very nice, a pyLRp parser for pyLRp grammars,
 # which uses only the current, limited command-set would solve the problem.
@@ -40,6 +41,7 @@ statement:
 
 exp:
     SYM
+    SYMLIT
     "(" exp ")"
     exp SYM
     exp BIN exp
