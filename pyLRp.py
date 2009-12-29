@@ -940,6 +940,7 @@ class Regex(object):
             return None
 
     def lex(self):
+        # tokens: CHR ([...], \...,.) - 0, OP (+ ? *) - 1, ( - 2, | - 3, ) - 4
         tokens = []
 
         iterator = iter(self.regex)
@@ -1004,6 +1005,7 @@ class Regex(object):
 
         # CHR is a single character, a character class, a dot or an escape
         # OP is one of + * ?
+        # see the method lex for more detail
 
         def ParseEmpty():
             token, lexeme = tokens[pos.i]
@@ -1258,7 +1260,91 @@ class LexingDFA(object):
                 for cstate in nstate:
                     mylist[ord(char)].append(self.states[cstate])
 
-        return lextable, self.states[self.start], actions
+        return Lextable(lextable, self.states[self.start], actions)
+
+class Lextable(object):
+    
+    def __init__(self, table, start, actionlist):
+        self.table = table
+        self.start = start
+        self.actions = actionlist
+        self.mapping = None
+
+
+    def Get(self):
+        return self.table, self.start, self.actions, self.mapping
+
+    def ConstructEquivalenceClasses(self):
+        i = 0
+        classes = [[char for char in xrange(0,255)]]
+        
+        for line in self.table:
+
+            newclasslist = []
+            for cls in classes:
+                newclasses = dict()
+                for char in cls:
+                    state = line[char][0]
+                    if state not in newclasses:
+                        newclasses[state] = []
+                        
+                    newclasses[state].append(char)
+                newclasslist += newclasses.values()
+
+            classes = newclasslist
+
+        self.mapping = [None for j in xrange(0,255)]
+        mapping = self.mapping
+        i = 0
+        for cls in classes:
+            for terminal in cls:
+                mapping[terminal] = i
+            i += 1
+
+        newtable = []
+        for line in self.table:
+            newtable.append([])
+            my = newtable[-1]
+            for cls in classes:
+                my.append(line[cls[0]])
+        self.table = newtable
+
+                
+    def Print(self):
+        print "start: %d\n" % self.start
+
+        for action in self.actions:
+            print str(action)
+        
+        if not self.mapping:
+            print "\n    ",
+
+        # print the characters
+        for i in xrange(32, 128):
+            if self.mapping:
+                print chr(i), str(self.mapping[i])
+            else:
+                print chr(i).center(2),
+
+        if self.mapping:
+            print "\n    ",
+
+
+        printRange = xrange(32, 128)
+
+        if self.mapping:
+            printRange = xrange(len(self.table[0]))
+            for i in printRange:
+                print str(i).center(2),
+        
+        print ""
+        i = 0
+        for state in self.table:
+            print str(i).center(2), "-",
+            for a in printRange:
+                print str(state[a][0]).center(2),
+            print ""
+            i+=1
 
 
 class ActionToCode(LexingActionVisitor):
@@ -1285,8 +1371,7 @@ class Writer(object):
     def __init__(self, parser_file):
         self.parser_file = parser_file
 
-    def Write(self, syntax, graph, lextable):
-        
+    def WriteHeader(self, header):
         self.parser_file.write("""# this file was generated automagically by pyLR1
 # do not edit, if you want to modify the parser, adapt the grammar file
 
@@ -1294,10 +1379,12 @@ import mmap
 
 """)
 
-        for headline in syntax.Header():
+        for headline in header:
             self.parser_file.write(headline + "\n")
 
-        table, start, actions = lextable
+
+    def WriteLexer(self, lextable):
+        table, start, actions, mapping = lextable.Get()
             
         # create the string representing the lex-table
         lextablestr = "("
@@ -1306,6 +1393,8 @@ import mmap
             lextablestr += ",\n"
         lextablestr += ")"
 
+        
+        # create the string representing the actions
         actionstr = "(\n"
         i = 0
         for action in actions:
@@ -1315,6 +1404,17 @@ import mmap
                 actionstr += "            None, \n"
             i += 1
         actionstr += "        )"
+
+        mappingstr = "("
+        lookup = "ord(buffer[self.position])"
+        if mapping:
+            # create the string mapping
+            lookup = "mapping[ord(buffer[self.position])]"
+            
+            for entry in mapping:
+                mappingstr += str(entry)
+                mappingstr += ","
+        mappingstr += ")"
          
         self.parser_file.write("""class GotToken(Exception):
     pass
@@ -1328,9 +1428,10 @@ class Lexer(object):
         self.root = 0
         self.position = 0
         self.current_token = None
-        self.start = %d
-        self.table = %s
-        self.actions = %s
+        self.start = %d""" % start + """
+        self.table = """ + lextablestr + """
+        self.actions = """ + actionstr + """
+        self.mapping = """ + mappingstr + """ 
 
     def lex(self):
         self.current_token = None
@@ -1338,9 +1439,10 @@ class Lexer(object):
         table = self.table
         actions = self.actions
         buffer = self.buffer
+        mapping = self.mapping
         try:
             while True:
-                self.state = table[self.state][ord(buffer[self.position])]
+                self.state = table[self.state][""" + lookup + """]
                 self.position += 1
                 if actions[self.state]:
                     actions[self.state]()
@@ -1353,19 +1455,20 @@ class Lexer(object):
                 return (name, text)
             else:
                 return ('$EOF', '')
-            
-            
-""" % (start, lextablestr, actionstr))
+
+""")
         i = 0
-        codeGen = ActionToCode()
+        lexActionGen = ActionToCode()
         for action in actions:
             if action:
                 self.parser_file.write("""
     def action%d(self):
 """ % (i,))
-                self.parser_file.write("        " + codeGen.Visit(action) + "\n")
+                self.parser_file.write("        " + lexActionGen.Visit(action) + "\n")
 
             i += 1
+
+    def WriteParser(self, graph, syntax):
 
         self.parser_file.write("""
 class StackObject(object):
@@ -1378,7 +1481,7 @@ class StackObject(object):
 class Parser(object):
     # actions from the grammar
 """)
-        
+
         self.parser_file.write("""
     # auto generated methods
     def __init__(self, lexer):
@@ -1396,26 +1499,15 @@ class Parser(object):
             
 """ % ())
 
-def PrintLexTable(lexingTable, start, actions):
-    print "start: %d\n" % start
 
-    for action in actions:
-        print action
+    def Write(self, syntax, graph, lextable):
 
-    print "\n    ",
-    for i in xrange(32, 128):
-        print chr(i).center(2),
+        self.WriteHeader(syntax.Header())
 
-    print ""
-    i = 0
-    for state in lexingTable:
-        print str(i).center(2), "-",
-        for a in xrange(32, 128):
-            print str(state[a][0]).center(2),
-        print ""
-        i+=1
+        self.WriteLexer(lextable)
 
-  
+        self.WriteParser(graph, syntax)
+
 if __name__ == '__main__':
     fi = file('Syntax', 'r')
     p = Parser(fi)
@@ -1436,9 +1528,11 @@ if __name__ == '__main__':
     lexingDFA.Optimize()
 
     lexingTable = lexingDFA.CreateLexTable()
-    
-    # PrintLexTable(*lexingTable)
-    
+    lexingDFA = None
+    lexingTable.ConstructEquivalenceClasses()
+
+    lexingTable.Print()
+
     # print "Parser States:", len(graph.states)
     # print "Lexer States:", len(lexingDFA.states)
     # for state in graph.states:
