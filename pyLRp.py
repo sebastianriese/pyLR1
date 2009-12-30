@@ -68,7 +68,11 @@ class Production(object):
         Return a new Production with left=None and syms=self.syms+[elem].
         The main use of this is to evaluate the FIRST set of the concatenation.
         """
-        return Production(None, self.syms + [elem])
+
+        if not elem.IsEmpty():
+            return Production(None, self.syms + [elem])
+        else:
+            return Production(None, self)
 
 
 class LR1Element(object):
@@ -236,7 +240,8 @@ class Empty(Symbol):
         return set([self])
 
     def ReducesToEmpty(self, visited):
-        return True
+        # empty is not allowed in productions
+        raise Exception()
 
     def IsEmpty(self):
         return True
@@ -465,7 +470,6 @@ class Parser(object):
                     match = self.syntax_empty_re.match(line)
                         
                     if match:
-                        # elem = Empty.Instance()
                         break
 
                     print "Syntax error: line %d (%s)" % (self.line,line)
@@ -618,7 +622,7 @@ class LR1StateTransitionGraph(object):
             for prod in state.Elements():
                 if not prod.AfterDot():
                     for la in prod.Lookahead():
-                        acur[self.Num(la)].appen(Reduce(self.Rule(prod)))
+                        acur[self.Num(la)].append(Reduce(self.Rule(prod)))
 
         return atable, jtable, # ...
 
