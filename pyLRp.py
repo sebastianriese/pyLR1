@@ -1095,7 +1095,7 @@ class Regex(object):
             print map(lambda x: str(x), args)
             raise Exception()
 
-        print args[0]
+        # print args[0]
         return args[0].NFA()
 
         # tokens = self.lex()
@@ -1368,8 +1368,9 @@ class ActionToCode(LexingActionVisitor):
 
 class Writer(object):
 
-    def __init__(self, parser_file):
+    def __init__(self, parser_file, emptyActions):
         self.parser_file = parser_file
+        self.emptyActions = emptyActions
 
     def WriteHeader(self, header):
         self.parser_file.write("""# this file was generated automagically by pyLR1
@@ -1398,11 +1399,15 @@ import mmap
         actionstr = "(\n"
         i = 0
         for action in actions:
-            if action:
+            if self.emptyActions:
                 actionstr += "            self.action%d" % i + ", \n"
             else:
-                actionstr += "            None, \n"
+                if action:
+                    actionstr += "            self.action%d" % i + ", \n"
+                else:
+                    actionstr += "            None, \n"
             i += 1
+
         actionstr += "        )"
 
         mappingstr = "("
@@ -1415,7 +1420,13 @@ import mmap
                 mappingstr += str(entry)
                 mappingstr += ","
         mappingstr += ")"
-         
+
+        
+        select = "if actions[self.state]: actions[self.state]()"
+
+        if self.emptyActions:
+            select = "actions[self.state]()"
+
         self.parser_file.write("""class GotToken(Exception):
     pass
 
@@ -1443,9 +1454,8 @@ class Lexer(object):
         try:
             while True:
                 self.state = table[self.state][""" + lookup + """]
-                self.position += 1
-                if actions[self.state]:
-                    actions[self.state]()
+                self.position += 1 
+                """ + select  + """
         except (GotToken, IndexError):
             if self.current_token:
                 name, pos = self.current_token
@@ -1459,12 +1469,16 @@ class Lexer(object):
 """)
         i = 0
         lexActionGen = ActionToCode()
+
         for action in actions:
-            if action:
+            if action or self.emptyActions:
                 self.parser_file.write("""
     def action%d(self):
 """ % (i,))
-                self.parser_file.write("        " + lexActionGen.Visit(action) + "\n")
+                if action:
+                    self.parser_file.write("        " + lexActionGen.Visit(action) + "\n")
+                else:
+                    self.parser_file.write("        pass\n" )
 
             i += 1
 
@@ -1531,7 +1545,7 @@ if __name__ == '__main__':
     lexingDFA = None
     lexingTable.ConstructEquivalenceClasses()
 
-    lexingTable.Print()
+    # lexingTable.Print()
 
     # print "Parser States:", len(graph.states)
     # print "Lexer States:", len(lexingDFA.states)
@@ -1540,6 +1554,6 @@ if __name__ == '__main__':
 
     # write lexer and parser
     fo = file('Syntax.py', 'w')
-    writer = Writer(fo)
+    writer = Writer(fo, True)
     writer.Write(syn, graph, lexingTable)
     fo.close()
