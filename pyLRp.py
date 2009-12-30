@@ -126,7 +126,7 @@ class LR1Element(object):
         return self.prod.AtOrNone(self.pos)
 
     def Core(self):
-        return LR1Element(self.prod, self.pos, set())
+        return LR1Item(self.prod, self.pos, set())
 
     def Lookahead(self):
         return self.la
@@ -136,7 +136,7 @@ class LR1Element(object):
         result = set()
 
         if afterDot == symbol:
-            result |= LR1Element(self.prod, self.pos+1, self.la).Closure(frozenset())
+            result |= LR1Item(self.prod, self.pos+1, self.la).Closure(frozenset())
 
         return result
             
@@ -156,7 +156,7 @@ class LR1Element(object):
 
             for prod in afterDot.Productions():
 
-                elem = LR1Element(prod, 0, laset)
+                elem = LR1Item(prod, 0, laset)
 
                 if self not in visited:
                     closure |= elem.Closure(visited | set([self]))
@@ -569,7 +569,7 @@ class LR1StateTransitionGraph(object):
 
         self.grammar.RequireMeta("$START").AddProd(prod)
 
-        start = LR1Element(prod,0,set([EOF()])).Closure(frozenset())
+        start = LR1Item(prod,0,set([EOF()])).Closure(frozenset())
         
         self.start = self.RequireState(start)
 
@@ -589,7 +589,7 @@ class LR1StateTransitionGraph(object):
 
         elements = set()
         for core in cores:
-            elements.add(LR1Element.FromCore(core, cores[core]))
+            elements.add(LR1Item.FromCore(core, cores[core]))
 
         # do we already have this state?
         for state in self.states:
