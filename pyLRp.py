@@ -8,9 +8,17 @@ import re
 class Production(object):
     """A production in a grammar. Productions with left set to None may be used as arbitrary symbol strings."""
 
-    def __init__(self, left, syms):
+    NONE = 0
+    LEFT = 1
+    RIGHT = 2
+    NONASSOC = 3
+
+    def __init__(self, left, syms, number = -1):
         self.left = left
         self.syms = syms
+        self.number = number
+        self.assoc = Production.NONE, 0
+        
         # self.first = None
 
     def __iter__(self):
@@ -23,6 +31,19 @@ class Production(object):
             text += str(sub) + " "
 
         return text
+
+    # important note: this number is completely independet of the
+    # number used to represent  the production in the parse table!
+    # This one ise used  exclusivley to resolve  conflicts in the 
+    # parse  tables  (earlier  declaration  ->  higer  precedence)
+    def NumberInFile(self):
+        return self.number
+
+    def GetAssoc(self):
+        return self.assoc
+
+    def SetAssoc(self, assoc):
+        self.assoc = assoc
 
 
     def AddSym(self, sym):
@@ -69,20 +90,19 @@ class Production(object):
         The main use of this is to evaluate the FIRST set of the concatenation.
         """
 
-        if not elem.IsEmpty():
-            return Production(None, self.syms + [elem])
-        else:
+        if elem.IsEmpty():
             return Production(None, self)
 
+        return Production(None, self.syms + [elem])
 
-class LR1Element(object):
-    """A LR(1) element (production, position, lookahead set)"""
+
+class LR1Item(object):
+    """A LR(1) item (production, position, lookahead set)"""
     
     def __init__(self, prod, pos, la):
         self.prod = prod
         self.pos = pos
         self.la = frozenset(la)
-        self.closure = None
 
     def __str__(self):
         text =  (self.prod.left.Name() or "None") + " <- "
@@ -107,11 +127,12 @@ class LR1Element(object):
 
         return text
 
+    closure = dict()
 
     @classmethod
     def FromCore(clazz, lr0, la):
         return clazz(lr0.prod, lr0.pos, la)
-
+    
     def __hash__(self):
         return hash(self.prod) \
             ^ hash(self.pos) \
@@ -124,6 +145,9 @@ class LR1Element(object):
 
     def AfterDot(self):
         return self.prod.AtOrNone(self.pos)
+
+    def Prod(self):
+        return self.prod
 
     def Core(self):
         return LR1Item(self.prod, self.pos, set())
@@ -141,11 +165,13 @@ class LR1Element(object):
         return result
             
     def Closure(self, visited):
-        # if self.closure != None:
-        #     return self.closure
+        # maybe the buffering is buggy
+        if (self,self.pos,self.la) in self.closure:
+             return self.closure[(self,self.pos,self.la)]
 
         closure = set([self])
         afterDot = self.AfterDot()
+        recurses = False
         
         if afterDot:
             laset = set()
@@ -156,13 +182,14 @@ class LR1Element(object):
 
             for prod in afterDot.Productions():
 
-                elem = LR1Item(prod, 0, laset)
-
                 if self not in visited:
+                    elem = LR1Item(prod, 0, laset)
                     closure |= elem.Closure(visited | set([self]))
+                else:
+                    recurses = True
 
-        # if len(visited) == 0:
-        #     self.closure = closure
+        if not recurses:
+            self.closure[(self,self.pos,self.la)] = closure
 
         return closure
 
@@ -398,14 +425,17 @@ class GetMatch(LexingAction):
 class Parser(object):
     parser_re = re.compile(r"%parser\s*$")
     lexer_re = re.compile(r"%lexer\s*$")
-    comment_re = re.compile(r"\s*([^\\]|)(#.*)?\s*$")
+    comment_re = re.compile(r"\s*([^\\]#.*|)(#.*)?\s*$")
 
     lexing_rule_re = re.compile(r"((.|(\\ ))+)\s+(([a-zA-Z_][a-zA-Z_0-9]*)|(%restart))\s*$")
 
     syntax_rule_re = re.compile(r"([a-zA-Z_][a-zA-Z_0-9]*):\s*$")
     syntax_symbol_re = re.compile(r"([a-zA-Z_][a-zA-Z_0-9]*)")
+    syntax_action_re = re.compile(r':')
     syntax_stoken_re = re.compile(r'\"((.|\\\")+?)\"')
     syntax_empty_re = re.compile(r'%empty')
+    syntax_binding_re = re.compile(r'%left|%right|%nonassoc')
+    syntax_binding_param_re = re.compile(r'(,\s*)?([a-zA-Z_][a-zA-Z_0-9]*|\"(.|\\\")+?\")')
 
     def __init__(self, grammar_file):
         self.syntax = Syntax()
@@ -415,6 +445,11 @@ class Parser(object):
 
         # ugly state variable available to the subparsers
         self.current = None
+        # even more ugly state ... only usable by one subparser
+        self.assocDefs = dict()
+        self.assocPower = 0
+        self.productionNumber = 0
+
         self.state = self.Header
 
     def Header(self, line):
@@ -435,8 +470,36 @@ class Parser(object):
              self.syntax.AddLexingRule(LexingRule(None, match.group(1), Token(match.group(4))))
 
     def Parser(self, line):
-        match = self.syntax_rule_re.match(line)
 
+        if self.current == None:
+            match = self.syntax_binding_re.match(line)
+            obj = None
+
+            if match:
+                if match.group(0) == '%left':
+                    obj = Production.LEFT, self.assocPower
+                elif match.group(0) == '%right':
+                    obj = Production.RIGHT, self.assocPower
+                elif match.group(0) == '%nonassoc':
+                    obj = Production.NONASSOC, self.assocPower
+
+                line = line[len(match.group(0)):]
+                line = line.strip()
+
+                while line:
+                    match = self.syntax_binding_param_re.match(line)
+                    if match:
+                        self.assocDefs[match.group(1)] = obj
+
+                        line = line[len(match.group(0)):]
+                        line = line.strip()
+                    else:
+                        raise Exception()
+
+                self.assocPower += 1
+                return
+
+        match = self.syntax_rule_re.match(line)
         if match:
             symbol = self.syntax.RequireMeta(match.group(1))
 
@@ -446,19 +509,21 @@ class Parser(object):
             self.current = symbol
 
         else:
-            prod = Production(self.current, [])
+            prod = Production(self.current, [], self.productionNumber)
+            self.productionNumber += 1
             line = line.strip()
 
             while line:
                 match = self.syntax_stoken_re.match(line)
                 elem = None
 
-                # this loop is used to be broken
-                # not beautiful, but more readable than all other solutions
+                # this loop is broken
+                # not beautiful, but more readable than all other solutions (I don't want to nest ifs to thirty levels)
+                # effectively this simulates goto to common code
                 while True:
                     if match:
                         elem = self.syntax.RequireTerminal(match.group(0))
-                        self.syntax.AddInlineTerminalLexingRule(match.group(1))
+                        self.syntax.AddInlineLexingRule(match.group(1))
                         break
                     
                     match = self.syntax_symbol_re.match(line)
@@ -482,6 +547,7 @@ class Parser(object):
                     prod.AddSym(elem)
 
             self.current.AddProd(prod)
+            
 
     def Parse(self):
         self.line = 0
@@ -503,7 +569,30 @@ class Parser(object):
 
 class Syntax(object):
 
+    TERMINAL = 0
+    META = 1
+    EOF = 2
+
+    class SymbolTableEntry(object):
+        
+        def __init__(self, symbol, symbolNumber, symtype):
+            self.symbol = symbol
+            self.symbolNumber = symbolNumber
+            self.symtype = symtype
+        
+        def SymType(self):
+            return self.symtype
+
+        def Symbol(self):
+            return self.symbol
+
+        def Number(self):
+            return self.symbolNumber
+
     def __init__(self):
+        self.metacounter = 0
+        self.termcounter = 0
+
         self.start = None
         self.symbols = {}
         self.header = []
@@ -526,29 +615,134 @@ class Syntax(object):
     def AddLexingRule(self, lexingrule):
         self.lexer.append(lexingrule)
 
-    def AddInlineTerminalLexingRule(self, token):
+    def AddInlineLexingRule(self, token):
         self.inline_tokens.add(token)
+
+    def RequireEOF(self):
+        if "$EOF" not in self.symbols:
+            self.symbols['$EOF'] = Syntax.SymbolTableEntry(EOF(), self.termcounter, self.EOF)
+            self.termcounter += 1
+
+        return self.symbols["$EOF"].Symbol()
 
     def RequireTerminal(self, name):
         if name not in self.symbols:
-            self.symbols[name] = Terminal(name, self)
+            self.symbols[name] = Syntax.SymbolTableEntry(Terminal(name, self), self.termcounter, self.TERMINAL)
+            self.termcounter += 1
 
-        return self.symbols[name]
+        return self.symbols[name].Symbol()
 
     def RequireMeta(self, name):
         if name not in self.symbols:
-            self.symbols[name] = Meta(name, self)
+            self.symbols[name] = Syntax.SymbolTableEntry(Meta(name, self), self.metacounter, self.META)
+            self.metacounter += 1
 
-        return self.symbols[name]
+        return self.symbols[name].Symbol()
 
-    def AddSymbol(self, symbol):
-        self.symbols[symbol.name] = symbol
-        
     def AddHeader(self, line):
         self.header.append(line)
 
+    def SymTable(self):
+        return self.symbols
+
     def Header(self):
         return iter(self.header)
+
+class ParseTable(object):
+    """
+    A LR parse table.
+    """
+    
+    def __init__(self, actiontable, gototable, start, rules):
+        self.start = start
+        self.actiontable = actiontable
+        self.gototable = gototable
+        self.rules = rules
+
+    def Actiontable(self):
+        return self.actiontable
+
+    def Gototable(self):
+        return self.gototable
+
+    def Start(self):
+        return self.start
+
+    def Print(self):
+
+        i = 0
+
+        for rule in self.rules:
+            print "(%d) %s" % (i, str(rule))
+            i += 1
+
+        
+
+        giter = iter(self.gototable)
+        aiter = iter(self.actiontable)
+        try:
+            while True:
+                gline = giter.next()
+                aline = aiter.next()
+                for entry in aline:
+                    entrystr = ""
+                    first = True
+
+                    for op in entry:
+                        if not first:
+                            entrystr += "/"
+                        first = False
+                            
+                        entrystr += str(op)
+                    print entrystr.center(5),
+
+                for entry in gline:
+                    print str(entry).center(5),
+                print ""
+
+        except StopIteration:
+                pass
+
+
+class LRAction(object):
+    
+    def IsShift(self): return False
+    def IsReduce(self): return False
+    def IsAccept(self): return False
+
+class Shift(LRAction):
+    def IsShift(self): return True
+
+    def __init__(self, newstate):
+        self.newstate = newstate
+
+    def __str__(self):
+        return "s%d" % self.newstate
+
+    def Next(self):
+        return self.newstate
+
+class Reduce(LRAction):
+    def IsReduce(self): return True
+
+    def __init__(self, reduction):
+        self.reduction = reduction
+
+    def __str__(self):
+        return "r%d" % self.reduction
+
+    def Red(self):
+        return self.reduction
+
+class Accept(LRAction):
+    def IsAccept(self): return True
+
+    def __init__(self):
+        pass
+
+    def __str__(self):
+        return "acc"
+
 
 # if it has another name in English Compiler Literature I'm sorry
 # the only thing I had available for constructing this is a German paper on LR-parsers
@@ -565,11 +759,12 @@ class LR1StateTransitionGraph(object):
 
     def Construct(self):
         # construct the starting point (virtual starting node) and use the RequireElement-method to  build up the tree
-        prod = Production(self.grammar.RequireMeta("$START"), [self.grammar.Start()])
+
+        prod = Production(self.grammar.RequireMeta("$START"), [self.grammar.Start()], -1)
 
         self.grammar.RequireMeta("$START").AddProd(prod)
 
-        start = LR1Item(prod,0,set([EOF()])).Closure(frozenset())
+        start = LR1Item(prod,0,set([self.grammar.RequireEOF()])).Closure(frozenset())
         
         self.start = self.RequireState(start)
 
@@ -603,28 +798,90 @@ class LR1StateTransitionGraph(object):
         return state
         
 
-    def CreateParseTable(self, terminals, metas):
+    def CreateParseTable(self, symtable):
+
         atable = []
         jtable = []
+
+        rules = []
+
+        terminals = dict()
+        metas = dict()
+        for symbol  in symtable.itervalues():
+            if symbol.SymType() == Syntax.TERMINAL or symbol.SymType() == Syntax.EOF:
+                terminals[symbol.Symbol()] = symbol.Number()
+            elif symbol.SymType() == Syntax.META:
+                metas[symbol.Symbol()] = symbol.Number()
+            else:
+                raise Exception()
+
+        prodToRule = dict()
+
+        for meta in metas:
+            for rule in meta.Productions():
+                prodToRule[rule] = len(rules)
+                rules.append(rule)
+
+        stateToIndex = dict()
+
         for state in self.states:
-            acur = tuple([] for i in xrange(len(terminals)))
-            jcur = tuple([] for i in xrange(len(metas)))
+            stateToIndex[state] = state.Number()
+
+        for state in self.states:
+            acur = [[] for i in xrange(len(terminals))]
+            jcur = [[] for i in xrange(len(metas))]
 
             atable.append(acur)
             jtable.append(jcur)
 
             for elem, tstate in state.Transitions():
-                if elem.IsMeta():
-                    jcur[metas[elem]].append(Shift(tstate.Number()))
+                if elem in metas:
+                    jcur[metas[elem]].append(stateToIndex[tstate])
+                elif elem in terminals:
+                    acur[terminals[elem]].append(Shift(stateToIndex[tstate]))
                 else:
-                    acur[terminals[elem]].append(tstate.Number())
+                    raise Exception()
 
-            for prod in state.Elements():
-                if not prod.AfterDot():
-                    for la in prod.Lookahead():
-                        acur[self.Num(la)].append(Reduce(self.Rule(prod)))
+            for item in state.Elements():
+                if not item.AfterDot():
+                    for la in item.Lookahead():
+                        # if acur[terminals[la]] != None:
+                        #     # conflict resolution
 
-        return atable, jtable, # ...
+                        #     if acur[terminals[la]].IsReduce():
+                        #         print "Default to the first reduce for reduce/reduce-conflict"
+                        #         if rules[acur[terminals[la]].Red()].NumberInFile() > item.Prod().NumberInFile():
+                        #             acur[terminals[la]] = Reduce(prodToRule[item.Prod()])
+
+                        #     elif acur[terminals[la]].IsShift():
+                        #         assoc, prec = rules[acur[terminals[la]].Rule()].GetAssoc()
+                        #         associ, preci = item.Prod().GetAssoc()
+                                
+                        #         # shift wins over reduce by default
+                        #         if assoc == Production.NONE:
+                        #             print "Default to shift for shift/reduce-conflict"
+                        #             acur[terminals[la]] = Reduce(prodToRule[item.Prod()])
+
+                        #         elif assoc == Produciton.NONASSOC:
+                        #             # generate an error entry for nonassoc
+                        #             acur[terminals[la]] = None
+                        #         elif assoc == Production.LEFT:
+                        #             if preci >= prec:
+                        #                 acur[terminals[la]] = Reduce(prodToRule[item.Prod()])
+                        #             else:
+                        #                 pass
+                        #         elif assoc == Production.RIGHT:
+                        #             if preci > prec:
+                        #                 acur[terminals[la]] = Reduce(prodToRule[item.Prod()])
+                        #             else:
+                        #                 pass                                        
+                        #         else:
+                        #             raise Exception()
+                                    
+                        # else:
+                            acur[terminals[la]].append(Reduce(prodToRule[item.Prod()]))
+
+        return ParseTable(atable, jtable, stateToIndex[self.start], rules)
 
 class LR1StateTransitionGraphElement(object):
 
@@ -1101,49 +1358,6 @@ class Regex(object):
 
         # print args[0]
         return args[0].NFA()
-
-        # tokens = self.lex()
-        # tokens.append((5, set()))
-        # i = 0
-        # while i <= len(tokens):
-        #     token, lexeme = tokens[i]
-        #     t, d, a = atable[states[-1]][token]
-            
-        #     # print "new\n", t,d,a,states,args,token
-
-        #     while t == 1:
-        #         for j in xrange(d):
-        #             states.pop()
-        #         sym = a(lexeme)
-        #         state = jtable[states[-1]][sym]
-        #         if state == -1:
-        #             for arg in args:
-        #                 print arg
-        #             print states
-        #             raise Exception()
-        #         states.append(state)
-        #         t, d, a = atable[states[-1]][token]
-        #         # print t,d,a,states,args,token
-
-        #     if t == 0:
-        #         states.append(d)
-        #         a(lexeme)
-        #         i += 1
-
-        #     elif t == 2:
-        #         print str(args[0])
-        #         return args[0].NFA()
-
-        #     else:
-        #         for arg in args:
-        #             print arg
-        #         print states
-        #         raise Exception()
-
-        # for arg in args:
-        #     print arg
-        # print states
-        # raise Exception()
   
     def __init__(self, regex):
         self.regex = regex
@@ -1352,12 +1566,16 @@ class Lextable(object):
 
 
 class ActionToCode(LexingActionVisitor):
+
+    def __init__(self, symtable):
+        super(ActionToCode, self).__init__()
+        self.symtable = symtable
     
     def VisitRestart(self, action):
         return "self.root = self.position; self.state = self.start"
 
     def VisitToken(self, action):
-        return "self.current_token = ('%s', self.position)" % action.Name()
+        return "self.current_token = (%d, self.position)" % self.symtable[action.Name()].Number()
 
     def VisitGetMatch(self, action):
         return """if self.current_token:
@@ -1388,7 +1606,7 @@ import mmap
             self.parser_file.write(headline + "\n")
 
 
-    def WriteLexer(self, lextable):
+    def WriteLexer(self, lextable, symtable):
         table, start, actions, mapping = lextable.Get()
             
         # create the string representing the lex-table
@@ -1449,30 +1667,27 @@ class Lexer(object):
         self.mapping = """ + mappingstr + """ 
 
     def lex(self):
-        self.current_token = None
+        self.current_token = (%d""" % symtable["$EOF"].Number() +""", self.size)
         self.state = self.start
         table = self.table
         actions = self.actions
         buffer = self.buffer
         mapping = self.mapping
         try:
-            while True:
+            while self.position != self.size:
                 self.state = table[self.state][""" + lookup + """]
                 self.position += 1 
                 """ + select  + """
-        except (GotToken, IndexError):
-            if self.current_token:
-                name, pos = self.current_token
-                text = self.buffer[self.root:pos]
-                self.root = pos
-                self.position = pos
-                return (name, text)
-            else:
-                return ('$EOF', '')
-
+            raise GotToken()
+        except GotToken:
+           name, pos = self.current_token
+           text = self.buffer[self.root:pos]
+           self.root = pos
+           self.position = self.root
+           return (name, text)
 """)
         i = 0
-        lexActionGen = ActionToCode()
+        lexActionGen = ActionToCode(symtable)
 
         for action in actions:
             if action or self.emptyActions:
@@ -1486,7 +1701,10 @@ class Lexer(object):
 
             i += 1
 
-    def WriteParser(self, graph, syntax):
+    def WriteParser(self, graph, symtable):
+
+        parseTable = graph.CreateParseTable(symtable)
+        parseTable.Print()
 
         self.parser_file.write("""
 class StackObject(object):
@@ -1500,21 +1718,59 @@ class Parser(object):
     # actions from the grammar
 """)
 
+        actionTableStr = "("
+        for state in parseTable.Actiontable():
+            pass
+        actionTableStr += ")"
+
+        gotoTableStr = "("
+        for state in parseTable.Gototable():
+            pass
+        gotoTableStr += ")"
+
         self.parser_file.write("""
     # auto generated methods
     def __init__(self, lexer):
         self.lexer = lexer
         self.stack = []
-        self.state = ''
-    
+        self.start = %d""" % parseTable.Start()  + """
+        self.atable = """ + actionTableStr + """
+        self.state = self.start
+ 
     def Parse(self):
-        while True:
-            token = self.lexer.lex()
+        lexer = self.lexer
+        atable = self.atable
+        jtable = self.jtable
 
-            if not token:
-                break
-            
-            
+        while True:
+            token, lexeme = lexer.lex()
+            t, d, a = atable[self.stack[-1]][token]
+         
+            while t == 1:
+                for j in xrange(d):
+                    states.pop()
+                    sym = a(lexeme)
+                    state = jtable[self.stack[-1]][sym]
+                    if state == -1:
+                        for arg in args:
+                            print arg
+                        print states
+                        raise Exception()
+                    states.append(state)
+                    t, d, a = atable[self.stack[-1]][token]
+
+            if t == 0:
+                self.stack.append(d)
+                a(lexeme)
+
+            elif t == 2:
+                return self.stack[0]
+
+            else:
+                for arg in args:
+                    print arg
+                print states
+                raise Exception()
 """ % ())
 
 
@@ -1522,9 +1778,9 @@ class Parser(object):
 
         self.WriteHeader(syntax.Header())
 
-        self.WriteLexer(lextable)
+        self.WriteLexer(lextable, syntax.SymTable())
 
-        self.WriteParser(graph, syntax)
+        self.WriteParser(graph, syntax.SymTable())
 
 if __name__ == '__main__':
     fi = file('Syntax', 'r')
@@ -1553,8 +1809,8 @@ if __name__ == '__main__':
 
     # print "Parser States:", len(graph.states)
     # print "Lexer States:", len(lexingDFA.states)
-    # for state in graph.states:
-    #     print str(state)
+    for state in graph.states:
+        print str(state)
 
     # write lexer and parser
     fo = file('Syntax.py', 'w')
