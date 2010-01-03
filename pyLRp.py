@@ -489,7 +489,7 @@ class Parser(object):
                 while line:
                     match = self.syntax_binding_param_re.match(line)
                     if match:
-                        self.assocDefs[match.group(1)] = obj
+                        self.assocDefs[match.group(2)] = obj
 
                         line = line[len(match.group(0)):]
                         line = line.strip()
@@ -544,8 +544,9 @@ class Parser(object):
                 line = line.strip()
 
                 if elem:
+                    prod.SetAssoc(self.assocDefs.get(elem.Name(), prod.GetAssoc()))
                     prod.AddSym(elem)
-
+                    
             self.current.AddProd(prod)
             
 
@@ -688,12 +689,8 @@ class ParseTable(object):
                     entrystr = ""
                     first = True
 
-                    for op in entry:
-                        if not first:
-                            entrystr += "/"
-                        first = False
-                            
-                        entrystr += str(op)
+                    
+                    entrystr += str(entry)
                     print entrystr.center(5),
 
                 for entry in gline:
@@ -710,10 +707,21 @@ class LRAction(object):
     def IsReduce(self): return False
     def IsAccept(self): return False
 
+    def __init__(self, prec, numInFile):
+        self.prec = prec
+        self.numInFile = numInFile
+
+    def GetAssoc(self): return self.prec
+    def NumberInFile(self): return self.numberInFile
+
+    def Accept(self, visitor):
+        raise NotImplementedError()
+
 class Shift(LRAction):
     def IsShift(self): return True
 
-    def __init__(self, newstate):
+    def __init__(self, newstate, prec, n):
+        super(Shift, self).__init__(prec, n)
         self.newstate = newstate
 
     def __str__(self):
@@ -722,10 +730,14 @@ class Shift(LRAction):
     def Next(self):
         return self.newstate
 
+    def Accept(self, visitor):
+        return visitor.VisitShift(self)
+
 class Reduce(LRAction):
     def IsReduce(self): return True
 
-    def __init__(self, reduction):
+    def __init__(self, reduction, prec, n):
+        super(Reduce, self).__init__(prec, n)
         self.reduction = reduction
 
     def __str__(self):
@@ -734,15 +746,19 @@ class Reduce(LRAction):
     def Red(self):
         return self.reduction
 
-class Accept(LRAction):
-    def IsAccept(self): return True
+    def Accept(self, visitor):
+        return visitor.VisitReduce(self)
 
-    def __init__(self):
+class LRActionVisitor(object):
+
+    def Visit(self, action):
+        return action.Accept(self)
+
+    def VisitShift(self, shift):
         pass
 
-    def __str__(self):
-        return "acc"
-
+    def VisitReduce(self, red):
+        pass
 
 # if it has another name in English Compiler Literature I'm sorry
 # the only thing I had available for constructing this is a German paper on LR-parsers
@@ -828,58 +844,60 @@ class LR1StateTransitionGraph(object):
             stateToIndex[state] = state.Number()
 
         for state in self.states:
-            acur = [[] for i in xrange(len(terminals))]
-            jcur = [[] for i in xrange(len(metas))]
+            acur = [None for i in xrange(len(terminals))]
+            jcur = [None for i in xrange(len(metas))]
 
             atable.append(acur)
             jtable.append(jcur)
 
             for elem, tstate in state.Transitions():
-                if elem in metas:
-                    jcur[metas[elem]].append(stateToIndex[tstate])
-                elif elem in terminals:
-                    acur[terminals[elem]].append(Shift(stateToIndex[tstate]))
+                if elem.AfterDot() in metas:
+                    jcur[metas[elem.AfterDot()]] = stateToIndex[tstate]
+                elif elem.AfterDot() in terminals:
+                    acur[terminals[elem.AfterDot()]] = Shift(stateToIndex[tstate], elem.Prod().GetAssoc(), elem.Prod().NumberInFile())
                 else:
+                    print str(elem)
                     raise Exception()
 
             for item in state.Elements():
                 if not item.AfterDot():
                     for la in item.Lookahead():
-                        # if acur[terminals[la]] != None:
-                        #     # conflict resolution
+                        if acur[terminals[la]] != None:
+                            # conflict resolution
 
-                        #     if acur[terminals[la]].IsReduce():
-                        #         print "Default to the first reduce for reduce/reduce-conflict"
-                        #         if rules[acur[terminals[la]].Red()].NumberInFile() > item.Prod().NumberInFile():
-                        #             acur[terminals[la]] = Reduce(prodToRule[item.Prod()])
+                            if acur[terminals[la]].IsReduce():
+                                print state
+                                print "Default to the first reduce for reduce/reduce-conflict"
+                                if rules[acur[terminals[la]].Red()].NumberInFile() > item.Prod().NumberInFile():
+                                    acur[terminals[la]] = Reduce(prodToRule[item.Prod()], item.Prod().GetAssoc(), item.Prod().NumberInFile())
 
-                        #     elif acur[terminals[la]].IsShift():
-                        #         assoc, prec = rules[acur[terminals[la]].Rule()].GetAssoc()
-                        #         associ, preci = item.Prod().GetAssoc()
+                            elif acur[terminals[la]].IsShift():
+                                assoc, prec = acur[terminals[la]].GetAssoc()
+                                associ, preci = item.Prod().GetAssoc()
                                 
-                        #         # shift wins over reduce by default
-                        #         if assoc == Production.NONE:
-                        #             print "Default to shift for shift/reduce-conflict"
-                        #             acur[terminals[la]] = Reduce(prodToRule[item.Prod()])
+                                # shift wins over reduce by default
+                                if assoc == Production.NONE:
+                                    print state
+                                    print "Default to shift for shift/reduce-conflict"
 
-                        #         elif assoc == Produciton.NONASSOC:
-                        #             # generate an error entry for nonassoc
-                        #             acur[terminals[la]] = None
-                        #         elif assoc == Production.LEFT:
-                        #             if preci >= prec:
-                        #                 acur[terminals[la]] = Reduce(prodToRule[item.Prod()])
-                        #             else:
-                        #                 pass
-                        #         elif assoc == Production.RIGHT:
-                        #             if preci > prec:
-                        #                 acur[terminals[la]] = Reduce(prodToRule[item.Prod()])
-                        #             else:
-                        #                 pass                                        
-                        #         else:
-                        #             raise Exception()
+                                elif assoc == Production.NONASSOC:
+                                    # generate an error entry for nonassoc
+                                    acur[terminals[la]] = None
+                                elif assoc == Production.LEFT:
+                                    if preci >= prec:
+                                        acur[terminals[la]] = Reduce(prodToRule[item.Prod()], item.Prod().GetAssoc(), item.Prod().NumberInFile())
+                                    else:
+                                        pass
+                                elif assoc == Production.RIGHT:
+                                    if preci > prec:
+                                        acur[terminals[la]] = Reduce(prodToRule[item.Prod()], item.Prod().GetAssoc(), item.Prod().NumberInFile())
+                                    else:
+                                        pass                                        
+                                else:
+                                    raise Exception()
                                     
-                        # else:
-                            acur[terminals[la]].append(Reduce(prodToRule[item.Prod()]))
+                        else:
+                            acur[terminals[la]] = Reduce(prodToRule[item.Prod()], item.Prod().GetAssoc(), item.Prod().NumberInFile())
 
         return ParseTable(atable, jtable, stateToIndex[self.start], rules)
 
@@ -903,7 +921,7 @@ class LR1StateTransitionGraphElement(object):
         lines.append("transitions:")
         for trans in self.transitions:
             token, state = trans
-            lines.append((token.Name() or "None") + " -> " + str(state.number))
+            lines.append((token.AfterDot().Name() or "None") + " -> " + str(state.number))
 
         text = ""
         for line in lines:
@@ -933,7 +951,7 @@ class LR1StateTransitionGraphElement(object):
                 for cur in self.elements:
                     goto |= cur.Goto(elem.AfterDot())
 
-                self.transitions.add((elem.AfterDot(), self.graph.RequireState(goto)))
+                self.transitions.add((elem, self.graph.RequireState(goto)))
 
 class AutomatonState(object):
     
@@ -1565,10 +1583,10 @@ class Lextable(object):
             i+=1
 
 
-class ActionToCode(LexingActionVisitor):
+class LexActionToCode(LexingActionVisitor):
 
     def __init__(self, symtable):
-        super(ActionToCode, self).__init__()
+        super(LexActionToCode, self).__init__()
         self.symtable = symtable
     
     def VisitRestart(self, action):
@@ -1586,7 +1604,16 @@ class ActionToCode(LexingActionVisitor):
     def VisitList(self, action):
         pass
 
-    
+class LRActionToLRTableEntry(LRActionVisitor):
+
+    def __init__(self):
+        pass
+
+    def VisitShift(self, shift):
+        return (0,)
+
+    def VisitReudce(self, red):
+        return (1,)
 
 class Writer(object):
 
@@ -1687,7 +1714,7 @@ class Lexer(object):
            return (name, text)
 """)
         i = 0
-        lexActionGen = ActionToCode(symtable)
+        lexActionGen = LexActionToCode(symtable)
 
         for action in actions:
             if action or self.emptyActions:
@@ -1704,7 +1731,7 @@ class Lexer(object):
     def WriteParser(self, graph, symtable):
 
         parseTable = graph.CreateParseTable(symtable)
-        parseTable.Print()
+        # parseTable.Print()
 
         self.parser_file.write("""
 class StackObject(object):
@@ -1718,9 +1745,19 @@ class Parser(object):
     # actions from the grammar
 """)
 
+        translator = LRActionToLRTableEntry()
+
         actionTableStr = "("
         for state in parseTable.Actiontable():
-            pass
+            actionTableStr += "("
+            for entry in state:
+                if entry != None:
+                    actionTableStr += str(translator.Visit(entry))
+                    actionTableStr += ","
+                else:
+                    actionTableStr += "(2,0,0),"
+
+            actionTableStr += "),\n"
         actionTableStr += ")"
 
         gotoTableStr = "("
@@ -1809,8 +1846,8 @@ if __name__ == '__main__':
 
     # print "Parser States:", len(graph.states)
     # print "Lexer States:", len(lexingDFA.states)
-    for state in graph.states:
-        print str(state)
+    # for state in graph.states:
+    #     print str(state)
 
     # write lexer and parser
     fo = file('Syntax.py', 'w')
