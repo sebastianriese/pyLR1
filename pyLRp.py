@@ -32,9 +32,12 @@ class Production(object):
 
         return text
 
+    def __len__(self):
+        return len(self.syms)
+
     # important note: this number is completely independet of the
     # number used to represent  the production in the parse table!
-    # This one ise used  exclusivley to resolve  conflicts in the 
+    # This one is  used  exclusivley to resolve  conflicts in the 
     # parse  tables  (earlier  declaration  ->  higer  precedence)
     def NumberInFile(self):
         return self.number
@@ -69,6 +72,9 @@ class Production(object):
         #     self.first = result
 
         return result
+
+    def Left(self):
+        return self.left
 
     def AtOrNone(self, index):
         """Return the Symbol in the Production at position index ort None if index is out of range."""
@@ -669,6 +675,9 @@ class ParseTable(object):
     def Start(self):
         return self.start
 
+    def Rules(self):
+        return self.rules
+
     def Print(self):
 
         i = 0
@@ -812,7 +821,43 @@ class LR1StateTransitionGraph(object):
         self.states.append(state)
         state.GenerateSubStates()
         return state
-        
+
+    def ResolveConflict(self, state, old, new):
+
+        if old.IsReduce():
+            print state
+            print "Default to the first reduce for reduce/reduce-conflict"
+            if old.NumberInFile() > new.NumberInFile():
+                return new
+
+        elif old.IsShift():
+            assoc, prec = old.GetAssoc()
+            associ, preci = new.GetAssoc()
+                                
+            # shift wins over reduce by default
+            if assoc == Production.NONE:
+                print state
+                print "Default to shift for shift/reduce-conflict"
+                return old
+
+            elif assoc == Production.NONASSOC:
+                # generate an error entry for nonassoc
+                return None
+
+            elif assoc == Production.LEFT:
+                if preci >= prec:
+                    return new
+                else:
+                    return old
+
+            elif assoc == Production.RIGHT:
+                if preci > prec:
+                    return new
+                else:
+                    return old                                  
+            else:
+                raise Exception()
+
 
     def CreateParseTable(self, symtable):
 
@@ -863,38 +908,7 @@ class LR1StateTransitionGraph(object):
                 if not item.AfterDot():
                     for la in item.Lookahead():
                         if acur[terminals[la]] != None:
-                            # conflict resolution
-
-                            if acur[terminals[la]].IsReduce():
-                                print state
-                                print "Default to the first reduce for reduce/reduce-conflict"
-                                if rules[acur[terminals[la]].Red()].NumberInFile() > item.Prod().NumberInFile():
-                                    acur[terminals[la]] = Reduce(prodToRule[item.Prod()], item.Prod().GetAssoc(), item.Prod().NumberInFile())
-
-                            elif acur[terminals[la]].IsShift():
-                                assoc, prec = acur[terminals[la]].GetAssoc()
-                                associ, preci = item.Prod().GetAssoc()
-                                
-                                # shift wins over reduce by default
-                                if assoc == Production.NONE:
-                                    print state
-                                    print "Default to shift for shift/reduce-conflict"
-
-                                elif assoc == Production.NONASSOC:
-                                    # generate an error entry for nonassoc
-                                    acur[terminals[la]] = None
-                                elif assoc == Production.LEFT:
-                                    if preci >= prec:
-                                        acur[terminals[la]] = Reduce(prodToRule[item.Prod()], item.Prod().GetAssoc(), item.Prod().NumberInFile())
-                                    else:
-                                        pass
-                                elif assoc == Production.RIGHT:
-                                    if preci > prec:
-                                        acur[terminals[la]] = Reduce(prodToRule[item.Prod()], item.Prod().GetAssoc(), item.Prod().NumberInFile())
-                                    else:
-                                        pass                                        
-                                else:
-                                    raise Exception()
+                            acur[terminals[la]] = self.ResolveConflict(state, acur[terminals[la]], Reduce(prodToRule[item.Prod()], item.Prod().GetAssoc(), item.Prod().NumberInFile()))
                                     
                         else:
                             acur[terminals[la]] = Reduce(prodToRule[item.Prod()], item.Prod().GetAssoc(), item.Prod().NumberInFile())
@@ -978,21 +992,6 @@ class AutomatonState(object):
 
         return closure | nc
 
-    # def Clone(self):
-    #     if self.clone:
-    #         return self.clone
-
-    #     new = AutomatonState()
-        
-    #     self.clone = new
-        
-    #     for chars, state in self.transitions:
-    #         new.AddTransition(chars, state.Clone())
-
-    #     self.clone = None
-
-    #     return new
-
     def AddTransitions(self, chars, state):
         for char in chars:
             if char not in self.transitions:
@@ -1008,19 +1007,6 @@ class AutomatonState(object):
 
     def Transitions(self):
         return self.transitions.iteritems()
-
-    # def Close(self, state, states):
-    #     nt = []
-
-    #     for chars, old_to in self.transitions:
-    #         for to_replace in states:
-    #             if to_replace == old_to:
-    #                 nt.append((chars, state))
-    #                 break
-    #         else:
-    #             nt.append((chars, old_to))
-
-    #     self.transitions = nt
                 
     def SetAction(self, priority, action):
         self.action = action
@@ -1606,14 +1592,16 @@ class LexActionToCode(LexingActionVisitor):
 
 class LRActionToLRTableEntry(LRActionVisitor):
 
-    def __init__(self):
-        pass
+    def __init__(self, rulelist, symtable):
+        self.rulelist = rulelist
+        self.symtable = symtable
 
     def VisitShift(self, shift):
-        return (0,)
+        return (0,shift.Next())
 
-    def VisitReudce(self, red):
-        return (1,)
+    def VisitReduce(self, red):
+        rule = self.rulelist[red.Red()]
+        return (1,len(rule),self.symtable[rule.Left().Name()].Number())
 
 class Writer(object):
 
@@ -1745,7 +1733,7 @@ class Parser(object):
     # actions from the grammar
 """)
 
-        translator = LRActionToLRTableEntry()
+        translator = LRActionToLRTableEntry(parseTable.Rules(), symtable)
 
         actionTableStr = "("
         for state in parseTable.Actiontable():
@@ -1755,14 +1743,23 @@ class Parser(object):
                     actionTableStr += str(translator.Visit(entry))
                     actionTableStr += ","
                 else:
-                    actionTableStr += "(2,0,0),"
+                    actionTableStr += "(2,),"
 
             actionTableStr += "),\n"
         actionTableStr += ")"
 
         gotoTableStr = "("
         for state in parseTable.Gototable():
-            pass
+            gotoTableStr += "("
+            for entry in state:
+                if entry:
+                    gotoTableStr += str(entry)
+                    gotoTableStr += ","
+                else:
+                    gotoTableStr += "0,"
+
+            gotoTableStr += "),\n"
+
         gotoTableStr += ")"
 
         self.parser_file.write("""
@@ -1772,41 +1769,34 @@ class Parser(object):
         self.stack = []
         self.start = %d""" % parseTable.Start()  + """
         self.atable = """ + actionTableStr + """
-        self.state = self.start
+        self.gtable = """ + gotoTableStr + """
  
     def Parse(self):
         lexer = self.lexer
         atable = self.atable
-        jtable = self.jtable
+        gtable = self.gtable
+        stack = self.stack
+        stack.append(self.start)
 
         while True:
             token, lexeme = lexer.lex()
-            t, d, a = atable[self.stack[-1]][token]
+            action = atable[stack[-1]][token]
          
-            while t == 1:
-                for j in xrange(d):
-                    states.pop()
-                    sym = a(lexeme)
-                    state = jtable[self.stack[-1]][sym]
-                    if state == -1:
-                        for arg in args:
-                            print arg
-                        print states
-                        raise Exception()
-                    states.append(state)
-                    t, d, a = atable[self.stack[-1]][token]
+            while action[0] == 1:
+                # apply semantic action (this must be done before stack is popped)
 
-            if t == 0:
-                self.stack.append(d)
-                a(lexeme)
+                for j in xrange(action[1]):
+                    stack.pop()
+                    
+                state = gtable[stack[-1]][action[2]]
+                stack.append(state)
+                action = atable[stack[-1]][token]
 
-            elif t == 2:
-                return self.stack[0]
+            if action[0] == 0:
+                stack.append(action[1])
+                # semantic action
 
             else:
-                for arg in args:
-                    print arg
-                print states
                 raise Exception()
 """ % ())
 
