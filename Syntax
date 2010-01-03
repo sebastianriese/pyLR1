@@ -8,7 +8,11 @@
 
 "(.|\s)*" %restart
 \s+ %restart
+
 self SELF
+thisContext THISCONTEXT
+super SUPER
+
 [a-zA-Z][a-zA-Z0-9]* SYM
 [a-zA-Z][a-zA-Z0-9]*: KEY
 \#([a-zA-Z][a-zA-Z0-9:]*|[\+\-\*\/\\@:,\.\|\&]+) SYMLIT
@@ -29,6 +33,10 @@ self SELF
 
 %parser
 
+%left KEY
+%left BIN
+%left SYM
+
 doc:
    %empty
    doc statement
@@ -38,14 +46,18 @@ statement:
     "^" exp
     exp "." statement
     SYM ":=" exp "." statement
+    statement "."
 
 exp:
+    SELF
+    THISCONTEXT
+    SUPER
     SYM
     SYMLIT
     "(" exp ")"
     exp SYM
     exp BIN exp
-    SYM key
+    exp KEY exp
     "[" optparams optlocals statement "]"
 
 optparams:
@@ -53,8 +65,8 @@ optparams:
     %empty
 
 params:
-    params ":" SYM "|"
-    %empty
+    params ":" SYM
+    ":" SYM
 
 optlocals:
     %empty
@@ -63,11 +75,4 @@ optlocals:
 locals:
     %empty
     locals SYM
-
-key:
-    KEY exp key1
-
-key1:
-    key
-    %empty
 
