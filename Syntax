@@ -44,8 +44,7 @@ doc:
 statement:
     exp
     "^" exp
-    exp "." statement
-    SYM ":=" exp "." statement
+    SYM ":=" exp
     statement "."
 
 exp:
@@ -58,7 +57,7 @@ exp:
     exp SYM
     exp BIN exp
     exp KEY exp
-    "[" optparams optlocals statement "]"
+    "[" optparams optlocals doc "]"
 
 optparams:
     params "|"

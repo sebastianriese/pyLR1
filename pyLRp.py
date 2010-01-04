@@ -18,6 +18,7 @@ class Production(object):
         self.syms = syms
         self.number = number
         self.assoc = Production.NONE, 0
+        self.text = "pass"
         
         # self.first = None
 
@@ -51,6 +52,12 @@ class Production(object):
 
     def AddSym(self, sym):
         self.syms.append(sym)
+
+    def SetAction(self, action):
+        self.text = action
+
+    def GetAction(self):
+        return self.text
 
     def First(self, visited):
         # if self.first != None:
@@ -172,8 +179,8 @@ class LR1Item(object):
             
     def Closure(self, visited):
         # maybe the buffering is buggy
-        if (self,self.pos,self.la) in self.closure:
-             return self.closure[(self,self.pos,self.la)]
+        if (self.prod,self.pos,self.la) in self.closure:
+             return self.closure[(self.prod,self.pos,self.la)]
 
         closure = set([self])
         afterDot = self.AfterDot()
@@ -195,7 +202,7 @@ class LR1Item(object):
                     recurses = True
 
         if not recurses:
-            self.closure[(self,self.pos,self.la)] = closure
+            self.closure[(self.prod,self.pos,self.la)] = closure
 
         return closure
 
@@ -786,6 +793,7 @@ class LR1StateTransitionGraph(object):
         # construct the starting point (virtual starting node) and use the RequireElement-method to  build up the tree
 
         prod = Production(self.grammar.RequireMeta("$START"), [self.grammar.Start()], -1)
+        prod.SetAction("raise Accept()")
 
         self.grammar.RequireMeta("$START").AddProd(prod)
 
@@ -799,7 +807,7 @@ class LR1StateTransitionGraph(object):
         If it does exist return it else create the new state and determine it's sub states.
         """
         
-        # Normalize the element set (each shall core occur only once, the lookahead sets are unioned)
+        # Normalize the element set (each shall core occur only once, the lookahead sets are unified)
         cores = {}
         for elem in elements:
             if elem.Core() not in cores:
@@ -810,6 +818,7 @@ class LR1StateTransitionGraph(object):
         elements = set()
         for core in cores:
             elements.add(LR1Item.FromCore(core, cores[core]))
+        cores = None
 
         # do we already have this state?
         for state in self.states:
@@ -885,6 +894,7 @@ class LR1StateTransitionGraph(object):
 
         stateToIndex = dict()
 
+        k = 0
         for state in self.states:
             stateToIndex[state] = state.Number()
 
@@ -1601,7 +1611,8 @@ class LRActionToLRTableEntry(LRActionVisitor):
 
     def VisitReduce(self, red):
         rule = self.rulelist[red.Red()]
-        return (1,len(rule),self.symtable[rule.Left().Name()].Number())
+        # return (1,len(rule),self.symtable[rule.Left().Name()].Number())
+        return (1, red.Red())
 
 class Writer(object):
 
@@ -1722,12 +1733,14 @@ class Lexer(object):
         # parseTable.Print()
 
         self.parser_file.write("""
+class Accept(Exception):
+    pass
+
 class StackObject(object):
-    def __init__(self, state, text, position):
+    def __init__(self, state):
         self.state = state
-        self.text = text
-        self.position = position
-        self.semantic = semantic
+        self.pos = None
+        self.sem = None
 
 class Parser(object):
     # actions from the grammar
@@ -1743,7 +1756,7 @@ class Parser(object):
                     actionTableStr += str(translator.Visit(entry))
                     actionTableStr += ","
                 else:
-                    actionTableStr += "(2,),"
+                    actionTableStr += "(2,0),"
 
             actionTableStr += "),\n"
         actionTableStr += ")"
@@ -1762,6 +1775,13 @@ class Parser(object):
 
         gotoTableStr += ")"
 
+        reductionStr = "("
+        i = 0
+        for red in parseTable.Rules():
+            reductionStr += "(%d,%d,self.action%d),\n" % (len(red), symtable[red.Left().Name()].Number(), i)
+            i += 1
+        reductionStr += ")"
+
         self.parser_file.write("""
     # auto generated methods
     def __init__(self, lexer):
@@ -1770,35 +1790,57 @@ class Parser(object):
         self.start = %d""" % parseTable.Start()  + """
         self.atable = """ + actionTableStr + """
         self.gtable = """ + gotoTableStr + """
+        self.reductions = """ + reductionStr + """
  
     def Parse(self):
         lexer = self.lexer
         atable = self.atable
         gtable = self.gtable
         stack = self.stack
-        stack.append(self.start)
+        reductions = self.reductions
+        stack.append(StackObject(self.start))
 
-        while True:
-            token, lexeme = lexer.lex()
-            action = atable[stack[-1]][token]
-         
-            while action[0] == 1:
-                # apply semantic action (this must be done before stack is popped)
+        try:
+            while True:
+                token, lexeme = lexer.lex()
+                t, d = atable[stack[-1].state][token]
 
-                for j in xrange(action[1]):
-                    stack.pop()
-                    
-                state = gtable[stack[-1]][action[2]]
-                stack.append(state)
-                action = atable[stack[-1]][token]
+                while t == 1:
+                    size, sym, action = reductions[d]
+                    state = gtable[stack[-size-1].state][sym]
+                    new = StackObject(state)
+                    action(new)
 
-            if action[0] == 0:
-                stack.append(action[1])
-                # semantic action
+                    for j in xrange(size):
+                        stack.pop()
 
-            else:
-                raise Exception()
-""" % ())
+                    stack.append(new)
+                    t, d = atable[stack[-1].state][token]
+
+                if t == 0:
+                    new = StackObject(d)
+                    new.sem = lexeme
+                    # new.pos = lexer.pos()
+                    stack.append(new)
+                    # action, e.g. a lexcal tie-in
+
+                else:
+                    raise Exception()
+        except Accept:
+            return stack[-1].sem
+""")
+        redNum = 0
+        for red in parseTable.Rules():
+            text = red.GetAction()
+            text = text.replace("$$", "result")
+            for i in xrange(1, len(red) + 1):
+                text = text.replace("$%d" % i, "self.stack[-%d]" % (len(red) - i))
+
+            self.parser_file.write("""
+    def action%d(self, result):
+        %s
+""" % (redNum,text))
+            redNum += 1
 
 
     def Write(self, syntax, graph, lextable):
