@@ -559,9 +559,11 @@ class Parser(object):
 
                         if line:
                             prod.SetAction(line)
+                            self.current.AddProd(prod)
                         else:
                             self.state = self.Action
                             self.current = prod
+
                         return
 
                     print "Syntax error: line %d (%s)" % (self.line,line)
@@ -589,7 +591,7 @@ class Parser(object):
                 else:
                     break
 
-            return ind
+            return ind            
 
         indent = Indent(line)
         if self.indent == None:
@@ -597,12 +599,18 @@ class Parser(object):
 
         if indent < self.indent:
             self.state = self.Parser
+            self.current.Left().AddProd(self.current)
             self.current = self.current.Left()
             self.indent = None
             self.state(line)
             return
 
-        self.current.SetAction(self.current.GetAction() + line[indent:])
+        def Unindent(indent, line):
+            ind = Indent(line)
+            line = line.strip()
+            return " " * (ind - indent) + line
+
+        self.current.SetAction(self.current.GetAction() + "\n" + Unindent(indent, line))
 
     def Parse(self):
         self.line = 0
@@ -1879,9 +1887,13 @@ class Parser(object):
                 text = text.replace("$%d" % i, "self.stack[-%d]" % (len(red) - i))
 
             self.parser_file.write("""
-    def action%d(self, result):
-        %s
-""" % (redNum,text))
+    def action%d(self, result):""" % (redNum,))
+
+            for char in text:
+                self.parser_file.write(char)
+                if char == '\n':
+                    self.parser_file.write("        ")
+
             redNum += 1
 
 

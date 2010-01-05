@@ -52,7 +52,7 @@ exp:
     THISCONTEXT
     SUPER
     SYM:
-        print "Symbol"
+	print "Symbol"
     SYMLIT
     "(" exp ")"
     exp SYM
