@@ -4,6 +4,7 @@ It is planned to implement LALR(1) parser support in future.
 """
 
 import re
+import sys
 
 class Production(object):
     """A production in a grammar. Productions with left set to None may be used as arbitrary symbol strings."""
@@ -1906,10 +1907,18 @@ class Parser(object):
         self.WriteParser(graph, syntax.SymTable())
 
 if __name__ == '__main__':
-    fi = file('Syntax', 'r')
+    fi = sys.stdin
+    cfi = False
+
+    if len(sys.argv) == 3:
+        fi = file(sys.argv[1], 'r')
+        cfi = True
+
     p = Parser(fi)
     syn = p.Parse()
-    fi.close()
+
+    if cfi:
+        fi.close()
     p = None # make it garbage
 
     # construct the parser
@@ -1936,7 +1945,17 @@ if __name__ == '__main__':
     #     print str(state)
 
     # write lexer and parser
-    fo = file('Syntax.py', 'w')
+
+
+    fo = sys.stdout
+    cfo = False
+
+    if len(sys.argv) == 3:
+        fo = file(sys.argv[2], 'w')
+        cfo = True
+
     writer = Writer(fo, True)
     writer.Write(syn, graph, lexingTable)
-    fo.close()
+    
+    if cfo:
+        fo.close()
