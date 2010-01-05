@@ -18,7 +18,7 @@ class Production(object):
         self.syms = syms
         self.number = number
         self.assoc = Production.NONE, 0
-        self.text = "pass"
+        self.text = ""
         
         # self.first = None
 
@@ -444,7 +444,7 @@ class Parser(object):
 
     syntax_rule_re = re.compile(r"([a-zA-Z_][a-zA-Z_0-9]*):\s*$")
     syntax_symbol_re = re.compile(r"([a-zA-Z_][a-zA-Z_0-9]*)")
-    syntax_action_re = re.compile(r':')
+    syntax_action_re = re.compile(r'\:')
     syntax_stoken_re = re.compile(r'\"((.|\\\")+?)\"')
     syntax_empty_re = re.compile(r'%empty')
     syntax_binding_re = re.compile(r'%left|%right|%nonassoc')
@@ -462,6 +462,7 @@ class Parser(object):
         self.assocDefs = dict()
         self.assocPower = 0
         self.productionNumber = 0
+        self.indent = None
 
         self.state = self.Header
 
@@ -550,6 +551,19 @@ class Parser(object):
                     if match:
                         break
 
+                    match = self.syntax_action_re.match(line)
+
+                    if match:
+                        line = line[len(match.group(0)):]
+                        line = line.strip()
+
+                        if line:
+                            prod.SetAction(line)
+                        else:
+                            self.state = self.Action
+                            self.current = prod
+                        return
+
                     print "Syntax error: line %d (%s)" % (self.line,line)
                     return
 
@@ -561,7 +575,34 @@ class Parser(object):
                     prod.AddSym(elem)
                     
             self.current.AddProd(prod)
-            
+    
+    def Action(self, line):
+        
+        def Indent(line):
+            ind = 0
+
+            for char in line:
+                if char == ' ':
+                   ind += 1
+                elif char == '\t':
+                    ind += 8
+                else:
+                    break
+
+            return ind
+
+        indent = Indent(line)
+        if self.indent == None:
+            self.indent = indent
+
+        if indent < self.indent:
+            self.state = self.Parser
+            self.current = self.current.Left()
+            self.indent = None
+            self.state(line)
+            return
+
+        self.current.SetAction(self.current.GetAction() + line[indent:])
 
     def Parse(self):
         self.line = 0
@@ -1832,6 +1873,7 @@ class Parser(object):
         redNum = 0
         for red in parseTable.Rules():
             text = red.GetAction()
+            if not text: text = "pass"
             text = text.replace("$$", "result")
             for i in xrange(1, len(red) + 1):
                 text = text.replace("$%d" % i, "self.stack[-%d]" % (len(red) - i))

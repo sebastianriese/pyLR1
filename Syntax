@@ -51,7 +51,8 @@ exp:
     SELF
     THISCONTEXT
     SUPER
-    SYM
+    SYM:
+        print "Symbol"
     SYMLIT
     "(" exp ")"
     exp SYM
