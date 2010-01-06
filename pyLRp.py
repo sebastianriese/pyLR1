@@ -606,12 +606,13 @@ class Parser(object):
             self.state(line)
             return
 
-        def Unindent(indent, line):
+        def Unindent(line):
             ind = Indent(line)
             line = line.strip()
-            return " " * (ind - indent) + line
 
-        self.current.SetAction(self.current.GetAction() + "\n" + Unindent(indent, line))
+            return " " * (ind - self.indent) + line
+
+        self.current.SetAction(self.current.GetAction() + "\n" + Unindent(line))
 
     def Parse(self):
         self.line = 0
@@ -1885,7 +1886,7 @@ class Parser(object):
             if not text: text = "pass"
             text = text.replace("$$", "result")
             for i in xrange(1, len(red) + 1):
-                text = text.replace("$%d" % i, "self.stack[-%d]" % (len(red) - i))
+                text = text.replace("$%d" % i, "self.stack[-%d]" % (len(red) - i + 1))
 
             self.parser_file.write("""
     def action%d(self, result):""" % (redNum,))
