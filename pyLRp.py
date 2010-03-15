@@ -1191,7 +1191,7 @@ class Regex(object):
             string = ''
             string += iterator.next()
             string += iterator.next()
-            return set(chr(int(string), base=16))
+            return set(chr(int(string, base=16)))
         
         if char == 's':
             return set(' \n\t\v\r\f')
