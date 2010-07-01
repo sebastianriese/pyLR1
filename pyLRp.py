@@ -179,7 +179,7 @@ class LR1Item(object):
         return result
             
     def Closure(self, visited):
-        # maybe the buffering is buggy
+        # possibly the buffering is buggy
         if (self.prod,self.pos,self.la) in self.closure:
              return self.closure[(self.prod,self.pos,self.la)]
 
@@ -858,7 +858,7 @@ class LR1StateTransitionGraph(object):
         If it does exist return it else create the new state and determine it's sub states.
         """
         
-        # Normalize the element set (each shall core occur only once, the lookahead sets are unified)
+        # Normalize the element set (each core shall occur only once, the lookahead sets are unified)
         cores = {}
         for elem in elements:
             if elem.Core() not in cores:
@@ -1667,9 +1667,10 @@ class LRActionToLRTableEntry(LRActionVisitor):
 
 class Writer(object):
 
-    def __init__(self, parser_file, emptyActions):
+    def __init__(self, parser_file, emptyActions, lines):
         self.parser_file = parser_file
         self.emptyActions = emptyActions
+        self.lines = lines
 
     def WriteHeader(self, header):
         self.parser_file.write("""# this file was generated automagically by pyLR1
@@ -1726,8 +1727,34 @@ import mmap
         if self.emptyActions:
             select = "actions[self.state]()"
 
+        linesPositionClass = ""
+        linesPositionCalc = "position = 'No Line Tracking'"
+        linesStartTrack = ""
+
+        if self.lines:
+            linesPositionClass = """class Position(object):
+    def __init__(self, file, line0, col0, line1, col1):
+        self.file  = file
+        self.line0 = line0
+        self.col0  = col0
+        self.line1 = line1
+        self.col1  = col1
+
+    def Add(self, oth):
+        return Position(self.file, self.line0, self.col0, oth.line1, oth.col1)
+
+    def __str__(self):
+        return "Line %d:%d - %d:%d" % (self.line0, self.col0, self.line1, self.col1)
+"""
+
+            linesStartTrack = "if buffer[self.position] == '\\n': self.linestart = self.position - 1"
+
+            linesPositionCalc = """self.line += self.buffer[self.last_token_end:pos].count('\\n'); position = Position('', self.line, self.root-self.linestart, self.line, pos - self.linestart)"""
+
         self.parser_file.write("""class GotToken(Exception):
     pass
+
+""" + linesPositionClass + """
 
 class Lexer(object):
     def __init__(self, codefile):
@@ -1736,12 +1763,15 @@ class Lexer(object):
         self.size = self.buffer.size()
         code.close()
         self.root = 0
+        self.last_token_end = 0
         self.position = 0
         self.current_token = None
         self.start = %d""" % start + """
         self.table = """ + lextablestr + """
         self.actions = """ + actionstr + """
-        self.mapping = """ + mappingstr + """ 
+        self.mapping = """ + mappingstr + """
+        self.line    = 1
+        self.linestart = 0
 
     def lex(self):
         self.current_token = (%d""" % symtable["$EOF"].Number() +""", self.size)
@@ -1752,16 +1782,19 @@ class Lexer(object):
         mapping = self.mapping
         try:
             while self.position != self.size:
+                """ + linesStartTrack + """
                 self.state = table[self.state][""" + lookup + """]
-                self.position += 1 
+                self.position += 1
                 """ + select  + """
             raise GotToken()
         except GotToken:
            name, pos = self.current_token
+           """ + linesPositionCalc + """
            text = self.buffer[self.root:pos]
            self.root = pos
+           self.last_token_end = pos
            self.position = self.root
-           return (name, text)
+           return (name, text, position)
 """)
         i = 0
         lexActionGen = LexActionToCode(symtable)
@@ -1782,6 +1815,13 @@ class Lexer(object):
 
         parseTable = graph.CreateParseTable(symtable)
         # parseTable.Print()
+
+        linesPosAddition = ""
+        linesNullPos = ""
+
+        if lines:
+            linesPosAddition = """new.pos = stack[-size].pos.Add(stack[-1].pos)"""
+            linesNullPos = "stack[-1].pos = Position('', 0,0,0,0)"
 
         self.parser_file.write("""
 class Accept(Exception):
@@ -1850,16 +1890,18 @@ class Parser(object):
         stack = self.stack
         reductions = self.reductions
         stack.append(StackObject(self.start))
+        """ + linesNullPos + """
 
         try:
             while True:
-                token, lexeme = lexer.lex()
+                token, lexeme, pos = lexer.lex()
                 t, d = atable[stack[-1].state][token]
 
                 while t == 1:
                     size, sym, action = reductions[d]
                     state = gtable[stack[-size-1].state][sym]
                     new = StackObject(state)
+                    """ + linesPosAddition  + """
                     action(new)
 
                     for j in xrange(size):
@@ -1871,12 +1913,12 @@ class Parser(object):
                 if t == 0:
                     new = StackObject(d)
                     new.sem = lexeme
-                    # new.pos = lexer.pos()
+                    new.pos = pos
                     stack.append(new)
                     # action, e.g. a lexcal tie-in
 
                 else:
-                    raise Exception()
+                    raise Exception("Syntax Error: " + str(stack[-1].pos))
         except Accept:
             return stack[-1].sem
 """)
@@ -1908,18 +1950,41 @@ class Parser(object):
         self.WriteParser(graph, syntax.SymTable())
 
 if __name__ == '__main__':
-    fi = sys.stdin
-    cfi = False
+    argv = list(sys.argv)
+    argv.pop(0) # executable name
 
-    if len(sys.argv) == 3:
-        fi = file(sys.argv[1], 'r')
-        cfi = True
+    fi = None
+    fo = None
+
+    lines = False
+
+    while argv:
+        arg = argv.pop(0)
+
+        if arg[0] == '-':
+            for opt in arg[1:]:
+                if opt == 'o':
+                    if fo != None:
+                        print "Error: Output file already set"
+                    else:
+                        fo = file(argv.pop(0), 'w')
+                elif opt == 'l':
+                    lines = True
+        else:
+            if fi != None:
+                print "Error: Input file already set"
+            else:
+                fi = file(arg, 'r')
+
+    if fi == None: fi = sys.stdin
+    if fo == None: fo = sys.stdout
 
     p = Parser(fi)
     syn = p.Parse()
 
-    if cfi:
+    if fi != sys.stdin:
         fi.close()
+
     p = None # make it garbage
 
     # construct the parser
@@ -1948,15 +2013,8 @@ if __name__ == '__main__':
     # write lexer and parser
 
 
-    fo = sys.stdout
-    cfo = False
-
-    if len(sys.argv) == 3:
-        fo = file(sys.argv[2], 'w')
-        cfo = True
-
-    writer = Writer(fo, True)
+    writer = Writer(fo, True, lines)
     writer.Write(syn, graph, lexingTable)
     
-    if cfo:
+    if fo != sys.stdout:
         fo.close()
