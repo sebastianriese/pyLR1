@@ -434,6 +434,9 @@ class Restart(LexingAction):
     def __init__(self):
         super(LexingAction, self).__init__()
 
+    def __repr__(self):
+        return "Restart()"
+
     def Accept(self, visitor):
         return visitor.VisitRestart(self)
 
@@ -442,6 +445,9 @@ class Token(LexingAction):
     def __init__(self, name):
         super(LexingAction, self).__init__()
         self.name = name
+
+    def __repr__(self):
+        return "Token('%s')" % self.name
 
     def Name(self):
         return self.name
@@ -453,6 +459,9 @@ class GetMatch(LexingAction):
 
     def __init__(self):
         super(LexingAction, self).__init__()
+
+    def __repr__(self):
+        return "GetMatch()"
 
     def Accept(self, visitor):
         return visitor.VisitGetMatch(self)
@@ -1057,8 +1066,13 @@ class AutomatonState(object):
         self.action = None
         self.priority = None
 
+    # this was added for one specific debugging task
+    # either remove or adapt
+    def __repr__(self):
+        return "AutomatonState("+repr(id(self))+", "+ repr(self.action) +")"
+
     def Move(self, char):
-        return self.transitions.get(char, set())
+        return set(self.transitions.get(char, set()))
 
     def EpsilonClosure(self, visited):
         closure = set([self])
@@ -1237,11 +1251,11 @@ class Regex(object):
             while True:
                 char = iterator.next()
                 if first:
+                    first = False
                     if char == '^':
                         negate = True
                         chars = set(chr(i) for i in xrange(256))
                         continue
-                    first = False
 
                 if char == ']':
                     return chars
@@ -1501,7 +1515,8 @@ class LexingNFA(object):
                 # todo is changing ... iterators don't work therefore
                 cur = todo.pop()
             
-                for char in (chr(i) for i in xrange(0,255)):
+                for i in xrange(0,255):
+                    char = chr(i)
 
                     move = set()
                     for c in cur:
@@ -1534,6 +1549,74 @@ class LexingNFA(object):
         
         # unreachable
 
+class OptimizerPartition(object):
+    def __init__(self):
+        self.groups = []
+        self.forward = {}
+
+    def __len__(self):
+        return len(self.groups)
+
+    def NewGroup(self):
+        num = len(self.groups)
+        self.groups.append([])
+        return num
+
+    def GroupOfState(self, state):
+        return self.forward[state]
+
+    def Add(self, group, state):
+        self.forward[state] = group
+        self.groups[group].append(state)
+
+    def GeneratePartitionTransitionTable(self, state):
+        # this code operates under the assumption, that we handle a DFA
+        # so .Move() returns a set containing exactly one element
+        # print state
+        return tuple(self.GroupOfState(state.Move(chr(char)).pop()) for char in xrange(0,255))
+
+    def Partition(self):
+        partition = OptimizerPartition()
+        for group in self.groups:
+            patterns = {}
+            for entry in group:
+                pattern = self.GeneratePartitionTransitionTable(entry)
+                
+                if pattern not in patterns:
+                    patterns[pattern] = partition.NewGroup()
+
+                partition.Add(patterns[pattern], entry)
+
+        if len(partition) == len(self):
+            return self
+        else:
+            return partition.Partition()
+
+    def Reconstruct(self, start):
+        states = []
+        newstates= {}
+        newstart = None
+
+        # create the new states
+        for i in xrange(0, len(self.groups)):
+            states.append(AutomatonState())
+            newstates[states[-1]] = i
+
+            if start in self.groups[i]:
+                newstart = states[i]
+
+        # link the new states
+        for i in xrange(0, len(self.groups)):
+
+            representative = self.groups[i][0]
+
+            states[i].SetAction(None, representative.GetAction())
+
+            for char in xrange(255):
+                states[i].AddTransition(chr(char), states[self.GroupOfState(representative.Move(chr(char)).pop())])
+                
+        return newstart, newstates
+
 class LexingDFA(object):
 
     def __init__(self, states, start):
@@ -1548,8 +1631,21 @@ class LexingDFA(object):
         self.start = states[start]
 
     def Optimize(self):
-        # reduce the number of states
-        pass
+        # construct the initial partition
+        partition = OptimizerPartition()
+        actions   = {}
+
+        for state in self.states:
+            if state.action not in actions:
+                actions[state.action] = partition.NewGroup()
+
+            partition.Add(actions[state.action], state)
+
+        # run the optimizing algorithm
+        partition = partition.Partition()
+
+        # construct a new DFA from the partition
+        self.start, self.states = partition.Reconstruct(self.start)
 
     def CreateLexTable(self):
         lextable = [tuple([] for i in xrange(0,255)) for i in xrange(len(self.states))]
