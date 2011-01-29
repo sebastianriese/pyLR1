@@ -1778,15 +1778,13 @@ class LRActionToLRTableEntry(LRActionVisitor):
         return (0,shift.Next())
 
     def VisitReduce(self, red):
-        rule = self.rulelist[red.Red()]
-        # return (1,len(rule),self.symtable[rule.Left().Name()].Number())
+        rule = self.rulelist[red.Red()]        # return (1,len(rule),self.symtable[rule.Left().Name()].Number())
         return (1, red.Red())
 
 class Writer(object):
 
-    def __init__(self, parser_file, emptyActions, lines):
+    def __init__(self, parser_file, lines):
         self.parser_file = parser_file
-        self.emptyActions = emptyActions
         self.lines = lines
 
     def WriteHeader(self, header):
@@ -1814,16 +1812,12 @@ import mmap
         
         # create the string representing the actions
         actionstr = "(\n"
-        i = 0
+        action_table = {}
         for action in actions:
-            if self.emptyActions:
-                actionstr += "            self.action%d" % i + ", \n"
-            else:
-                if action:
-                    actionstr += "            self.action%d" % i + ", \n"
-                else:
-                    actionstr += "            None, \n"
-            i += 1
+            if action not in action_table:
+                action_table[action] = len(action_table)
+                
+            actionstr += "            self.action%d" % action_table[action] + ", \n"
 
         actionstr += "        )"
 
@@ -1839,10 +1833,7 @@ import mmap
         mappingstr += ")"
 
         
-        select = "if actions[self.state]: actions[self.state]()"
-
-        if self.emptyActions:
-            select = "actions[self.state]()"
+        select = "actions[self.state]()"
 
         linesPositionClass = ""
         linesPositionCalc = "position = 'No Line Tracking'"
@@ -1913,20 +1904,19 @@ class Lexer(object):
            self.position = self.root
            return (name, text, position)
 """)
-        i = 0
+
         lexActionGen = LexActionToCode(symtable)
 
-        for action in actions:
-            if action or self.emptyActions:
-                self.parser_file.write("""
+        for action in action_table:
+            self.parser_file.write("""
     def action%d(self):
-""" % (i,))
-                if action:
-                    self.parser_file.write("        " + lexActionGen.Visit(action) + "\n")
-                else:
-                    self.parser_file.write("        pass\n" )
+""" % (action_table[action],))
 
-            i += 1
+            if action != None:
+                self.parser_file.write("        " + lexActionGen.Visit(action) + "\n")
+            else:
+                self.parser_file.write("        pass\n" )
+
 
     def WriteParser(self, graph, symtable):
 
@@ -2130,7 +2120,7 @@ if __name__ == '__main__':
     # write lexer and parser
 
 
-    writer = Writer(fo, True, lines)
+    writer = Writer(fo, lines)
     writer.Write(syn, graph, lexingTable)
     
     if fo != sys.stdout:
