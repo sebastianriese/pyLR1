@@ -27,6 +27,8 @@ It is planned to implement LALR(1) parser support in future.
 import re
 import sys
 
+import optparse
+
 class Production(object):
     """A production in a grammar. Productions with left set to None may be used as arbitrary symbol strings."""
 
@@ -1926,7 +1928,7 @@ class Lexer(object):
         linesPosAddition = ""
         linesNullPos = ""
 
-        if lines:
+        if self.lines:
             linesPosAddition = """new.pos = stack[-size].pos.Add(stack[-1].pos)"""
             linesNullPos = "stack[-1].pos = Position('', 0,0,0,0)"
 
@@ -2057,39 +2059,27 @@ class Parser(object):
         self.WriteParser(graph, syntax.SymTable())
 
 if __name__ == '__main__':
-    argv = list(sys.argv)
-    argv.pop(0) # executable name
 
-    fi = None
-    fo = None
+    opt_parser = optparse.OptionParser(usage="usage: %prog [options] INFILE", version="%prog 0.1")
+    opt_parser.add_option("-o", "--output-file", dest="ofile", help="set the output file to OFILE")
+    opt_parser.add_option("-l", "--line-tracking", dest="lines", action='store_true', default=False, help="enable line tracking in the generated parser")
 
-    lines = False
+    options, args = opt_parser.parse_args()
 
-    while argv:
-        arg = argv.pop(0)
+    if len(args) >= 2:
+        opt_parser.error("no more than on input file may be specified")
+    
+    fi = sys.stdin
 
-        if arg[0] == '-':
-            for opt in arg[1:]:
-                if opt == 'o':
-                    if fo != None:
-                        print "Error: Output file already set"
-                    else:
-                        fo = file(argv.pop(0), 'w')
-                elif opt == 'l':
-                    lines = True
-        else:
-            if fi != None:
-                print "Error: Input file already set"
-            else:
-                fi = file(arg, 'r')
-
-    if fi == None: fi = sys.stdin
-    if fo == None: fo = sys.stdout
-
+    if len(args) == 1:
+        infile, = args
+        fi = file(infile, 'r')
+    
     p = Parser(fi)
+    
     syn = p.Parse()
 
-    if fi != sys.stdin:
+    if len(args) == 1:
         fi.close()
 
     p = None # make it garbage
@@ -2119,9 +2109,13 @@ if __name__ == '__main__':
 
     # write lexer and parser
 
+    fo = sys.stdout
 
-    writer = Writer(fo, lines)
+    if options.ofile != None:
+        fo = file(options.ofile, 'w')
+
+    writer = Writer(fo, options.lines)
     writer.Write(syn, graph, lexingTable)
     
-    if fo != sys.stdout:
+    if options.ofile != None:
         fo.close()
