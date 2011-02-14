@@ -1,6 +1,6 @@
 """
-Parse parser and lexer specifications and create DFA lexers and LR(1) parsers from them.
-It is planned to implement LALR(1) parser support in future.
+Parse parser and lexer specifications and create DFA lexers 
+and LR(1) or LALR(1) parsers from them.
 """
 
 # Copyright 2009, 2010 Sebastian Riese
@@ -39,7 +39,7 @@ class Production(object):
 
     def __init__(self, left, syms, number = -1):
         self.left = left
-        self.syms = syms
+        self.syms = list(syms)
         self.number = number
         self.assoc = Production.NONE, 0
         self.text = ""
@@ -180,14 +180,26 @@ class LR1Item(object):
             and self.pos == other.pos \
             and self.la == other.la
 
+    def IsKernel(self):
+        return self.pos != 0 or (self.prod.left.Name() == "$START")
+
     def AfterDot(self):
         return self.prod.AtOrNone(self.pos)
 
     def Prod(self):
         return self.prod
 
+    def Pos(self):
+        return self.pos
+
     def Core(self):
-        return LR1Item(self.prod, self.pos, set())
+        return LR1Item(self.prod, self.pos, frozenset())
+
+    def SetLookahead(self, la):
+        if (self.prod,self.pos,self.la) in self.closure:
+            del self.closure[(self.prod,self.pos,self.la)]
+
+        self.la = frozenset(la)
 
     def Lookahead(self):
         return self.la
@@ -272,6 +284,18 @@ class EOF(Symbol):
 
     def __init__(self):
         super(EOF, self).__init__("$EOF", None)
+
+    def First(self, visited):
+        return set([self])
+
+class Undef(Symbol):
+    """
+    The Undef symbol used in the LALR(1) lookahead
+    construction algorithm
+    """
+
+    def __init__(self):
+        super(Undef, self).__init__("$UNDEF", None)
 
     def First(self, visited):
         return set([self])
@@ -669,6 +693,7 @@ class Syntax(object):
     TERMINAL = 0
     META = 1
     EOF = 2
+    UNDEF = 3
 
     class SymbolTableEntry(object):
         
@@ -721,6 +746,12 @@ class Syntax(object):
             self.termcounter += 1
 
         return self.symbols["$EOF"].Symbol()
+
+    def RequireUndef(self):
+        if "$UNDEF" not in self.symbols:
+            self.symbols['$UNDEF'] = Syntax.SymbolTableEntry(Undef(), None, self.UNDEF)
+
+        return self.symbols["$UNDEF"].Symbol()
 
     def RequireTerminal(self, name):
         if name not in self.symbols:
@@ -859,11 +890,10 @@ class LRActionVisitor(object):
     def VisitReduce(self, red):
         pass
 
-# if it has another name in English Compiler Literature I'm sorry
-# the only thing I had available for constructing this is a German paper on LR-parsers
-class LR1StateTransitionGraph(object):
+class StateTransitionGraph(object):
     """
-    The LR(1) State Transition Graph.
+    An *LR(1) state transition graph, this has the behaviour
+    common to LALR(1), LR(1), SLR(1), ... transition graphs.
     """
 
     def __init__(self, grammar):
@@ -873,24 +903,12 @@ class LR1StateTransitionGraph(object):
         self.start = None
 
     def Construct(self):
-        # construct the starting point (virtual starting node) and use the RequireElement-method to  build up the tree
+        raise NotImplementedError()
 
-        prod = Production(self.grammar.RequireMeta("$START"), [self.grammar.Start()], -1)
-        prod.SetAction("raise Accept()")
-
-        self.grammar.RequireMeta("$START").AddProd(prod)
-
-        start = LR1Item(prod,0,set([self.grammar.RequireEOF()])).Closure(frozenset())
-        
-        self.start = self.RequireState(start)
-
-    def RequireState(self, elements):
+    def NormalizeItemSet(self, elements):
         """
-        Check whether a state having the given elements already exists.
-        If it does exist return it else create the new state and determine it's sub states.
+        Normalize the item set (each core shall occur only once, the lookahead sets are unified)
         """
-        
-        # Normalize the element set (each core shall occur only once, the lookahead sets are unified)
         cores = {}
         for elem in elements:
             if elem.Core() not in cores:
@@ -903,16 +921,29 @@ class LR1StateTransitionGraph(object):
             elements.add(LR1Item.FromCore(core, cores[core]))
         cores = None
 
+        return elements
+
+    def RequireState(self, elements):
+        """
+        Check whether a state having the given elements already exists.
+        If it does exist return it else create the new state and determine it's sub states.
+        """
+        
+        elements = self.NormalizeItemSet(elements)
+
         # do we already have this state?
         for state in self.states:
             if state.elements == elements:
                 return state
 
         # instanciate the new state
-        state = LR1StateTransitionGraphElement(self, len(self.states), elements)
+        state = self.GenerateState(len(self.states), elements)
         self.states.append(state)
         state.GenerateSubStates()
         return state
+
+    def GenerateState(self, number, elements):
+        raise NotImplementedError()
 
     def ResolveConflict(self, state, old, new):
 
@@ -951,6 +982,23 @@ class LR1StateTransitionGraph(object):
                 raise Exception()
 
 
+    def Kernels(self):
+        """
+        Reduce the item sets to their kernels
+        (needed for LALR lookahead generation)
+        """
+        for state in self.states:
+            state.Kernel()
+
+    def CloseKernels(self):
+        """
+        Complete the sets to their closure again
+        after they where reduced to their kernels
+        """
+
+        for state in self.states:
+            state.Close()
+
     def CreateParseTable(self, symtable):
 
         atable = []
@@ -960,12 +1008,16 @@ class LR1StateTransitionGraph(object):
 
         terminals = dict()
         metas = dict()
+
         for symbol  in symtable.itervalues():
             if symbol.SymType() == Syntax.TERMINAL or symbol.SymType() == Syntax.EOF:
                 terminals[symbol.Symbol()] = symbol.Number()
             elif symbol.SymType() == Syntax.META:
                 metas[symbol.Symbol()] = symbol.Number()
+            elif symbol.SymType() == Syntax.UNDEF:
+                pass
             else:
+                print symbol.Symbol()
                 raise Exception()
 
         prodToRule = dict()
@@ -1008,6 +1060,92 @@ class LR1StateTransitionGraph(object):
 
         return ParseTable(atable, jtable, stateToIndex[self.start], rules)
 
+class LALR1StateTransitionGraph(StateTransitionGraph):
+    """
+    The LALR(1) State Transition Graph.
+    """
+
+    def __init__(self, grammar):
+        super(LALR1StateTransitionGraph, self).__init__(grammar)
+    
+    def Propagate(self):
+        """
+        Generate the lookahead sets
+        """
+
+        self.Kernels()
+        
+        # determine token generation and propagation
+        for state in self.states:
+            state.DeterminePropagationAndGeneration()
+
+
+        for item in self.start.Elements():
+            if item.Prod().left == self.grammar.RequireMeta("$START"):
+                item.SetLookahead(set([self.grammar.RequireEOF()]))
+
+        # set the spontaneously generated lookahead tokens
+        for state in self.states:
+            state.Generate()
+
+        # propagate the lookahead tokens
+        propagated = True
+        while propagated:
+            # print "Propagation Round"
+            propagated = False
+
+            for state in self.states:
+                propagated = state.Propagate() or propagated
+
+        self.CloseKernels()
+
+    def GenerateState(self, number, elements):
+        return LALR1StateTransitionGraphElement(self, number, elements)
+
+    def Construct(self):
+        # construct the starting point (virtual starting node) and use the RequireElement-method to  build up the tree
+
+        prod = Production(self.grammar.RequireMeta("$START"), [self.grammar.Start()], -1)
+        prod.SetAction("raise Accept()")
+
+        self.grammar.RequireMeta("$START").AddProd(prod)
+
+        # we use an empty lookahead set to generate the LR(0) item set
+        start = LR1Item(prod,0,set([]))
+        
+        self.start = self.RequireState(start.Closure(frozenset()))
+
+        # now we have to assign the lookahead sets
+        # self.Kernels()
+
+        # detect token generation and propagation
+        self.Propagate()
+
+        # self.CloseKernels()
+
+class LR1StateTransitionGraph(StateTransitionGraph):
+    """
+    The LR(1) State Transition Graph.
+    """
+    
+    def __init__(self, grammar):
+        super(LR1StateTransitionGraph, self).__init__(grammar)
+
+    def Construct(self):
+        # construct the starting point (virtual starting node) and use the RequireElement-method to  build up the tree
+
+        prod = Production(self.grammar.RequireMeta("$START"), [self.grammar.Start()], -1)
+        prod.SetAction("raise Accept()")
+
+        self.grammar.RequireMeta("$START").AddProd(prod)
+
+        start = LR1Item(prod,0,set([self.grammar.RequireEOF()])).Closure(frozenset())
+        
+        self.start = self.RequireState(start)
+
+    def GenerateState(self, number, elements):
+        return LR1StateTransitionGraphElement(self, number, elements)
+
 class LR1StateTransitionGraphElement(object):
 
     def __init__(self, graph, number, elements):
@@ -1045,6 +1183,29 @@ class LR1StateTransitionGraphElement(object):
     def Number(self):
         return self.number
 
+    def Kernel(self):
+        """
+        Reduce the item set to the Kernel items
+        """
+        res = set()
+
+        for elem in self.elements:
+            if elem.IsKernel():
+                res.add(elem)
+
+        self.elements = res
+
+    def Close(self):
+        """
+        Complete the item set to its closure
+        """
+        res = set()
+
+        for elem in self.elements:
+            res |= elem.Closure(frozenset())
+        
+        self.elements = self.graph.NormalizeItemSet(res)
+
     def GenerateSubStates(self):
         """
         Determine the substates of this state and add them to the transition graph.
@@ -1058,7 +1219,63 @@ class LR1StateTransitionGraphElement(object):
                 for cur in self.elements:
                     goto |= cur.Goto(elem.AfterDot())
 
-                self.transitions.add((elem, self.graph.RequireState(goto)))
+                self.transitions.add((elem.Core(), self.graph.RequireState(goto)))
+
+class LALR1StateTransitionGraphElement(LR1StateTransitionGraphElement):
+
+    def __init__(self, graph, number, elements):
+        super(LALR1StateTransitionGraphElement, self).__init__(graph, number, elements)
+
+        self.lapropagation = []
+        self.lageneration = []
+
+    def DeterminePropagationAndGeneration(self):
+        undef = self.graph.grammar.RequireUndef()
+
+        for item in self.elements:
+
+            item.SetLookahead(frozenset([undef]))
+            cls = item.Closure(frozenset())
+
+            for other in cls:
+                symb = other.AfterDot()
+                if symb != None:
+
+                    for s, stateTo in self.transitions:
+                        if s.AfterDot() == symb:
+
+                            for itemTo in stateTo.Elements():
+
+                                if itemTo.Prod() == other.Prod() and itemTo.Pos() == other.Pos() + 1:
+
+                                    for la in other.Lookahead():
+
+                                        if la == undef:
+                                            # print "Propagate", self.Number(), stateTo.Number(), item, "->", itemTo
+                                            self.lapropagation.append((item, itemTo))
+
+                                        else:
+                                            # print "Generate", itemTo, ":", la, "(", item, ")"
+                                            stateTo.lageneration.append((itemTo, la))
+
+            item.SetLookahead(frozenset())
+
+    def Generate(self):
+        for item, symb in self.lageneration:
+            newLa = set(item.Lookahead())
+            newLa.add(symb)
+            item.SetLookahead(newLa)
+            
+    def Propagate(self):
+        propagated = False
+        for item, to in self.lapropagation:
+            newLa = to.Lookahead() | item.Lookahead()
+
+            if newLa != to.Lookahead():
+                to.SetLookahead(newLa)
+                propagated = True
+
+        return propagated
 
 class AutomatonState(object):
     
@@ -2063,6 +2280,9 @@ if __name__ == '__main__':
     opt_parser = optparse.OptionParser(usage="usage: %prog [options] INFILE", version="%prog 0.1")
     opt_parser.add_option("-o", "--output-file", dest="ofile", help="set the output file to OFILE")
     opt_parser.add_option("-l", "--line-tracking", dest="lines", action='store_true', default=False, help="enable line tracking in the generated parser")
+    opt_parser.add_option("-L", "--lalr", dest="lalr", action='store_true', default=False, help="generate a LALR(1) parser instead of a LR(1) parser")
+    opt_parser.add_option("-d", "--debug", dest="debug", action='store_true', default=False, help="print debug information to stdout")
+    opt_parser.add_option("-f", "--fast", dest="fast", action='store_true', default=False, help="Fast run: generated larger and possibly slower parsers, but takes less time")
 
     options, args = opt_parser.parse_args()
 
@@ -2085,7 +2305,12 @@ if __name__ == '__main__':
     p = None # make it garbage
 
     # construct the parser
-    graph = LR1StateTransitionGraph(syn)
+    graph = None
+    if options.lalr:
+        graph = LALR1StateTransitionGraph(syn)
+    else:
+        graph = LR1StateTransitionGraph(syn)
+        
     graph.Construct()
 
     # construct the lexer
@@ -2094,18 +2319,22 @@ if __name__ == '__main__':
     lexingDFA = lexingNFA.CreateDFA()
     lexingNFA = None # remove the reference to make it garbage
     
-    lexingDFA.Optimize()
+    if not options.fast:
+        lexingDFA.Optimize()
 
     lexingTable = lexingDFA.CreateLexTable()
     lexingDFA = None
-    lexingTable.ConstructEquivalenceClasses()
 
-    # lexingTable.Print()
+    if not options.fast:
+        lexingTable.ConstructEquivalenceClasses()
 
-    # print "Parser States:", len(graph.states)
-    # print "Lexer States:", len(lexingDFA.states)
-    # for state in graph.states:
-    #     print str(state)
+    if options.debug:
+        # lexingTable.Print()
+
+        # print "Parser States:", len(graph.states)
+        # print "Lexer States:", len(lexingDFA.states)
+        for state in graph.states:
+            print str(state)
 
     # write lexer and parser
 
