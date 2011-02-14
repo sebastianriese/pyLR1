@@ -890,6 +890,28 @@ class LRActionVisitor(object):
     def VisitReduce(self, red):
         pass
 
+class StateTransition(object):
+    """
+    A transition from a LR state to another LR state
+    """
+
+    def __init__(self, symbol, state):
+        self.symbol = symbol
+        self.state = state
+
+    def __eq__(self, other):
+        return self.symbol == other.symbol \
+            and self.state == other.state
+
+    def __hash__(self):
+        return hash(self.symbol) ^ hash(self.state)
+
+    def Symbol(self):
+        return self.symbol
+
+    def State(self):
+        return self.state
+
 class StateTransitionGraph(object):
     """
     An *LR(1) state transition graph, this has the behaviour
@@ -1040,17 +1062,31 @@ class StateTransitionGraph(object):
             atable.append(acur)
             jtable.append(jcur)
 
-            for elem, tstate in state.Transitions():
-                if elem.AfterDot() in metas:
-                    jcur[metas[elem.AfterDot()]] = stateToIndex[tstate]
-                elif elem.AfterDot() in terminals:
-                    acur[terminals[elem.AfterDot()]] = Shift(stateToIndex[tstate], elem.Prod().GetAssoc(), elem.Prod().NumberInFile())
+            for trans, prods in state.Transitions().iteritems():
+                symb = trans.Symbol()
+                tstate = trans.State()
+
+                if symb in metas:
+                    jcur[metas[symb]] = stateToIndex[tstate]
+
+                elif symb in terminals:
+                    assoc = Production.NONE
+                    prec = -1
+
+                    for item in prods:
+                        nprec = item.Prod().NumberInFile()
+                        if nprec > prec:
+                            prec = nprec
+                            assoc = item.Prod().GetAssoc()
+                            
+                    acur[terminals[symb]] = Shift(stateToIndex[tstate], assoc, prec)
                 else:
-                    print str(elem)
+                    print state
+                    print str(symb)
                     raise Exception()
 
             for item in state.Elements():
-                if not item.AfterDot():
+                if item.AfterDot() is None:
                     for la in item.Lookahead():
                         if acur[terminals[la]] != None:
                             acur[terminals[la]] = self.ResolveConflict(state, acur[terminals[la]], Reduce(prodToRule[item.Prod()], item.Prod().GetAssoc(), item.Prod().NumberInFile()))
@@ -1152,7 +1188,7 @@ class LR1StateTransitionGraphElement(object):
         self.number = number
         self.graph = graph
         self.elements = elements
-        self.transitions = set()
+        self.transitions = dict()
 
     def __str__(self):
         lines = []
@@ -1165,8 +1201,7 @@ class LR1StateTransitionGraphElement(object):
 
         lines.append("transitions:")
         for trans in self.transitions:
-            token, state = trans
-            lines.append((token.AfterDot().Name() or "None") + " -> " + str(state.number))
+            lines.append((trans.Symbol().Name() or "None") + " -> " + str(trans.State().number))
 
         text = ""
         for line in lines:
@@ -1219,7 +1254,11 @@ class LR1StateTransitionGraphElement(object):
                 for cur in self.elements:
                     goto |= cur.Goto(elem.AfterDot())
 
-                self.transitions.add((elem.Core(), self.graph.RequireState(goto)))
+                trans = StateTransition(elem.AfterDot(), self.graph.RequireState(goto))
+                if trans not in self.transitions:
+                    self.transitions[trans] = set()
+
+                self.transitions[trans].add(elem.Core())
 
 class LALR1StateTransitionGraphElement(LR1StateTransitionGraphElement):
 
@@ -1241,8 +1280,9 @@ class LALR1StateTransitionGraphElement(LR1StateTransitionGraphElement):
                 symb = other.AfterDot()
                 if symb != None:
 
-                    for s, stateTo in self.transitions:
-                        if s.AfterDot() == symb:
+                    for trans in self.transitions:
+                        if trans.Symbol() == symb:
+                            stateTo = trans.State()
 
                             for itemTo in stateTo.Elements():
 
@@ -2282,7 +2322,7 @@ if __name__ == '__main__':
     opt_parser.add_option("-l", "--line-tracking", dest="lines", action='store_true', default=False, help="enable line tracking in the generated parser")
     opt_parser.add_option("-L", "--lalr", dest="lalr", action='store_true', default=False, help="generate a LALR(1) parser instead of a LR(1) parser")
     opt_parser.add_option("-d", "--debug", dest="debug", action='store_true', default=False, help="print debug information to stdout")
-    opt_parser.add_option("-f", "--fast", dest="fast", action='store_true', default=False, help="Fast run: generated larger and possibly slower parsers, but takes less time")
+    opt_parser.add_option("-f", "--fast", dest="fast", action='store_true', default=False, help="Fast run: generates larger and possibly slower parsers, but takes less time")
 
     options, args = opt_parser.parse_args()
 
