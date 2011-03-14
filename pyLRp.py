@@ -2042,9 +2042,10 @@ class LRActionToLRTableEntry(LRActionVisitor):
 
 class Writer(object):
 
-    def __init__(self, parser_file, lines):
+    def __init__(self, parser_file, lines, trace):
         self.parser_file = parser_file
         self.lines = lines
+        self.trace = trace
 
     def WriteHeader(self, header):
         self.parser_file.write("""# this file was generated automagically by pyLR1
@@ -2189,6 +2190,11 @@ class Lexer(object):
             linesPosAddition = """new.pos = stack[-size].pos.Add(stack[-1].pos)"""
             linesNullPos = "stack[-1].pos = Position('', 0,0,0,0)"
 
+        state_trace = ""
+
+        if self.trace:
+            state_trace = "print stack[-1].state, lexeme"
+
         self.parser_file.write("""
 class Accept(Exception):
     pass
@@ -2262,7 +2268,7 @@ class Parser(object):
             while True:
                 token, lexeme, pos = lexer.lex()
                 t, d = atable[stack[-1].state][token]
-
+                """ + state_trace + """
                 while t == 1:
                     size, sym, action = reductions[d]
                     state = gtable[stack[-size-1].state][sym]
@@ -2275,7 +2281,7 @@ class Parser(object):
 
                     stack.append(new)
                     t, d = atable[stack[-1].state][token]
-
+                    """ + state_trace + """
                 if t == 0:
                     new = StackObject(d)
                     new.sem = lexeme
@@ -2302,6 +2308,7 @@ class Parser(object):
             for char in text:
                 self.parser_file.write(char)
                 if char == '\n':
+                    # indent two levels: Parser class, current function
                     self.parser_file.write("        ")
 
             redNum += 1
@@ -2323,6 +2330,7 @@ if __name__ == '__main__':
     opt_parser.add_option("-L", "--lalr", dest="lalr", action='store_true', default=False, help="generate a LALR(1) parser instead of a LR(1) parser")
     opt_parser.add_option("-d", "--debug", dest="debug", action='store_true', default=False, help="print debug information to stdout")
     opt_parser.add_option("-f", "--fast", dest="fast", action='store_true', default=False, help="Fast run: generates larger and possibly slower parsers, but takes less time")
+    opt_parser.add_option("-T", "--trace", dest="trace", action='store_true', default=False, help="Generate a parser that prints out a trace of its state")
 
     options, args = opt_parser.parse_args()
 
@@ -2373,6 +2381,7 @@ if __name__ == '__main__':
 
         # print "Parser States:", len(graph.states)
         # print "Lexer States:", len(lexingDFA.states)
+
         for state in graph.states:
             print str(state)
 
@@ -2383,7 +2392,7 @@ if __name__ == '__main__':
     if options.ofile != None:
         fo = file(options.ofile, 'w')
 
-    writer = Writer(fo, options.lines)
+    writer = Writer(fo, options.lines, options.trace)
     writer.Write(syn, graph, lexingTable)
     
     if options.ofile != None:
