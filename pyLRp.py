@@ -504,6 +504,7 @@ class Parser(object):
     syntax_action_re = re.compile(r'\:')
     syntax_stoken_re = re.compile(r'\"((.|\\\")+?)\"')
     syntax_empty_re = re.compile(r'%empty')
+    syntax_prec_re = re.compile(r'%prec\s*\(\s*([a-zA-Z_][a-zA-Z_0-9]*)\s*\)')
     syntax_binding_re = re.compile(r'%left|%right|%nonassoc')
     syntax_binding_param_re = re.compile(r'(,\s*)?([a-zA-Z_][a-zA-Z_0-9]*|\"(.|\\\")+?\")')
 
@@ -606,6 +607,15 @@ class Parser(object):
                     match = self.syntax_empty_re.match(line)
                         
                     if match:
+                        break
+
+                    match = self.syntax_prec_re.match(line)
+                    if match:
+                        try:
+                            prod.SetAssoc(self.assocDefs[match.group(1)])
+                        except KeyError:
+                            print "Warning: %d: Erroneous precedence declaration" % self.line
+
                         break
 
                     match = self.syntax_action_re.match(line)
@@ -2311,6 +2321,7 @@ class Parser(object):
                     # indent two levels: Parser class, current function
                     self.parser_file.write("        ")
 
+            self.parser_file.write("\n")
             redNum += 1
 
 
