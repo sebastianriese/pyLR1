@@ -2050,12 +2050,29 @@ class LRActionToLRTableEntry(LRActionVisitor):
         rule = self.rulelist[red.Red()]        # return (1,len(rule),self.symtable[rule.Left().Name()].Number())
         return (1, red.Red())
 
+
 class Writer(object):
 
-    def __init__(self, parser_file, lines, trace):
+    def Deduplicate(self, iterable):
+        ded = []
+        indices = []
+        mapping = {}
+        
+        for entry in iterable:
+            if entry not in mapping:
+                var = len(ded)
+                ded.append(entry)
+                mapping[entry] = var
+
+            indices.append(mapping[entry])
+
+        return ded, indices
+
+    def __init__(self, parser_file, lines, trace, deduplicate):
         self.parser_file = parser_file
         self.lines = lines
         self.trace = trace
+        self.deduplicate = deduplicate
 
     def WriteHeader(self, header):
         self.parser_file.write("""# this file was generated automagically by pyLR1
@@ -2068,17 +2085,29 @@ import mmap
         for headline in header:
             self.parser_file.write(headline + "\n")
 
+    def TableStrings(self, helper, tableTuple):
+        tablehelper = ""
+        tablestr = "("
+
+        if self.deduplicate:
+            ded, indices = self.Deduplicate(tableTuple)
+
+            tablehelper = helper + ' = (' + ',\n'.join(str(entry).replace(' ', '') for entry in ded) + ')'
+            tablestr += ','.join(helper + '[%d]' % i for i in indices)
+        else:
+            for state in tableTuple:
+                tablestr += str(state).replace(' ', '')
+                tablestr += ",\n"
+
+        tablestr += ")"
+
+        return tablehelper, tablestr
+
 
     def WriteLexer(self, lextable, symtable):
         table, start, actions, mapping = lextable.Get()
             
-        # create the string representing the lex-table
-        lextablestr = "("
-        for state in table:
-            lextablestr += str(tuple(a[0] for a in state))
-            lextablestr += ",\n"
-        lextablestr += ")"
-
+        lextablehelper, lextablestr = self.TableStrings("ltd", tuple(tuple(a[0] for a in state) for state in table))
         
         # create the string representing the actions
         actionstr = "(\n"
@@ -2135,6 +2164,11 @@ import mmap
 """ + linesPositionClass + """
 
 class Lexer(object):
+
+    mapping = """ + mappingstr + """
+    """ + lextablehelper + """
+    table   = """ + lextablestr + """
+
     def __init__(self, codefile):
         code = file(codefile, 'r')
         self.buffer = mmap.mmap(code.fileno(), 0, access=mmap.ACCESS_READ)
@@ -2145,9 +2179,7 @@ class Lexer(object):
         self.position = 0
         self.current_token = None
         self.start = %d""" % start + """
-        self.table = """ + lextablestr + """
         self.actions = """ + actionstr + """
-        self.mapping = """ + mappingstr + """
         self.line    = 1
         self.linestart = 0
 
@@ -2221,32 +2253,9 @@ class Parser(object):
 
         translator = LRActionToLRTableEntry(parseTable.Rules(), symtable)
 
-        actionTableStr = "("
-        for state in parseTable.Actiontable():
-            actionTableStr += "("
-            for entry in state:
-                if entry != None:
-                    actionTableStr += str(translator.Visit(entry))
-                    actionTableStr += ","
-                else:
-                    actionTableStr += "(2,0),"
+        actionTableHelper, actionTableStr = self.TableStrings("atd", tuple(tuple(translator.Visit(a) if a != None else (2,0) for a in state) for state in parseTable.Actiontable()))
 
-            actionTableStr += "),\n"
-        actionTableStr += ")"
-
-        gotoTableStr = "("
-        for state in parseTable.Gototable():
-            gotoTableStr += "("
-            for entry in state:
-                if entry:
-                    gotoTableStr += str(entry)
-                    gotoTableStr += ","
-                else:
-                    gotoTableStr += "0,"
-
-            gotoTableStr += "),\n"
-
-        gotoTableStr += ")"
+        gotoTableHelper, gotoTableStr = self.TableStrings("gtd", tuple(tuple(a if a else 0 for a in state) for state in parseTable.Gototable()))
 
         reductionStr = "("
         i = 0
@@ -2256,13 +2265,17 @@ class Parser(object):
         reductionStr += ")"
 
         self.parser_file.write("""
+    # tables
+    start = %d""" % parseTable.Start() + """
+    """ + actionTableHelper + """
+    atable = """ + actionTableStr + """
+    """ + gotoTableHelper + """
+    gtable = """ + gotoTableStr + """
+
     # auto generated methods
     def __init__(self, lexer):
         self.lexer = lexer
         self.stack = []
-        self.start = %d""" % parseTable.Start()  + """
-        self.atable = """ + actionTableStr + """
-        self.gtable = """ + gotoTableStr + """
         self.reductions = """ + reductionStr + """
  
     def Parse(self):
@@ -2340,6 +2353,7 @@ if __name__ == '__main__':
     opt_parser.add_option("-l", "--line-tracking", dest="lines", action='store_true', default=False, help="enable line tracking in the generated parser")
     opt_parser.add_option("-L", "--lalr", dest="lalr", action='store_true', default=False, help="generate a LALR(1) parser instead of a LR(1) parser")
     opt_parser.add_option("-d", "--debug", dest="debug", action='store_true', default=False, help="print debug information to stdout")
+    opt_parser.add_option("-D", "--not-deduplicate", dest="deduplicate", action='store_false', default=True, help="Write out the tables entirely")
     opt_parser.add_option("-f", "--fast", dest="fast", action='store_true', default=False, help="Fast run: generates larger and possibly slower parsers, but takes less time")
     opt_parser.add_option("-T", "--trace", dest="trace", action='store_true', default=False, help="Generate a parser that prints out a trace of its state")
 
@@ -2403,7 +2417,7 @@ if __name__ == '__main__':
     if options.ofile != None:
         fo = file(options.ofile, 'w')
 
-    writer = Writer(fo, options.lines, options.trace)
+    writer = Writer(fo, options.lines, options.trace, options.deduplicate)
     writer.Write(syn, graph, lexingTable)
     
     if options.ofile != None:
