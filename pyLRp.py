@@ -2308,7 +2308,7 @@ class Parser(object):
                     """ + linesPosAddition  + """
                     action(new)
 
-                    for j in xrange(size):
+                    for j in """ + ("range(size)" if self.python3 else "xrange(size)") + """:
                         stack.pop()
 
                     stack.append(new)
