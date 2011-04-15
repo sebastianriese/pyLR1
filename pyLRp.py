@@ -1,3 +1,4 @@
+#!/usr/bin/python2
 """
 Parse parser and lexer specifications and create DFA lexers 
 and LR(1) or LALR(1) parsers from them.
@@ -2068,11 +2069,12 @@ class Writer(object):
 
         return ded, indices
 
-    def __init__(self, parser_file, lines, trace, deduplicate):
+    def __init__(self, parser_file, lines, trace, deduplicate, python3):
         self.parser_file = parser_file
         self.lines = lines
         self.trace = trace
         self.deduplicate = deduplicate
+        self.python3 = python3
 
     def WriteHeader(self, header):
         self.parser_file.write("""# this file was generated automagically by pyLR1
@@ -2121,10 +2123,16 @@ import mmap
         actionstr += "        )"
 
         mappingstr = "("
-        lookup = "ord(buffer[self.position])"
+        if self.python3:
+            lookup = "buffer[self.position]"
+        else:
+            lookup = "ord(buffer[self.position])"
         if mapping:
             # create the string mapping
-            lookup = "mapping[ord(buffer[self.position])]"
+            if self.python3:
+                lookup = "mapping[buffer[self.position]]"
+            else:
+                lookup = "mapping[ord(buffer[self.position])]"
             
             for entry in mapping:
                 mappingstr += str(entry)
@@ -2170,7 +2178,7 @@ class Lexer(object):
     table   = """ + lextablestr + """
 
     def __init__(self, codefile):
-        code = file(codefile, 'r')
+        code = open(codefile, 'r')
         self.buffer = mmap.mmap(code.fileno(), 0, access=mmap.ACCESS_READ)
         self.size = self.buffer.size()
         code.close()
@@ -2356,6 +2364,8 @@ if __name__ == '__main__':
     opt_parser.add_option("-D", "--not-deduplicate", dest="deduplicate", action='store_false', default=True, help="Write out the tables entirely")
     opt_parser.add_option("-f", "--fast", dest="fast", action='store_true', default=False, help="Fast run: generates larger and possibly slower parsers, but takes less time")
     opt_parser.add_option("-T", "--trace", dest="trace", action='store_true', default=False, help="Generate a parser that prints out a trace of its state")
+    opt_parser.add_option("-3", "--python3", dest="python3", action='store_true', default=False, help="Generate python3 compatible parser")
+
 
     options, args = opt_parser.parse_args()
 
@@ -2415,9 +2425,9 @@ if __name__ == '__main__':
     fo = sys.stdout
 
     if options.ofile != None:
-        fo = file(options.ofile, 'w')
+        fo = open(options.ofile, 'w')
 
-    writer = Writer(fo, options.lines, options.trace, options.deduplicate)
+    writer = Writer(fo, options.lines, options.trace, options.deduplicate, options.python3)
     writer.Write(syn, graph, lexingTable)
     
     if options.ofile != None:
