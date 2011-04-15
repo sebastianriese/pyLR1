@@ -2164,7 +2164,8 @@ import mmap
 
             linesStartTrack = "if buffer[self.position] == '\\n': self.linestart = self.position - 1"
 
-            linesPositionCalc = """self.line += self.buffer[self.last_token_end:pos].count('\\n'); position = Position('', self.line, self.root-self.linestart, self.line, pos - self.linestart)"""
+            linesPositionCalc = """self.line += self.buffer[self.last_token_end:pos].count(b'\\n')
+           position = Position('', self.line, self.root-self.linestart, self.line, pos - self.linestart)"""
 
         self.parser_file.write("""class GotToken(Exception):
     pass
