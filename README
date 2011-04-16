@@ -2,10 +2,18 @@ README - pyLRp python LR(1) parser generator
 
 Author: Sebastian Riese <sebastian.riese.mail@web.de>
 
-The sample files show how to use the parser generator.
-More documentation will follow.
+The sample files show how to use the parser generator. But are out
+of date at the moment. More documentation will follow.
 
-Invocation: python pyLRp.py [-o output] input [-l]
+Invocation: python pyLRp.py [-o output] input [-l] [-L]
+
+Contributors
+------------
+
+Jonas Wielicki (Python 3 support, testing)
+
+License
+-------
 
 Copyright 2009, 2010 Sebastian Riese
 
