@@ -853,7 +853,7 @@ class LRAction(object):
         self.numInFile = numInFile
 
     def GetAssoc(self): return self.prec
-    def NumberInFile(self): return self.numberInFile
+    def NumberInFile(self): return self.numInFile
 
     def Accept(self, visitor):
         raise NotImplementedError()
@@ -933,7 +933,13 @@ class StateTransitionGraph(object):
         self.grammar = grammar
         self.states = []
 
+        self.conflicts = 0
+
         self.start = None
+
+    def ReportNumOfConflicts(self):
+        if self.conflicts:
+            print self.conflicts, "conflicts found!"
 
     def Construct(self):
         raise NotImplementedError()
@@ -983,6 +989,7 @@ class StateTransitionGraph(object):
         if old.IsReduce():
             print state
             print "Default to the first reduce for reduce/reduce-conflict"
+            self.conflicts += 1
             if old.NumberInFile() > new.NumberInFile():
                 return new
 
@@ -994,6 +1001,7 @@ class StateTransitionGraph(object):
             if assoc == Production.NONE:
                 print state
                 print "Default to shift for shift/reduce-conflict"
+                self.conflicts += 1
                 return old
 
             elif assoc == Production.NONASSOC:
@@ -2233,6 +2241,7 @@ class Lexer(object):
     def WriteParser(self, graph, symtable):
 
         parseTable = graph.CreateParseTable(symtable)
+        graph.ReportNumOfConflicts()
         # parseTable.Print()
 
         linesPosAddition = ""
@@ -2359,11 +2368,11 @@ class Parser(object):
 if __name__ == '__main__':
 
     opt_parser = optparse.OptionParser(usage="usage: %prog [options] INFILE", version="%prog 0.1")
-    opt_parser.add_option("-o", "--output-file", dest="ofile", help="set the output file to OFILE")
-    opt_parser.add_option("-l", "--line-tracking", dest="lines", action='store_true', default=False, help="enable line tracking in the generated parser")
-    opt_parser.add_option("-L", "--lalr", dest="lalr", action='store_true', default=False, help="generate a LALR(1) parser instead of a LR(1) parser")
-    opt_parser.add_option("-d", "--debug", dest="debug", action='store_true', default=False, help="print debug information to stdout")
-    opt_parser.add_option("-D", "--not-deduplicate", dest="deduplicate", action='store_false', default=True, help="Write out the tables entirely")
+    opt_parser.add_option("-o", "--output-file", dest="ofile", help="Set the output file to OFILE")
+    opt_parser.add_option("-l", "--line-tracking", dest="lines", action='store_true', default=False, help="Enable line tracking in the generated parser")
+    opt_parser.add_option("-L", "--lalr", dest="lalr", action='store_true', default=False, help="Generate a LALR(1) parser instead of a LR(1) parser")
+    opt_parser.add_option("-d", "--debug", dest="debug", action='store_true', default=False, help="Print debug information to stdout")
+    opt_parser.add_option("-D", "--not-deduplicate", dest="deduplicate", action='store_false', default=True, help="Write out the tables entirely as one big literal")
     opt_parser.add_option("-f", "--fast", dest="fast", action='store_true', default=False, help="Fast run: generates larger and possibly slower parsers, but takes less time")
     opt_parser.add_option("-T", "--trace", dest="trace", action='store_true', default=False, help="Generate a parser that prints out a trace of its state")
     opt_parser.add_option("-3", "--python3", dest="python3", action='store_true', default=False, help="Generate python3 compatible parser")
