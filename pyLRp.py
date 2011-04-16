@@ -1,4 +1,4 @@
-#!/usr/bin/python2
+#!/usr/bin/env python
 """
 Parse parser and lexer specifications and create DFA lexers 
 and LR(1) or LALR(1) parsers from them.
@@ -2122,22 +2122,23 @@ import mmap
 
         actionstr += "        )"
 
-        mappingstr = "("
+        mappingstr = ""
         if self.python3:
-            lookup = "buffer[self.position]"
+            extract = '.decode("UTF-8")'
+            baccess = "buffer[self.position]"
         else:
-            lookup = "ord(buffer[self.position])"
+            extract = ''
+            baccess = "ord(buffer[self.position])"
+
         if mapping:
             # create the string mapping
-            if self.python3:
-                lookup = "mapping[buffer[self.position]]"
-            else:
-                lookup = "mapping[ord(buffer[self.position])]"
+            lookup = "mapping[" + baccess + "]"
             
+            mappingstr = "mapping = ("
             for entry in mapping:
                 mappingstr += str(entry)
                 mappingstr += ","
-        mappingstr += ")"
+            mappingstr += ")"
 
         
         select = "actions[self.state]()"
@@ -2161,13 +2162,11 @@ import mmap
     def __str__(self):
         return "Line %d:%d - %d:%d" % (self.line0, self.col0, self.line1, self.col1)
 """
-            if self.python3:
-                linesStartTrack = "if buffer[self.position] == 10: self.linestart = self.position - 1"
-            else:
-                linesStartTrack = "if buffer[self.position] == '\\n': self.linestart = self.position - 1"
 
-            linesPositionCalc = """self.line += self.buffer[self.last_token_end:pos].count(b'\\n')
-           position = Position('', self.line, self.root-self.linestart, self.line, pos - self.linestart)"""
+            linesStartTrack = "if " + baccess + " == 10: self.linestart = self.position - 1"
+
+            linesPositionCalc = """self.line += self.buffer[self.last_token_end:pos] """ + extract + """ .count('\\n')
+            position = Position('', self.line, self.root-self.linestart, self.line, pos - self.linestart)"""
 
         self.parser_file.write("""class GotToken(Exception):
     pass
@@ -2176,7 +2175,7 @@ import mmap
 
 class Lexer(object):
 
-    mapping = """ + mappingstr + """
+    """ + mappingstr + """
     """ + lextablehelper + """
     table   = """ + lextablestr + """
 
@@ -2209,13 +2208,13 @@ class Lexer(object):
                 """ + select  + """
             raise GotToken()
         except GotToken:
-           name, pos = self.current_token
-           """ + linesPositionCalc + """
-           text = self.buffer[self.root:pos]
-           self.root = pos
-           self.last_token_end = pos
-           self.position = self.root
-           return (name, text, position)
+            name, pos = self.current_token
+            """ + linesPositionCalc + """
+            text = self.buffer[self.root:pos]""" + extract + """
+            self.root = pos
+            self.last_token_end = pos
+            self.position = self.root
+            return (name, text, position)
 """)
 
         lexActionGen = LexActionToCode(symtable)
@@ -2318,7 +2317,7 @@ class Parser(object):
                     """ + state_trace + """
                 if t == 0:
                     new = StackObject(d)
-                    new.sem = lexeme.decode("UTF-8")
+                    new.sem = lexeme
                     new.pos = pos
                     stack.append(new)
                     # action, e.g. a lexcal tie-in
