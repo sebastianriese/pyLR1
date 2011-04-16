@@ -2161,8 +2161,10 @@ import mmap
     def __str__(self):
         return "Line %d:%d - %d:%d" % (self.line0, self.col0, self.line1, self.col1)
 """
-
-            linesStartTrack = "if buffer[self.position] == 10: self.linestart = self.position - 1"
+            if self.python3:
+                linesStartTrack = "if buffer[self.position] == 10: self.linestart = self.position - 1"
+            else:
+                linesStartTrack = "if buffer[self.position] == '\\n': self.linestart = self.position - 1"
 
             linesPositionCalc = """self.line += self.buffer[self.last_token_end:pos].count(b'\\n')
            position = Position('', self.line, self.root-self.linestart, self.line, pos - self.linestart)"""
