@@ -2162,7 +2162,7 @@ import mmap
         return "Line %d:%d - %d:%d" % (self.line0, self.col0, self.line1, self.col1)
 """
 
-            linesStartTrack = "if buffer[self.position] == '\\n': self.linestart = self.position - 1"
+            linesStartTrack = "if buffer[self.position] == 10: self.linestart = self.position - 1"
 
             linesPositionCalc = """self.line += self.buffer[self.last_token_end:pos].count(b'\\n')
            position = Position('', self.line, self.root-self.linestart, self.line, pos - self.linestart)"""
@@ -2316,7 +2316,7 @@ class Parser(object):
                     """ + state_trace + """
                 if t == 0:
                     new = StackObject(d)
-                    new.sem = lexeme
+                    new.sem = lexeme.decode("UTF-8")
                     new.pos = pos
                     stack.append(new)
                     # action, e.g. a lexcal tie-in
