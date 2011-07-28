@@ -255,6 +255,9 @@ class Symbol(object):
 
     def Name(self):
         return self.name
+
+    def IsSToken(self):
+        return False
         
     def Syntax(self):
         return self.syntax
@@ -338,11 +341,15 @@ class Empty(Symbol):
 class Terminal(Symbol):
     """The Terminal symbol class."""
 
-    def __init__(self, name, syntax):
+    def __init__(self, name, syntax, stoken):
         super(Terminal, self).__init__(name, syntax)
+        self.stoken = stoken
  
     def First(self, visited):
         return set([self])
+
+    def IsSToken(self):
+        return self.stoken
 
 class Meta(Symbol):
     """
@@ -494,6 +501,7 @@ class GetMatch(LexingAction):
         return visitor.VisitGetMatch(self)
 
 class Parser(object):
+    ast_re = re.compile(r"%ast\s*$")
     parser_re = re.compile(r"%parser\s*$")
     lexer_re = re.compile(r"%lexer\s*$")
     comment_re = re.compile(r"\s*([^\\]#.*|)(#.*)?\s*$")
@@ -506,8 +514,12 @@ class Parser(object):
     syntax_stoken_re = re.compile(r'\"((.|\\\")+?)\"')
     syntax_empty_re = re.compile(r'%empty')
     syntax_prec_re = re.compile(r'%prec\s*\(\s*([a-zA-Z_][a-zA-Z_0-9]*)\s*\)')
+    syntax_AST_re = re.compile(r'%AST\s*\(\s*([a-zA-Z_][a-zA-Z_0-9]*)\s*\)')
     syntax_binding_re = re.compile(r'%left|%right|%nonassoc')
     syntax_binding_param_re = re.compile(r'(,\s*)?([a-zA-Z_][a-zA-Z_0-9]*|\"(.|\\\")+?\")')
+
+    ast_list_re = re.compile(r'%list\s+([a-zA-Z_][a-zA-Z_0-9]*)')
+    ast_visitor_re = re.compile(r'%visitor\s+([a-zA-Z_][a-zA-Z_0-9]*)')
 
     def __init__(self, grammar_file):
         self.syntax = Syntax()
@@ -527,6 +539,19 @@ class Parser(object):
 
     def Header(self, line):
         self.syntax.AddHeader(line)
+
+    def AST(self, line):
+        match = self.ast_list_re.match(line)
+        if match:
+            self.syntax.ASTInfo().List(match.group(1))
+            return
+
+        match = self.ast_visitor_re.match(line)
+        if not match:
+            print "Error: line %i, invalid AST spec" % (self.line,)
+            return
+
+        self.syntax.ASTInfo().visitor = match.group(1)
 
     def Lexer(self, line):
          match = self.lexing_rule_re.match(line)
@@ -595,7 +620,7 @@ class Parser(object):
                 # effectively this simulates goto to common code
                 while True:
                     if match:
-                        elem = self.syntax.RequireTerminal(match.group(0))
+                        elem = self.syntax.RequireTerminal(match.group(0), stoken=True)
                         self.syntax.AddInlineLexingRule(match.group(1))
                         break
                     
@@ -617,6 +642,11 @@ class Parser(object):
                         except KeyError:
                             print "Warning: %d: Erroneous precedence declaration" % self.line
 
+                        break
+
+                    match = self.syntax_AST_re.match(line)
+                    if match:
+                        self.syntax.ASTInfo().Bind(prod, match.group(1))
                         break
 
                     match = self.syntax_action_re.match(line)
@@ -689,6 +719,9 @@ class Parser(object):
 
             if self.comment_re.match(line):
                 pass
+            elif self.ast_re.match(line):
+                self.state = self.AST
+                self.syntax.ASTInfo().Used()
             elif self.parser_re.match(line):
                 self.state = self.Parser
             elif self.lexer_re.match(line):
@@ -698,6 +731,23 @@ class Parser(object):
 
         return self.syntax
 
+class ASTInformation(object):
+
+    def Used(self):
+        self.used = True
+
+    def List(self, symbol):
+        self.lists.add(symbol)
+
+    def Bind(self, production, name):
+        self.bindings[production] = name
+        
+    def __init__(self):
+        self.used    = False
+        self.lists   = set()
+        self.visitor = 'ASTVisitor'
+        self.bindings = {}
+
 
 class Syntax(object):
 
@@ -705,6 +755,7 @@ class Syntax(object):
     META = 1
     EOF = 2
     UNDEF = 3
+
 
     class SymbolTableEntry(object):
         
@@ -728,6 +779,7 @@ class Syntax(object):
 
         self.start = None
         self.symbols = {}
+        self.ast_info = ASTInformation()
         self.header = []
 
         self.lexer = []
@@ -735,6 +787,9 @@ class Syntax(object):
     
     def InlineTokens(self):
         return self.inline_tokens
+
+    def ASTInfo(self):
+        return self.ast_info
 
     def Lexer(self):
         return self.lexer
@@ -764,9 +819,9 @@ class Syntax(object):
 
         return self.symbols["$UNDEF"].Symbol()
 
-    def RequireTerminal(self, name):
+    def RequireTerminal(self, name, stoken=False):
         if name not in self.symbols:
-            self.symbols[name] = Syntax.SymbolTableEntry(Terminal(name, self), self.termcounter, self.TERMINAL)
+            self.symbols[name] = Syntax.SymbolTableEntry(Terminal(name, self, stoken), self.termcounter, self.TERMINAL)
             self.termcounter += 1
 
         return self.symbols[name].Symbol()
@@ -2113,6 +2168,82 @@ import mmap
 
         return tablehelper, tablestr
 
+    def WriteAST(self, ast, symtable):
+        if not ast.used:
+            return
+
+        classes = {}
+
+        # collect information on the classes
+        # and attach the actions
+        for symbol in symtable.itervalues():
+            if symbol.SymType() == Syntax.META:
+                if symbol.Symbol().Name() in ast.lists:
+                    # trivial list creation ... could be more intelligent
+                    # at guessing how to do this
+                    for prod in symbol.Symbol().Productions():
+                        if len(prod) == 0:
+                            prod.SetAction('$$.sem = []')
+                        if len(prod) == 1:
+                            prod.SetAction('$$.sem = [$1.sem]')
+                        elif len(prod) == 2:
+                            prod.SetAction('$$.sem = $1.sem; $$.sem.append($2.sem)')
+                else:
+                    for prod in symbol.Symbol().Productions():
+                        if prod in ast.bindings:
+                            args = []
+                            i = 0
+                            action = "$$.sem = " + ast.bindings[prod] + "(";
+                            for symb in prod:
+                                i += 1
+                                if not symb.IsSToken():
+                                    action += '$%d.sem, ' % i
+                                    if symb.Name() in args:
+                                        args.append('%s%d' % (symb.Name(), args.count(symb.Name())))
+                                    else:
+                                        args.append(symb.Name())
+                            action += ")"
+                            classes[ast.bindings[prod]] = args
+                            prod.SetAction(action)
+
+        self.parser_file.write("""
+class AST(object):
+    def Accept(self, visitor):
+        raise NotImplementedError()
+
+class %s(object):
+    def Visit(self, ast):
+        return ast.Accept(self)
+""" % (ast.visitor,))
+    
+        for name in classes:
+            self.parser_file.write("""
+    def Visit%s(self, node):
+        raise NotImplementedError()
+""" % (name,))
+
+        for name, args in classes.iteritems():
+            self.parser_file.write("""
+class %s(AST):
+    def __init__(self,""" % (name,))
+
+            for arg in args:
+                self.parser_file.write("%s, " % arg)
+            self.parser_file.write("):")
+            for arg in args:
+                self.parser_file.write("""
+        self.%s = %s""" % (arg, arg))
+
+            for arg in args:
+                self.parser_file.write("""
+    def get_%s(self):
+        return self.%s
+""" % (arg, arg))
+    
+            self.parser_file.write("""
+    def Accept(self, visitor):
+        return visitor.Visit%s(self)
+""" % (name,))
 
     def WriteLexer(self, lextable, symtable):
         table, start, actions, mapping = lextable.Get()
@@ -2358,8 +2489,10 @@ class Parser(object):
 
 
     def Write(self, syntax, graph, lextable):
-
+        
         self.WriteHeader(syntax.Header())
+
+        self.WriteAST(syntax.ASTInfo(), syntax.SymTable())
 
         self.WriteLexer(lextable, syntax.SymTable())
 
