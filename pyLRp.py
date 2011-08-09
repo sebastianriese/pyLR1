@@ -2087,7 +2087,7 @@ class LexActionToCode(LexingActionVisitor):
         self.symtable = symtable
     
     def VisitRestart(self, action):
-        return "self.root = self.position; self.state = self.start"
+        return "self.root = self.position; self.state = self.start; self.current_token = (%d, self.position)" % self.symtable["$EOF"].Number()
 
     def VisitToken(self, action):
         return "self.current_token = (%d, self.position)" % self.symtable[action.Name()].Number()
@@ -2182,18 +2182,32 @@ import mmap
                     # trivial list creation ... could be more intelligent
                     # at guessing how to do this
                     for prod in symbol.Symbol().Productions():
-                        if len(prod) == 0:
+                        if prod.GetAction():
+                            continue
+                        positions = []
+                        i = 0
+                        for symb in prod:
+                            i += 1
+                            if not symb.IsSToken():
+                                positions.append(i)
+                        
+                        if len(positions) == 0:
                             prod.SetAction('$$.sem = []')
-                        if len(prod) == 1:
-                            prod.SetAction('$$.sem = [$1.sem]')
-                        elif len(prod) == 2:
-                            prod.SetAction('$$.sem = $1.sem; $$.sem.append($2.sem)')
+                        elif len(positions) == 1:
+                            prod.SetAction('$$.sem = [$%d.sem]' % tuple(positions))
+                        elif len(positions) == 2:
+                            prod.SetAction('$$.sem = $%d.sem; $$.sem.append($%d.sem)' % tuple(positions))
+                        else:
+                            raise Exception("Foo: more items than can be enlisted ")
                 else:
                     for prod in symbol.Symbol().Productions():
                         if prod in ast.bindings:
                             args = []
                             i = 0
-                            action = "$$.sem = " + ast.bindings[prod] + "(";
+                            action = "$$.sem = " + ast.bindings[prod] + "("
+                            if self.lines:
+                                action += "$$.pos, "
+
                             for symb in prod:
                                 i += 1
                                 if not symb.IsSToken():
@@ -2210,7 +2224,15 @@ import mmap
 class AST(object):
     def Accept(self, visitor):
         raise NotImplementedError()
+""")
 
+        if self.lines:
+            self.parser_file.write("""
+    def Pos(self):
+        return self.pos
+""")
+
+        self.parser_file.write(""" 
 class %s(object):
     def Visit(self, ast):
         return ast.Accept(self)
@@ -2222,14 +2244,24 @@ class %s(object):
         raise NotImplementedError()
 """ % (name,))
 
+        basearg = ['self']
+        if self.lines:
+            basearg.append('pos')
+
         for name, args in classes.iteritems():
             self.parser_file.write("""
 class %s(AST):
-    def __init__(self,""" % (name,))
+    def __init__(""" % (name,) + ", ".join(basearg + args))
 
-            for arg in args:
-                self.parser_file.write("%s, " % arg)
             self.parser_file.write("):")
+            if len(args) == 0:
+                self.parser_file.write("""
+        pass""")
+
+            if self.lines:
+                self.parser_file.write("""
+        self.pos = pos""")
+
             for arg in args:
                 self.parser_file.write("""
         self.%s = %s""" % (arg, arg))
