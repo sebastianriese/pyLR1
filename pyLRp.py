@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Parse parser and lexer specifications and create DFA lexers 
+Parse parser and lexer specifications and create DFA lexers
 and LR(1) or LALR(1) parsers from them.
 """
 
@@ -44,7 +44,7 @@ class Production(object):
         self.number = number
         self.assoc = Production.NONE, 0
         self.text = ""
-        
+
         # self.first = None
 
     def __iter__(self):
@@ -63,7 +63,7 @@ class Production(object):
 
     # important note: this number is completely independet of the
     # number used to represent  the production in the parse table!
-    # This one is  used  exclusivley to resolve  conflicts in the 
+    # This one is  used  exclusivley to resolve  conflicts in the
     # parse  tables  (earlier  declaration  ->  higer  precedence)
     def NumberInFile(self):
         return self.number
@@ -136,7 +136,7 @@ class Production(object):
 
 class LR1Item(object):
     """A LR(1) item (production, position, lookahead set)"""
-    
+
     def __init__(self, prod, pos, la):
         self.prod = prod
         self.pos = pos
@@ -155,7 +155,7 @@ class LR1Item(object):
 
         if count == self.pos:
             text += ". "
-            
+
         text += "{ "
 
         for sub in self.la:
@@ -170,7 +170,7 @@ class LR1Item(object):
     @classmethod
     def FromCore(clazz, lr0, la):
         return clazz(lr0.prod, lr0.pos, la)
-    
+
     def __hash__(self):
         return hash(self.prod) \
             ^ hash(self.pos) \
@@ -213,7 +213,7 @@ class LR1Item(object):
             result |= LR1Item(self.prod, self.pos+1, self.la).Closure(frozenset())
 
         return result
-            
+
     def Closure(self, visited):
         # possibly the buffering is buggy
         if (self.prod,self.pos,self.la) in self.closure:
@@ -222,10 +222,10 @@ class LR1Item(object):
         closure = set([self])
         afterDot = self.AfterDot()
         recurses = False
-        
+
         if afterDot:
             laset = set()
-                
+
             for la in self.la:
                 firstconcat = self.prod.SubProduction(self.pos+1, None).Concat(la)
                 laset |= firstconcat.First(frozenset())
@@ -258,7 +258,7 @@ class Symbol(object):
 
     def IsSToken(self):
         return False
-        
+
     def Syntax(self):
         return self.syntax
 
@@ -344,7 +344,7 @@ class Terminal(Symbol):
     def __init__(self, name, syntax, stoken):
         super(Terminal, self).__init__(name, syntax)
         self.stoken = stoken
- 
+
     def First(self, visited):
         return set([self])
 
@@ -388,19 +388,19 @@ class Meta(Symbol):
         return result
 
     def ReducesToEmpty(self, visited):
-        
+
         if self.reduces_to_empty != None:
             return self.reduces_to_empty
 
         for prod in self.prod:
-            
+
             for sub in prod:
                 if sub not in visited and not sub.ReducesToEmpty(visited | set([self])):
                     # the whole production doesn't reduce to empty (because one subsymbol doesn't)
                     break
             else:
                 # all subsymbols in the production reduced to empty, break the main loop
-                
+
                 if len(visited) == 0:
                     self.reduces_to_empty = True
 
@@ -413,7 +413,7 @@ class Meta(Symbol):
         return False
 
 class LexingRule(object):
-    
+
     def __init__(self, state, regex, action):
         self.state = state
         self.regex = regex
@@ -443,7 +443,7 @@ class LexingActionVisitor(object):
         pass
 
 class LexingAction(object):
-    
+
     def __init__(self):
         pass
 
@@ -451,7 +451,7 @@ class LexingAction(object):
         raise NotImplementedError()
 
 class List(LexingAction):
-    
+
     def __init__(self, lst = []):
         super(LexingAction, self).__init__()
         self.list = lst
@@ -464,7 +464,7 @@ class List(LexingAction):
 
 
 class Restart(LexingAction):
-    
+
     def __init__(self):
         super(LexingAction, self).__init__()
 
@@ -475,7 +475,7 @@ class Restart(LexingAction):
         return visitor.VisitRestart(self)
 
 class Token(LexingAction):
-    
+
     def __init__(self, name):
         super(LexingAction, self).__init__()
         self.name = name
@@ -537,10 +537,16 @@ class Parser(object):
 
         self.state = self.Header
 
-    def Header(self, line):
+    def Header(self, line, eof=False):
+        if eof:
+            return
+
         self.syntax.AddHeader(line)
 
-    def AST(self, line):
+    def AST(self, line, eof=False):
+        if eof:
+            return
+
         match = self.ast_list_re.match(line)
         if match:
             self.syntax.ASTInfo().List(match.group(1))
@@ -553,7 +559,10 @@ class Parser(object):
 
         self.syntax.ASTInfo().visitor = match.group(1)
 
-    def Lexer(self, line):
+    def Lexer(self, line, eof=False):
+         if eof:
+             return
+
          match = self.lexing_rule_re.match(line)
 
          if not match:
@@ -567,7 +576,9 @@ class Parser(object):
              self.syntax.RequireTerminal(match.group(4))
              self.syntax.AddLexingRule(LexingRule(None, match.group(1), Token(match.group(4))))
 
-    def Parser(self, line):
+    def Parser(self, line, eof=False):
+        if eof:
+            return
 
         if self.current == None:
             match = self.syntax_binding_re.match(line)
@@ -623,15 +634,15 @@ class Parser(object):
                         elem = self.syntax.RequireTerminal(match.group(0), stoken=True)
                         self.syntax.AddInlineLexingRule(match.group(1))
                         break
-                    
+
                     match = self.syntax_symbol_re.match(line)
-                    
+
                     if match:
                         elem = self.syntax.RequireMeta(match.group(1))
                         break
 
                     match = self.syntax_empty_re.match(line)
-                        
+
                     if match:
                         break
 
@@ -673,11 +684,11 @@ class Parser(object):
                 if elem:
                     prod.SetAssoc(self.assocDefs.get(elem.Name(), prod.GetAssoc()))
                     prod.AddSym(elem)
-                    
+
             self.current.AddProd(prod)
-    
-    def Action(self, line):
-        
+
+    def Action(self, line, eof=False):
+
         def Indent(line):
             ind = 0
 
@@ -689,13 +700,14 @@ class Parser(object):
                 else:
                     break
 
-            return ind            
+            return ind
 
         indent = Indent(line)
         if self.indent == None:
             self.indent = indent
 
-        if indent < self.indent:
+        # finish the action on unindent eof
+        if eof or indent < self.indent:
             self.state = self.Parser
             self.current.Left().AddProd(self.current)
             self.current = self.current.Left()
@@ -729,6 +741,10 @@ class Parser(object):
             else:
                 self.state(line)
 
+        # notice the current state of eof
+        # apply any pending state
+        self.state('', eof=True)
+
         return self.syntax
 
 class ASTInformation(object):
@@ -741,7 +757,7 @@ class ASTInformation(object):
 
     def Bind(self, production, name):
         self.bindings[production] = name
-        
+
     def __init__(self):
         self.used    = False
         self.lists   = set()
@@ -758,12 +774,12 @@ class Syntax(object):
 
 
     class SymbolTableEntry(object):
-        
+
         def __init__(self, symbol, symbolNumber, symtype):
             self.symbol = symbol
             self.symbolNumber = symbolNumber
             self.symtype = symtype
-        
+
         def SymType(self):
             return self.symtype
 
@@ -784,7 +800,7 @@ class Syntax(object):
 
         self.lexer = []
         self.inline_tokens = set()
-    
+
     def InlineTokens(self):
         return self.inline_tokens
 
@@ -846,7 +862,7 @@ class ParseTable(object):
     """
     A LR parse table.
     """
-    
+
     def __init__(self, actiontable, gototable, start, rules):
         self.start = start
         self.actiontable = actiontable
@@ -873,7 +889,7 @@ class ParseTable(object):
             print "(%d) %s" % (i, str(rule))
             i += 1
 
-        
+
 
         giter = iter(self.gototable)
         aiter = iter(self.actiontable)
@@ -885,7 +901,7 @@ class ParseTable(object):
                     entrystr = ""
                     first = True
 
-                    
+
                     entrystr += str(entry)
                     print entrystr.center(5),
 
@@ -898,7 +914,7 @@ class ParseTable(object):
 
 
 class LRAction(object):
-    
+
     def IsShift(self): return False
     def IsReduce(self): return False
     def IsAccept(self): return False
@@ -1022,7 +1038,7 @@ class StateTransitionGraph(object):
         Check whether a state having the given elements already exists.
         If it does exist return it else create the new state and determine it's sub states.
         """
-        
+
         elements = self.NormalizeItemSet(elements)
 
         # do we already have this state?
@@ -1051,7 +1067,7 @@ class StateTransitionGraph(object):
         elif old.IsShift():
             assoc, prec = old.GetAssoc()
             associ, preci = new.GetAssoc()
-                                
+
             # shift wins over reduce by default
             if assoc == Production.NONE:
                 print state
@@ -1073,7 +1089,7 @@ class StateTransitionGraph(object):
                 if preci > prec:
                     return new
                 else:
-                    return old                                  
+                    return old
             else:
                 raise Exception()
 
@@ -1152,7 +1168,7 @@ class StateTransitionGraph(object):
                         if nprec > prec:
                             prec = nprec
                             assoc = item.Prod().GetAssoc()
-                            
+
                     acur[terminals[symb]] = Shift(stateToIndex[tstate], assoc, prec)
                 else:
                     print state
@@ -1164,7 +1180,7 @@ class StateTransitionGraph(object):
                     for la in item.Lookahead():
                         if acur[terminals[la]] != None:
                             acur[terminals[la]] = self.ResolveConflict(state, acur[terminals[la]], Reduce(prodToRule[item.Prod()], item.Prod().GetAssoc(), item.Prod().NumberInFile()))
-                                    
+
                         else:
                             acur[terminals[la]] = Reduce(prodToRule[item.Prod()], item.Prod().GetAssoc(), item.Prod().NumberInFile())
 
@@ -1177,14 +1193,14 @@ class LALR1StateTransitionGraph(StateTransitionGraph):
 
     def __init__(self, grammar):
         super(LALR1StateTransitionGraph, self).__init__(grammar)
-    
+
     def Propagate(self):
         """
         Generate the lookahead sets
         """
 
         self.Kernels()
-        
+
         # determine token generation and propagation
         for state in self.states:
             state.DeterminePropagationAndGeneration()
@@ -1222,7 +1238,7 @@ class LALR1StateTransitionGraph(StateTransitionGraph):
 
         # we use an empty lookahead set to generate the LR(0) item set
         start = LR1Item(prod,0,set([]))
-        
+
         self.start = self.RequireState(start.Closure(frozenset()))
 
         # now we have to assign the lookahead sets
@@ -1237,7 +1253,7 @@ class LR1StateTransitionGraph(StateTransitionGraph):
     """
     The LR(1) State Transition Graph.
     """
-    
+
     def __init__(self, grammar):
         super(LR1StateTransitionGraph, self).__init__(grammar)
 
@@ -1250,7 +1266,7 @@ class LR1StateTransitionGraph(StateTransitionGraph):
         self.grammar.RequireMeta("$START").AddProd(prod)
 
         start = LR1Item(prod,0,set([self.grammar.RequireEOF()])).Closure(frozenset())
-        
+
         self.start = self.RequireState(start)
 
     def GenerateState(self, number, elements):
@@ -1267,7 +1283,7 @@ class LR1StateTransitionGraphElement(object):
     def __str__(self):
         lines = []
         lines.append("state: " + str(self.number))
-        
+
         lines.append("elements:")
 
         for elem in self.elements:
@@ -1288,7 +1304,7 @@ class LR1StateTransitionGraphElement(object):
 
     def Transitions(self):
         return self.transitions
-    
+
     def Number(self):
         return self.number
 
@@ -1312,7 +1328,7 @@ class LR1StateTransitionGraphElement(object):
 
         for elem in self.elements:
             res |= elem.Closure(frozenset())
-        
+
         self.elements = self.graph.NormalizeItemSet(res)
 
     def GenerateSubStates(self):
@@ -1379,7 +1395,7 @@ class LALR1StateTransitionGraphElement(LR1StateTransitionGraphElement):
             newLa = set(item.Lookahead())
             newLa.add(symb)
             item.SetLookahead(newLa)
-            
+
     def Propagate(self):
         propagated = False
         for item, to in self.lapropagation:
@@ -1392,7 +1408,7 @@ class LALR1StateTransitionGraphElement(LR1StateTransitionGraphElement):
         return propagated
 
 class AutomatonState(object):
-    
+
     def __init__(self):
         self.transitions = dict()
         # self.clone = None
@@ -1425,7 +1441,7 @@ class AutomatonState(object):
         for char in chars:
             if char not in self.transitions:
                 self.transitions[char] = set()
-            
+
             self.transitions[char].add(state)
 
     def AddTransition(self, char, state):
@@ -1436,7 +1452,7 @@ class AutomatonState(object):
 
     def Transitions(self):
         return self.transitions.iteritems()
-                
+
     def SetAction(self, priority, action):
         self.action = action
         self.priority = priority
@@ -1454,7 +1470,7 @@ class RegexAST(object):
         raise NotImplementedError()
 
 class CharacterRegex(RegexAST):
-    
+
     def __init__(self, chars):
         self.chars = frozenset(chars)
 
@@ -1520,9 +1536,9 @@ class RepeatorRegex(RegexAST):
         nfare.AddTransition('', nfae)
 
         return nfas, nfae
-        
+
 class OrRegex(RegexAST):
-    
+
     def __init__(self, regex1, regex2):
         self.regex1, self.regex2 = regex1, regex2
 
@@ -1540,7 +1556,7 @@ class OrRegex(RegexAST):
 
         nfa1e.AddTransition('', end)
         nfa2e.AddTransition('', end)
-        
+
         return start, end
 
 class Regex(object):
@@ -1548,7 +1564,7 @@ class Regex(object):
 
     def ParseEscape(self, iterator):
         char = iterator.next()
-        
+
         if char == 'n':
             return set('\n')
 
@@ -1560,7 +1576,7 @@ class Regex(object):
             string += iterator.next()
             string += iterator.next()
             return set(chr(int(string, base=16)))
-        
+
         if char == 's':
             return set(' \n\t\v\r\f')
 
@@ -1599,13 +1615,13 @@ class Regex(object):
                     else:
                         group = True
                     continue
-                
+
                 cset = set()
                 if char == '\\':
                     cset |= self.ParseEscape(iterator)
                 else:
                     cset |= set(char)
-                
+
                 if group:
                     if len(cset) != 1:
                         raise StopIteration()
@@ -1665,7 +1681,7 @@ class Regex(object):
 
     def Parse(self):
         args = []
-        
+
         tokens = self.lex()
         tokens.append((5,''))
 
@@ -1677,10 +1693,10 @@ class Regex(object):
 
         # matching yacc grammar:
 
-        # empty : /* empty */ 
+        # empty : /* empty */
         #       | or
         #       ;
-        
+
         # or : or '|' chain
         #    | chain
         #    ;
@@ -1703,7 +1719,7 @@ class Regex(object):
 
         def ParseEmpty():
             token, lexeme = tokens[pos.i]
-            
+
             if token == 0 or token == 2:
                 ParseOr()
             else:
@@ -1723,7 +1739,7 @@ class Regex(object):
                     a1 = args.pop()
                     args.append(OrRegex(a1,a2))
 
-                    
+
         def ParseChain():
             token, lexeme = tokens[pos.i]
 
@@ -1733,7 +1749,7 @@ class Regex(object):
 
         def ParseChain1():
             token, lexeme = tokens[pos.i]
-            
+
             if token == 0 or token == 2:
                 ParseOp()
 
@@ -1741,13 +1757,13 @@ class Regex(object):
                 a1 = args.pop()
                 args.append(SequenceRegex(a1,a2))
                 ParseChain1()
-                    
+
         def ParseOp():
             token, lexeme = tokens[pos.i]
 
             if token == 0 or token == 2:
                 ParseBasic()
-            
+
                 token, lexeme = tokens[pos.i]
                 if token == 1:
                     arg = args.pop()
@@ -1759,7 +1775,7 @@ class Regex(object):
 
                     elif lexeme == '?':
                         args.append(OptionRegex(arg))
-                    
+
                     else:
                         raise Exception()
 
@@ -1767,7 +1783,7 @@ class Regex(object):
 
         def ParseBasic():
             token, lexeme = tokens[pos.i]
-            
+
             if token == 0:
                 args.append(CharacterRegex(lexeme))
                 pos.i += 1
@@ -1791,7 +1807,7 @@ class Regex(object):
 
         # print args[0]
         return args[0].NFA()
-  
+
     def __init__(self, regex):
         self.regex = regex
         self.start, self.end = self.Parse()
@@ -1803,7 +1819,7 @@ class Regex(object):
         return self.end
 
 class LexingNFA(object):
-    
+
     def __init__(self, lexer):
         self.lexer = lexer
         self.states = []
@@ -1820,13 +1836,13 @@ class LexingNFA(object):
             previous = AutomatonState()
             self.start.AddTransition('', previous)
 
-            # use the same automaton part for common beginnings            
+            # use the same automaton part for common beginnings
             for char in token:
                 new = AutomatonState()
                 previous.AddTransition(char, new)
                 previous = new
                 self.states.append(new)
-            
+
             previous.SetAction(0, Token('"' + token + '"'))
 
         i = -1
@@ -1847,7 +1863,7 @@ class LexingNFA(object):
             while True:
                 # todo is changing ... iterators don't work therefore
                 cur = todo.pop()
-            
+
                 for i in xrange(0,255):
                     char = chr(i)
 
@@ -1856,7 +1872,7 @@ class LexingNFA(object):
                         for m in c.Move(char):
                             move |= m.EpsilonClosure(frozenset())
                     newState = frozenset(move)
-                    
+
                     if newState not in dfaStates:
                         # print newState
 
@@ -1876,10 +1892,10 @@ class LexingNFA(object):
                         # print dfaStates[newState].GetAction()
 
                     dfaStates[cur].AddTransition(char, dfaStates[newState])
-                
+
         except IndexError:
             return LexingDFA(dfaStates, si)
-        
+
         # unreachable
 
 class OptimizerPartition(object):
@@ -1914,7 +1930,7 @@ class OptimizerPartition(object):
             patterns = {}
             for entry in group:
                 pattern = self.GeneratePartitionTransitionTable(entry)
-                
+
                 if pattern not in patterns:
                     patterns[pattern] = partition.NewGroup()
 
@@ -1947,7 +1963,7 @@ class OptimizerPartition(object):
 
             for char in xrange(255):
                 states[i].AddTransition(chr(char), states[self.GroupOfState(representative.Move(chr(char)).pop())])
-                
+
         return newstart, newstates
 
 class LexingDFA(object):
@@ -1996,7 +2012,7 @@ class LexingDFA(object):
         return Lextable(lextable, self.states[self.start], actions)
 
 class Lextable(object):
-    
+
     def __init__(self, table, start, actionlist):
         self.table = table
         self.start = start
@@ -2010,7 +2026,7 @@ class Lextable(object):
     def ConstructEquivalenceClasses(self):
         i = 0
         classes = [[char for char in xrange(0,255)]]
-        
+
         for line in self.table:
 
             newclasslist = []
@@ -2020,7 +2036,7 @@ class Lextable(object):
                     state = line[char][0]
                     if state not in newclasses:
                         newclasses[state] = []
-                        
+
                     newclasses[state].append(char)
                 newclasslist += newclasses.values()
 
@@ -2042,13 +2058,13 @@ class Lextable(object):
                 my.append(line[cls[0]])
         self.table = newtable
 
-                
+
     def Print(self):
         print "start: %d\n" % self.start
 
         for action in self.actions:
             print str(action)
-        
+
         if not self.mapping:
             print "\n    ",
 
@@ -2069,7 +2085,7 @@ class Lextable(object):
             printRange = xrange(len(self.table[0]))
             for i in printRange:
                 print str(i).center(2),
-        
+
         print ""
         i = 0
         for state in self.table:
@@ -2085,7 +2101,7 @@ class LexActionToCode(LexingActionVisitor):
     def __init__(self, symtable):
         super(LexActionToCode, self).__init__()
         self.symtable = symtable
-    
+
     def VisitRestart(self, action):
         return "self.root = self.position; self.state = self.start; self.current_token = (%d, self.position)" % self.symtable["$EOF"].Number()
 
@@ -2121,7 +2137,7 @@ class Writer(object):
         ded = []
         indices = []
         mapping = {}
-        
+
         for entry in iterable:
             if entry not in mapping:
                 var = len(ded)
@@ -2190,7 +2206,7 @@ import mmap
                             i += 1
                             if not symb.IsSToken():
                                 positions.append(i)
-                        
+
                         if len(positions) == 0:
                             prod.SetAction('$$.sem = []')
                         elif len(positions) == 1:
@@ -2232,12 +2248,12 @@ class AST(object):
         return self.pos
 """)
 
-        self.parser_file.write(""" 
+        self.parser_file.write("""
 class %s(object):
     def Visit(self, ast):
         return ast.Accept(self)
 """ % (ast.visitor,))
-    
+
         for name in classes:
             self.parser_file.write("""
     def Visit%s(self, node):
@@ -2271,7 +2287,7 @@ class %s(AST):
     def get_%s(self):
         return self.%s
 """ % (arg, arg))
-    
+
             self.parser_file.write("""
     def Accept(self, visitor):
         return visitor.Visit%s(self)
@@ -2279,16 +2295,16 @@ class %s(AST):
 
     def WriteLexer(self, lextable, symtable):
         table, start, actions, mapping = lextable.Get()
-            
+
         lextablehelper, lextablestr = self.TableStrings("ltd", tuple(tuple(a[0] for a in state) for state in table))
-        
+
         # create the string representing the actions
         actionstr = "(\n"
         action_table = {}
         for action in actions:
             if action not in action_table:
                 action_table[action] = len(action_table)
-                
+
             actionstr += "            self.action%d" % action_table[action] + ", \n"
 
         actionstr += "        )"
@@ -2304,14 +2320,14 @@ class %s(AST):
         if mapping:
             # create the string mapping
             lookup = "mapping[" + baccess + "]"
-            
+
             mappingstr = "mapping = ("
             for entry in mapping:
                 mappingstr += str(entry)
                 mappingstr += ","
             mappingstr += ")"
 
-        
+
         select = "actions[self.state]()"
 
         linesPositionClass = ""
@@ -2459,7 +2475,7 @@ class Parser(object):
         self.lexer = lexer
         self.stack = []
         self.reductions = """ + reductionStr + """
- 
+
     def Parse(self):
         lexer = self.lexer
         atable = self.atable
@@ -2521,7 +2537,7 @@ class Parser(object):
 
 
     def Write(self, syntax, graph, lextable):
-        
+
         self.WriteHeader(syntax.Header())
 
         self.WriteAST(syntax.ASTInfo(), syntax.SymTable())
@@ -2547,15 +2563,15 @@ if __name__ == '__main__':
 
     if len(args) >= 2:
         opt_parser.error("no more than on input file may be specified")
-    
+
     fi = sys.stdin
 
     if len(args) == 1:
         infile, = args
         fi = file(infile, 'r')
-    
+
     p = Parser(fi)
-    
+
     syn = p.Parse()
 
     if len(args) == 1:
@@ -2569,7 +2585,7 @@ if __name__ == '__main__':
         graph = LALR1StateTransitionGraph(syn)
     else:
         graph = LR1StateTransitionGraph(syn)
-        
+
     graph.Construct()
 
     # construct the lexer
@@ -2577,7 +2593,7 @@ if __name__ == '__main__':
     lexingNFA.Construct()
     lexingDFA = lexingNFA.CreateDFA()
     lexingNFA = None # remove the reference to make it garbage
-    
+
     if not options.fast:
         lexingDFA.Optimize()
 
@@ -2605,6 +2621,6 @@ if __name__ == '__main__':
 
     writer = Writer(fo, options.lines, options.trace, options.deduplicate, options.python3)
     writer.Write(syn, graph, lexingTable)
-    
+
     if options.ofile != None:
         fo.close()
