@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Parse parser and lexer specifications and create DFA lexers
 and LR(1) or LALR(1) parsers from them.
