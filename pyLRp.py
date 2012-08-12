@@ -1672,7 +1672,7 @@ class Regex(object):
                 elif char == ')':
                     tokens.append((4, ')'))
                 elif char == '.':
-                    tokens.append((0, set(chr(i) for i in range(0,255)) - set('\n')))
+                    tokens.append((0, set(chr(i) for i in range(0,256)) - set('\n')))
                 else:
                     tokens.append((0, set(char)))
 
@@ -1922,7 +1922,7 @@ class OptimizerPartition(object):
         # this code operates under the assumption, that we handle a DFA
         # so .Move() returns a set containing exactly one element
         # print state
-        return tuple(self.GroupOfState(state.Move(chr(char)).pop()) for char in range(0,255))
+        return tuple(self.GroupOfState(state.Move(chr(char)).pop()) for char in range(0,256))
 
     def Partition(self):
         partition = OptimizerPartition()
@@ -1961,7 +1961,7 @@ class OptimizerPartition(object):
 
             states[i].SetAction(None, representative.GetAction())
 
-            for char in range(255):
+            for char in range(256):
                 states[i].AddTransition(chr(char), states[self.GroupOfState(representative.Move(chr(char)).pop())])
 
         return newstart, newstates
@@ -1997,7 +1997,7 @@ class LexingDFA(object):
         self.start, self.states = partition.Reconstruct(self.start)
 
     def CreateLexTable(self):
-        lextable = [tuple([] for i in range(0,255)) for i in range(len(self.states))]
+        lextable = [tuple([] for i in range(0,256)) for i in range(len(self.states))]
         actions = [None for i in range(len(self.states))]
         for state in self.states:
 
@@ -2042,7 +2042,7 @@ class Lextable(object):
 
             classes = newclasslist
 
-        self.mapping = [None for j in range(0,255)]
+        self.mapping = [None for j in range(0,256)]
         mapping = self.mapping
         i = 0
         for cls in classes:
