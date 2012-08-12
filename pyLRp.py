@@ -554,7 +554,7 @@ class Parser(object):
 
         match = self.ast_visitor_re.match(line)
         if not match:
-            print "Error: line %i, invalid AST spec" % (self.line,)
+            print("Error: line %i, invalid AST spec" % (self.line,))
             return
 
         self.syntax.ASTInfo().visitor = match.group(1)
@@ -566,7 +566,7 @@ class Parser(object):
          match = self.lexing_rule_re.match(line)
 
          if not match:
-             print "Error: line %i, invalid token spec" % (self.line,)
+             print("Error: line %i, invalid token spec" % (self.line,))
              return
 
          if match.group(4) == "%restart":
@@ -651,7 +651,7 @@ class Parser(object):
                         try:
                             prod.SetAssoc(self.assocDefs[match.group(1)])
                         except KeyError:
-                            print "Warning: %d: Erroneous precedence declaration" % self.line
+                            print("Warning: %d: Erroneous precedence declaration" % self.line)
 
                         break
 
@@ -675,7 +675,7 @@ class Parser(object):
 
                         return
 
-                    print "Syntax error: line %d (%s)" % (self.line,line)
+                    print("Syntax error: line %d (%s)" % (self.line,line))
                     return
 
                 line = line[len(match.group(0)):]
@@ -886,7 +886,7 @@ class ParseTable(object):
         i = 0
 
         for rule in self.rules:
-            print "(%d) %s" % (i, str(rule))
+            print("(%d) %s" % (i, str(rule)))
             i += 1
 
 
@@ -895,19 +895,19 @@ class ParseTable(object):
         aiter = iter(self.actiontable)
         try:
             while True:
-                gline = giter.next()
-                aline = aiter.next()
+                gline = next(giter)
+                aline = next(aiter)
                 for entry in aline:
                     entrystr = ""
                     first = True
 
 
                     entrystr += str(entry)
-                    print entrystr.center(5),
+                    print(entrystr.center(5), end=' ')
 
                 for entry in gline:
-                    print str(entry).center(5),
-                print ""
+                    print(str(entry).center(5), end=' ')
+                print("")
 
         except StopIteration:
                 pass
@@ -1010,7 +1010,7 @@ class StateTransitionGraph(object):
 
     def ReportNumOfConflicts(self):
         if self.conflicts:
-            print self.conflicts, "conflicts found!"
+            print(self.conflicts, "conflicts found!")
 
     def Construct(self):
         raise NotImplementedError()
@@ -1058,8 +1058,8 @@ class StateTransitionGraph(object):
     def ResolveConflict(self, state, old, new):
 
         if old.IsReduce():
-            print state
-            print "Default to the first reduce for reduce/reduce-conflict"
+            print(state)
+            print("Default to the first reduce for reduce/reduce-conflict")
             self.conflicts += 1
             if old.NumberInFile() > new.NumberInFile():
                 return new
@@ -1070,8 +1070,8 @@ class StateTransitionGraph(object):
 
             # shift wins over reduce by default
             if assoc == Production.NONE:
-                print state
-                print "Default to shift for shift/reduce-conflict"
+                print(state)
+                print("Default to shift for shift/reduce-conflict")
                 self.conflicts += 1
                 return old
 
@@ -1121,7 +1121,7 @@ class StateTransitionGraph(object):
         terminals = dict()
         metas = dict()
 
-        for symbol  in symtable.itervalues():
+        for symbol  in symtable.values():
             if symbol.SymType() == Syntax.TERMINAL or symbol.SymType() == Syntax.EOF:
                 terminals[symbol.Symbol()] = symbol.Number()
             elif symbol.SymType() == Syntax.META:
@@ -1129,7 +1129,7 @@ class StateTransitionGraph(object):
             elif symbol.SymType() == Syntax.UNDEF:
                 pass
             else:
-                print symbol.Symbol()
+                print(symbol.Symbol())
                 raise Exception()
 
         prodToRule = dict()
@@ -1146,13 +1146,13 @@ class StateTransitionGraph(object):
             stateToIndex[state] = state.Number()
 
         for state in self.states:
-            acur = [None for i in xrange(len(terminals))]
-            jcur = [None for i in xrange(len(metas))]
+            acur = [None for i in range(len(terminals))]
+            jcur = [None for i in range(len(metas))]
 
             atable.append(acur)
             jtable.append(jcur)
 
-            for trans, prods in state.Transitions().iteritems():
+            for trans, prods in state.Transitions().items():
                 symb = trans.Symbol()
                 tstate = trans.State()
 
@@ -1171,8 +1171,8 @@ class StateTransitionGraph(object):
 
                     acur[terminals[symb]] = Shift(stateToIndex[tstate], assoc, prec)
                 else:
-                    print state
-                    print str(symb)
+                    print(state)
+                    print(str(symb))
                     raise Exception()
 
             for item in state.Elements():
@@ -1451,7 +1451,7 @@ class AutomatonState(object):
         self.transitions[char].add(state)
 
     def Transitions(self):
-        return self.transitions.iteritems()
+        return self.transitions.items()
 
     def SetAction(self, priority, action):
         self.action = action
@@ -1563,7 +1563,7 @@ class Regex(object):
     """A regular expression with an NFA representation."""
 
     def ParseEscape(self, iterator):
-        char = iterator.next()
+        char = next(iterator)
 
         if char == 'n':
             return set('\n')
@@ -1573,8 +1573,8 @@ class Regex(object):
 
         if char == 'x':
             string = ''
-            string += iterator.next()
-            string += iterator.next()
+            string += next(iterator)
+            string += next(iterator)
             return set(chr(int(string, base=16)))
 
         if char == 's':
@@ -1598,12 +1598,12 @@ class Regex(object):
             negate = False
 
             while True:
-                char = iterator.next()
+                char = next(iterator)
                 if first:
                     first = False
                     if char == '^':
                         negate = True
-                        chars = set(chr(i) for i in xrange(256))
+                        chars = set(chr(i) for i in range(256))
                         continue
 
                 if char == ']':
@@ -1633,7 +1633,7 @@ class Regex(object):
                     c, = cset
                     p, = prev
 
-                    for char in xrange(ord(p) + 1, ord(c)):
+                    for char in range(ord(p) + 1, ord(c)):
                         cset.add(chr(char))
 
                     group = False
@@ -1646,7 +1646,7 @@ class Regex(object):
                     chars |= cset
 
         except StopIteration:
-            print "error"
+            print("error")
             return None
 
     def lex(self):
@@ -1656,7 +1656,7 @@ class Regex(object):
         iterator = iter(self.regex)
         try:
             while True:
-                char = iterator.next()
+                char = next(iterator)
                 if char == '\\':
                     tokens.append((0, self.ParseEscape(iterator)))
                 elif char == '[':
@@ -1672,7 +1672,7 @@ class Regex(object):
                 elif char == ')':
                     tokens.append((4, ')'))
                 elif char == '.':
-                    tokens.append((0, set(chr(i) for i in xrange(0,255)) - set('\n')))
+                    tokens.append((0, set(chr(i) for i in range(0,255)) - set('\n')))
                 else:
                     tokens.append((0, set(char)))
 
@@ -1802,7 +1802,7 @@ class Regex(object):
         ParseEmpty()
 
         if len(args) != 1 or len(tokens) != pos.i + 1:
-            print map(lambda x: str(x), args)
+            print([str(x) for x in args])
             raise Exception()
 
         # print args[0]
@@ -1864,7 +1864,7 @@ class LexingNFA(object):
                 # todo is changing ... iterators don't work therefore
                 cur = todo.pop()
 
-                for i in xrange(0,255):
+                for i in range(0,256):
                     char = chr(i)
 
                     move = set()
@@ -1922,7 +1922,7 @@ class OptimizerPartition(object):
         # this code operates under the assumption, that we handle a DFA
         # so .Move() returns a set containing exactly one element
         # print state
-        return tuple(self.GroupOfState(state.Move(chr(char)).pop()) for char in xrange(0,255))
+        return tuple(self.GroupOfState(state.Move(chr(char)).pop()) for char in range(0,255))
 
     def Partition(self):
         partition = OptimizerPartition()
@@ -1947,7 +1947,7 @@ class OptimizerPartition(object):
         newstart = None
 
         # create the new states
-        for i in xrange(0, len(self.groups)):
+        for i in range(0, len(self.groups)):
             states.append(AutomatonState())
             newstates[states[-1]] = i
 
@@ -1955,13 +1955,13 @@ class OptimizerPartition(object):
                 newstart = states[i]
 
         # link the new states
-        for i in xrange(0, len(self.groups)):
+        for i in range(0, len(self.groups)):
 
             representative = self.groups[i][0]
 
             states[i].SetAction(None, representative.GetAction())
 
-            for char in xrange(255):
+            for char in range(255):
                 states[i].AddTransition(chr(char), states[self.GroupOfState(representative.Move(chr(char)).pop())])
 
         return newstart, newstates
@@ -1973,7 +1973,7 @@ class LexingDFA(object):
 
         # remove the unnecassary NFA state information
         i = 0
-        for state in states.itervalues():
+        for state in states.values():
             self.states[state] = i
             i += 1
 
@@ -1997,8 +1997,8 @@ class LexingDFA(object):
         self.start, self.states = partition.Reconstruct(self.start)
 
     def CreateLexTable(self):
-        lextable = [tuple([] for i in xrange(0,255)) for i in xrange(len(self.states))]
-        actions = [None for i in xrange(len(self.states))]
+        lextable = [tuple([] for i in range(0,255)) for i in range(len(self.states))]
+        actions = [None for i in range(len(self.states))]
         for state in self.states:
 
             actions[self.states[state]] = state.GetAction()
@@ -2025,7 +2025,7 @@ class Lextable(object):
 
     def ConstructEquivalenceClasses(self):
         i = 0
-        classes = [[char for char in xrange(0,255)]]
+        classes = [[char for char in range(0,256)]]
 
         for line in self.table:
 
@@ -2038,11 +2038,11 @@ class Lextable(object):
                         newclasses[state] = []
 
                     newclasses[state].append(char)
-                newclasslist += newclasses.values()
+                newclasslist += list(newclasses.values())
 
             classes = newclasslist
 
-        self.mapping = [None for j in xrange(0,255)]
+        self.mapping = [None for j in range(0,255)]
         mapping = self.mapping
         i = 0
         for cls in classes:
@@ -2060,39 +2060,39 @@ class Lextable(object):
 
 
     def Print(self):
-        print "start: %d\n" % self.start
+        print("start: %d\n" % self.start)
 
         for action in self.actions:
-            print str(action)
+            print(str(action))
 
         if not self.mapping:
-            print "\n    ",
+            print("\n    ", end=' ')
 
         # print the characters
-        for i in xrange(32, 128):
+        for i in range(32, 128):
             if self.mapping:
-                print chr(i), str(self.mapping[i])
+                print(chr(i), str(self.mapping[i]))
             else:
-                print chr(i).center(2),
+                print(chr(i).center(2), end=' ')
 
         if self.mapping:
-            print "\n    ",
+            print("\n    ", end=' ')
 
 
-        printRange = xrange(32, 128)
+        printRange = range(32, 128)
 
         if self.mapping:
-            printRange = xrange(len(self.table[0]))
+            printRange = range(len(self.table[0]))
             for i in printRange:
-                print str(i).center(2),
+                print(str(i).center(2), end=' ')
 
-        print ""
+        print("")
         i = 0
         for state in self.table:
-            print str(i).center(2), "-",
+            print(str(i).center(2), "-", end=' ')
             for a in printRange:
-                print str(state[a][0]).center(2),
-            print ""
+                print(str(state[a][0]).center(2), end=' ')
+            print("")
             i+=1
 
 
@@ -2192,7 +2192,7 @@ import mmap
 
         # collect information on the classes
         # and attach the actions
-        for symbol in symtable.itervalues():
+        for symbol in symtable.values():
             if symbol.SymType() == Syntax.META:
                 if symbol.Symbol().Name() in ast.lists:
                     # trivial list creation ... could be more intelligent
@@ -2264,7 +2264,7 @@ class %s(object):
         if self.lines:
             basearg.append('pos')
 
-        for name, args in classes.iteritems():
+        for name, args in classes.items():
             self.parser_file.write("""
 class %s(AST):
     def __init__(""" % (name,) + ", ".join(basearg + args))
@@ -2520,7 +2520,7 @@ class Parser(object):
             text = red.GetAction()
             if not text: text = "pass"
             text = text.replace("$$", "result")
-            for i in xrange(1, len(red) + 1):
+            for i in range(1, len(red) + 1):
                 text = text.replace("$%d" % i, "self.stack[-%d]" % (len(red) - i + 1))
 
             self.parser_file.write("""
@@ -2557,6 +2557,7 @@ if __name__ == '__main__':
     opt_parser.add_option("-f", "--fast", dest="fast", action='store_true', default=False, help="Fast run: generates larger and possibly slower parsers, but takes less time")
     opt_parser.add_option("-T", "--trace", dest="trace", action='store_true', default=False, help="Generate a parser that prints out a trace of its state")
     opt_parser.add_option("-3", "--python3", dest="python3", action='store_true', default=False, help="Generate python3 compatible parser")
+    opt_parser.add_option("-2", "--python2", dest="python3", action='store_false', default=False, help="Generate python2 compatible parser")
 
 
     options, args = opt_parser.parse_args()
@@ -2568,7 +2569,7 @@ if __name__ == '__main__':
 
     if len(args) == 1:
         infile, = args
-        fi = file(infile, 'r')
+        fi = open(infile, 'rt')
 
     p = Parser(fi)
 
@@ -2610,14 +2611,14 @@ if __name__ == '__main__':
         # print "Lexer States:", len(lexingDFA.states)
 
         for state in graph.states:
-            print str(state)
+            print(str(state))
 
     # write lexer and parser
 
     fo = sys.stdout
 
     if options.ofile != None:
-        fo = open(options.ofile, 'w')
+        fo = open(options.ofile, 'wt')
 
     writer = Writer(fo, options.lines, options.trace, options.deduplicate, options.python3)
     writer.Write(syn, graph, lexingTable)
