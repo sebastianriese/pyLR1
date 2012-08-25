@@ -1161,12 +1161,13 @@ class StateTransitionGraph(object):
 
             for item in state.Elements():
                 if item.AfterDot() is None:
+                    reduceAction = Reduce(prodToRule[item.Prod()], item.Prod().GetAssoc(), item.Prod().NumberInFile())
                     for la in item.Lookahead():
                         if acur[terminals[la]] != None:
-                            acur[terminals[la]] = self.ResolveConflict(state, acur[terminals[la]], Reduce(prodToRule[item.Prod()], item.Prod().GetAssoc(), item.Prod().NumberInFile()))
-                                    
+                            acur[terminals[la]] = self.ResolveConflict(state, acur[terminals[la]], reduceAction)
+
                         else:
-                            acur[terminals[la]] = Reduce(prodToRule[item.Prod()], item.Prod().GetAssoc(), item.Prod().NumberInFile())
+                            acur[terminals[la]] = reduceAction
 
         return ParseTable(atable, jtable, stateToIndex[self.start], rules)
 
