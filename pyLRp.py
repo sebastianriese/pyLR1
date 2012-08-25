@@ -413,9 +413,9 @@ class Meta(Symbol):
         return False
 
 class LexingRule(object):
-    
-    def __init__(self, state, regex, action):
-        self.state = state
+
+    def __init__(self, conditions, regex, action):
+        self.conditions = conditions
         self.regex = regex
         self.action = action
 
@@ -424,6 +424,9 @@ class LexingRule(object):
 
     def Action(self):
         return self.action
+
+    def Conditions(self):
+        return self.conditions
 
 class LexingActionVisitor(object):
 
@@ -442,8 +445,14 @@ class LexingActionVisitor(object):
     def VisitList(self, action):
         pass
 
+    def VisitBegin(self, action):
+        pass
+
+    def VisitContinue(self, action):
+        pass
+
 class LexingAction(object):
-    
+
     def __init__(self):
         pass
 
@@ -451,20 +460,39 @@ class LexingAction(object):
         raise NotImplementedError()
 
 class List(LexingAction):
-    
-    def __init__(self, lst = []):
+
+    def __init__(self, lst = None):
         super(LexingAction, self).__init__()
         self.list = lst
+        if self.list is None:
+            self.list = []
 
     def Append(self, action):
         self.list.append(action)
 
+    def List(self):
+        return self.list
+
     def Accept(self, visitor):
         return visitor.VisitList(self)
 
+class Begin(LexingAction):
+
+    def __init__(self, state):
+        super(LexingAction, self).__init__()
+        self.state = state
+
+    def __repr__(self):
+        return "Begin(%s)" % self.state
+
+    def Accept(self, visitor):
+        return visitor.VisitBegin(self)
+
+    def State(self):
+        return self.state
 
 class Restart(LexingAction):
-    
+
     def __init__(self):
         super(LexingAction, self).__init__()
 
@@ -474,8 +502,19 @@ class Restart(LexingAction):
     def Accept(self, visitor):
         return visitor.VisitRestart(self)
 
+class Continue(LexingAction):
+
+    def __init__(self):
+        super(LexingAction, self).__init__()
+
+    def __repr__(self):
+        return "Restart()"
+
+    def Accept(self, visitor):
+        return visitor.VisitContinue(self)
+
 class Token(LexingAction):
-    
+
     def __init__(self, name):
         super(LexingAction, self).__init__()
         self.name = name
@@ -506,7 +545,8 @@ class Parser(object):
     lexer_re = re.compile(r"%lexer\s*$")
     comment_re = re.compile(r"\s*([^\\]#.*|)(#.*)?\s*$")
 
-    lexing_rule_re = re.compile(r"((.|(\\ ))+)\s+(([a-zA-Z_][a-zA-Z_0-9]*)|(%restart))\s*$")
+    lexing_rule_re = re.compile(r"(<(?P<initialNames>([a-zA-Z0-9,_]+|\s)*)>|(?P<sol>\^))?(?P<regex>(\S|(\\ ))+)\s+(%begin\(\s*(?P<begin>([A-Za-z0-9]+|\$INITIAL))\s*\)\s*,\s*)?((?P<token>[a-zA-Z_][a-zA-Z_0-9]*)|(?P<restart>%restart)|(?P<continue>%continue))\s*$")
+    lexing_statedef_re = re.compile(r'(?P<type>%x|%s) (?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s*$')
 
     syntax_rule_re = re.compile(r"([a-zA-Z_][a-zA-Z_0-9]*):\s*$")
     syntax_symbol_re = re.compile(r"([a-zA-Z_][a-zA-Z_0-9]*)")
@@ -554,18 +594,52 @@ class Parser(object):
         self.syntax.ASTInfo().visitor = match.group(1)
 
     def Lexer(self, line):
+         match = self.lexing_statedef_re.match(line)
+         if match:
+             if match.group('type') == '%x':
+                 self.syntax.AddExclusiveInitialCondition(match.group('name'))
+             elif match.group('type') == '%s':
+                 self.syntax.AddInclusiveInitialCondition(match.group('name'))
+             else:
+                 raise Exception("can't happen")
+
+             return
+
          match = self.lexing_rule_re.match(line)
+         state = set()
 
          if not match:
              print("Error: line %i, invalid token spec" % (self.line,))
              return
 
-         if match.group(4) == "%restart":
-             self.syntax.AddLexingRule(LexingRule(None, match.group(1), Restart()))
+         # determine the inital condtions
+         if match.group('sol'):
+             state.add(self.syntax.InitialConditionStartOfLine())
 
-         else:
-             self.syntax.RequireTerminal(match.group(4))
-             self.syntax.AddLexingRule(LexingRule(None, match.group(1), Token(match.group(4))))
+         if match.group('initialNames'):
+             names = [name.strip() for name in match.group('initialNames').split(',')]
+             for name in names:
+                 state.add(self.syntax.InitialCondition(name))
+
+         # print('SOL match:', match.group('sol'), 'inital names match:', match.group('initialNames'))
+
+         # collect actions
+         action = List()
+         if match.group('begin'):
+             action.Append(Begin(self.syntax.InitialCondition(match.group('begin'))))
+
+         if match.group('restart'):
+             action.Append(Restart())
+
+         elif match.group('token'):
+             self.syntax.RequireTerminal(match.group('token'))
+             action.Append(Token(match.group('token')))
+
+         elif match.group('continue'):
+             action.Append(Continue())
+
+         # put it all together, add a lexing rule
+         self.syntax.AddLexingRule(LexingRule(state, match.group('regex'), action))
 
     def Parser(self, line):
 
@@ -741,13 +815,47 @@ class ASTInformation(object):
 
     def Bind(self, production, name):
         self.bindings[production] = name
-        
+
     def __init__(self):
         self.used    = False
         self.lists   = set()
         self.visitor = 'ASTVisitor'
         self.bindings = {}
 
+class InitialCondition(object):
+    def __init__(self, name, number):
+        self.name = name
+        self.number = number
+
+    def Inclusive(self): return False
+    def Exclusive(self): return False
+
+    def Match(self, conditions):
+        raise NotImplementedError()
+
+    def Name(self):
+        return self.name
+
+    def Number(self):
+        return self.number
+
+
+
+class InclusiveInitialCondition(InitialCondition):
+    def Inclusive(self): return True
+
+    def Match(self, conditions):
+        if not conditions or self in conditions:
+            return True
+        return False
+
+class ExclusiveInitialCondition(InitialCondition):
+    def Exclusive(self): return True
+
+    def Match(self, conditions):
+        if self in conditions:
+            return True
+        return False
 
 class Syntax(object):
 
@@ -784,7 +892,12 @@ class Syntax(object):
 
         self.lexer = []
         self.inline_tokens = set()
-    
+        self.initialConditions = {}
+        # the condition $INITIAL is the condition in action at
+        # program start, it shall only contain the unconditional rules
+        self.AddInclusiveInitialCondition('$INITIAL')
+        self.AddInclusiveInitialCondition('$sol')
+
     def InlineTokens(self):
         return self.inline_tokens
 
@@ -805,6 +918,27 @@ class Syntax(object):
 
     def AddInlineLexingRule(self, token):
         self.inline_tokens.add(token)
+
+    def InitialConditions(self):
+        return self.initialConditions.values()
+
+    def InitialConditionStartOfLine(self):
+        return self.initialConditions['$sol']
+
+    def InitialCondition(self, name):
+        return self.initialConditions[name]
+
+    def AddInclusiveInitialCondition(self, name):
+        if name in self.initialConditions:
+            raise Exception("Initial condition name %s already in use" % name)
+
+        self.initialConditions[name] = InclusiveInitialCondition(name, len(self.initialConditions))
+
+    def AddExclusiveInitialCondition(self, name):
+        if name in self.initialConditions:
+            raise Exception("Initial condition name %s already in use" % name)
+
+        self.initialConditions[name] = ExclusiveInitialCondition(name, len(self.initialConditions))
 
     def RequireEOF(self):
         if "$EOF" not in self.symbols:
@@ -1803,85 +1937,128 @@ class Regex(object):
     def End(self):
         return self.end
 
-class LexingNFA(object):
-    
-    def __init__(self, lexer):
-        self.lexer = lexer
-        self.states = []
-        self.start = None
+class LexerConstructor(object):
+    """
+    Manages the steps of constructing the lexer, taking care of
+    constructing the lextables for the different states and then
+    applying the manipulations to all of them.
+    """
 
-    def Construct(self):
+    def __init__(self, lexerSpec):
 
-        self.start = AutomatonState()
+        self.nfas = {}
+        self.dfas = {}
+        self.lextables = {}
 
-        # create the automaton parts for the inline tokens
+        # construct the automaton for matching the inline tokens
+        inlineTokens = AutomatonState()
+        for token in lexerSpec.InlineTokens():
 
-        for token in self.lexer.InlineTokens():
-            # print token
             previous = AutomatonState()
-            self.start.AddTransition('', previous)
+            inlineTokens.AddTransition('', previous)
 
-            # use the same automaton part for common beginnings            
             for char in token:
                 new = AutomatonState()
                 previous.AddTransition(char, new)
                 previous = new
-                self.states.append(new)
-            
+                # self.states.append(new)
+
             previous.SetAction(0, Token('"' + token + '"'))
 
+        # construct the NFAs for the initial conditions
+        for condition in lexerSpec.InitialConditions():
+            self.nfas[condition] = LexingNFA(lexerSpec.Lexer(), condition, inlineTokens)
+
+    def ConstructDFAs(self):
+        for condition, nfa in self.nfas.items():
+            self.dfas[condition] = nfa.CreateDFA()
+
+    def DropNFA(self):
+        """
+        Drop the nfas if they are no longer needed to spare memory
+        """
+        self.nfas = None
+
+
+    def Optimize(self):
+        for dfa in self.dfas.values():
+            dfa.Optimize()
+
+    def CreateLexTables(self):
+        for cond, dfa in self.dfas.items():
+            self.lextables[cond] = dfa.CreateLexTable()
+
+    def DropDFA(self):
+        """
+        Drop the dfas if they are no longer needed to spare memory
+        """
+        self.dfas = None
+
+    def ConstructEquivalenceClasses(self):
+        for lextable in self.lextables.values():
+            lextable.ConstructEquivalenceClasses()
+
+    def Get(self):
+        for cond, lextable in self.lextables.items():
+            yield tuple([cond] + list(lextable.Get()))
+
+class LexingNFA(object):
+
+    def __init__(self, lexingRules, condition, inlineTokenNFA):
+        self.start = AutomatonState()
+
+        if condition.Inclusive():
+            self.start.AddTransition('', inlineTokenNFA)
+
         i = -1
-        for lexingRule in self.lexer.Lexer():
-            regex = Regex(lexingRule.Regex())
+        for lexingRule in lexingRules:
+            if condition.Match(lexingRule.Conditions()):
+                regex = Regex(lexingRule.Regex())
 
-            self.start.AddTransition('', regex.Start())
-            regex.End().SetAction(i, lexingRule.Action())
+                self.start.AddTransition('', regex.Start())
+                regex.End().SetAction(i, lexingRule.Action())
             i -= 1
-
 
     def CreateDFA(self):
         si = frozenset(self.start.EpsilonClosure(frozenset()))
         dfaStates = {si : AutomatonState()}
         todo = [si]
 
-        try:
-            while True:
-                # todo is changing ... iterators don't work therefore
-                cur = todo.pop()
-            
-                for i in range(0,255):
-                    char = chr(i)
+        while todo:
+            cur = todo.pop()
 
-                    move = set()
-                    for c in cur:
-                        for m in c.Move(char):
-                            move |= m.EpsilonClosure(frozenset())
-                    newState = frozenset(move)
-                    
-                    if newState not in dfaStates:
-                        # print newState
+            for i in range(0,255):
+                char = chr(i)
 
-                        todo.append(newState)
-                        dfaStates[newState] = AutomatonState()
+                move = set()
+                for c in cur:
+                    for m in c.Move(char):
+                        move |= m.EpsilonClosure(frozenset())
+                newState = frozenset(move)
 
-                        curpri = -len(self.lexer.Lexer())-1
-                        for state in newState:
-                            pri = state.Priority()
-                            if pri != None and pri > curpri:
-                                dfaStates[newState].SetAction(None, state.GetAction())
-                                curpri = pri
+                if newState not in dfaStates:
 
-                        if len(newState) == 0:
-                            dfaStates[newState].SetAction(None, GetMatch())
+                    todo.append(newState)
+                    dfaStates[newState] = AutomatonState()
 
-                        # print dfaStates[newState].GetAction()
+                    # select the correct action
+                    curpri = float('-inf')
+                    for state in newState:
+                        pri = state.Priority()
+                        if pri != None and pri > curpri:
+                            dfaStates[newState].SetAction(None, state.GetAction())
+                            curpri = pri
 
-                    dfaStates[cur].AddTransition(char, dfaStates[newState])
-                
-        except IndexError:
-            return LexingDFA(dfaStates, si)
-        
-        # unreachable
+                    if len(newState) == 0:
+                        # this is the error state (empty set of NFA states)
+                        # if we come here nothing can match anymore, therefore
+                        # we can retrieve our longest match
+                        dfaStates[newState].SetAction(None, GetMatch())
+
+                dfaStates[cur].AddTransition(char, dfaStates[newState])
+
+        return LexingDFA(dfaStates, si)
+
 
 class OptimizerPartition(object):
     def __init__(self):
@@ -2094,13 +2271,27 @@ class LexActionToCode(LexingActionVisitor):
         return "self.current_token = (%d, self.position)" % self.symtable[action.Name()].Number()
 
     def VisitGetMatch(self, action):
-        return """if self.current_token:
-            raise GotToken()
-        else:
-            raise Exception()"""
+        return """\
+if self.current_token:
+    raise GotToken()
+else:
+    raise Exception()"""
 
-    def VisitList(self, action):
-        pass
+    def VisitBegin(self, action):
+        return "self.SetInitialCondition(%d)" % action.State().Number()
+
+    def VisitList(self, actionList):
+        if actionList.List():
+            res = ''
+            for action in actionList.List():
+                res += action.Accept(self)
+                res += '\n'
+            return res[:-1]
+        else:
+            return 'pass'
+
+    def VisitContinue(self, action):
+        return 'self.state = self.start'
 
 class LRActionToLRTableEntry(LRActionVisitor):
 
@@ -2272,48 +2463,72 @@ class %s(AST):
     def get_%s(self):
         return self.%s
 """ % (arg, arg))
-    
+
             self.parser_file.write("""
     def Accept(self, visitor):
         return visitor.Visit%s(self)
 """ % (name,))
 
-    def WriteLexer(self, lextable, symtable):
-        table, start, actions, mapping = lextable.Get()
-            
-        lextablehelper, lextablestr = self.TableStrings("ltd", tuple(tuple(a[0] for a in state) for state in table))
-        
-        # create the string representing the actions
-        actionstr = "(\n"
-        action_table = {}
-        for action in actions:
-            if action not in action_table:
-                action_table[action] = len(action_table)
-                
-            actionstr += "            self.action%d" % action_table[action] + ", \n"
+    def WriteLexer(self, lexer, symtable):
 
-        actionstr += "        )"
-
-        mappingstr = ""
         if self.python3:
             extract = '.decode("UTF-8")'
-            baccess = "buffer[self.position]"
+            baccess = "self.buffer[self.position]"
         else:
             extract = ''
-            baccess = "ord(buffer[self.position])"
+            baccess = "ord(self.buffer[self.position])"
 
-        if mapping:
-            # create the string mapping
-            lookup = "mapping[" + baccess + "]"
-            
-            mappingstr = "mapping = ("
-            for entry in mapping:
-                mappingstr += str(entry)
-                mappingstr += ","
-            mappingstr += ")"
+        data = []
+        action_table = {}
 
-        
-        select = "actions[self.state]()"
+        for cond, table, start, actions, mapping in lexer.Get():
+
+            lextablehelper, lextablestr = self.TableStrings("ltd%d" % cond.Number(), tuple(tuple(a[0] for a in state) for state in table))
+
+            # create the string representing the actions
+            actionstr = "(\n"
+            for action in actions:
+                if action not in action_table:
+                    action_table[action] = len(action_table)
+
+                actionstr += "            self.action%d" % (action_table[action],) + ", \n"
+
+            actionstr += "        )"
+
+            mappingstr = ""
+            if mapping:
+                # create the string mapping
+                lookup = "self.mapping[" + baccess + "]"
+
+                mappingstr = "("
+                for entry in mapping:
+                    mappingstr += str(entry)
+                    mappingstr += ","
+                mappingstr += ")"
+
+            data.append((cond,start, actionstr, mappingstr, lextablehelper, lextablestr))
+        data.sort(key=lambda x: x[0].Number())
+
+        startstr = '('
+        mappingstr = '('
+        actionstr = '('
+        lextablestr = '('
+        lextablehelper = ''
+
+        for cond, start, astr, mstr, lthstr, ltstr in data:
+            startstr += str(start) + ','
+            mappingstr += mstr + ',\n'
+            actionstr += astr + ',\n'
+            lextablestr +=   ltstr + ',\n'
+            lextablehelper += '    ' + lthstr + '\n'
+
+        lextablestr += ')'
+        actionstr += ')'
+        mappingstr += ')'
+        startstr += ')'
+
+
+        select = "self.cactions[self.state]()"
 
         linesPositionClass = ""
         linesPositionCalc = "position = 'No Line Tracking'"
@@ -2347,9 +2562,10 @@ class %s(AST):
 
 class Lexer(object):
 
-    """ + mappingstr + """
-    """ + lextablehelper + """
-    table   = """ + lextablestr + """
+    starts = """ + startstr + """
+    mappings = """ + mappingstr + """
+""" + lextablehelper + """
+    tables  = """ + lextablestr + """
 
     def __init__(self, codefile):
         code = open(codefile, 'r')
@@ -2360,22 +2576,31 @@ class Lexer(object):
         self.last_token_end = 0
         self.position = 0
         self.current_token = None
-        self.start = %d""" % start + """
         self.actions = """ + actionstr + """
-        self.line    = 1
+        self.SetInitialCondition(1)
+        self.lineStart = True
+        self.line = 1
         self.linestart = 0
+
+    def SetInitialCondition(self, num):
+        self.cond = num
+        self.start, self.table, self.cactions, self.mapping = self.starts[num], self.tables[num], self.actions[num], self.mappings[num]
+
+    def lexAll(self):
+        tokens = []
+        while True:
+            type, text, pos = self.lex()
+            if type == """ + str(symtable["$EOF"].Number()) + """:
+                return tokens
+            tokens.append((type, text, pos))
 
     def lex(self):
         self.current_token = (%d""" % symtable["$EOF"].Number() +""", self.size)
         self.state = self.start
-        table = self.table
-        actions = self.actions
-        buffer = self.buffer
-        mapping = self.mapping
         try:
             while self.position != self.size:
                 """ + linesStartTrack + """
-                self.state = table[self.state][""" + lookup + """]
+                self.state = self.table[self.state][""" + lookup + """]
                 self.position += 1
                 """ + select  + """
             raise GotToken()
@@ -2383,6 +2608,11 @@ class Lexer(object):
             name, pos = self.current_token
             """ + linesPositionCalc + """
             text = self.buffer[self.root:pos]""" + extract + """
+            if self.cond == 0 or self.cond == 1:
+                if text and text[-1] == '\\n':
+                    self.SetInitialCondition(1)
+                else:
+                    self.SetInitialCondition(0)
             self.root = pos
             self.last_token_end = pos
             self.position = self.root
@@ -2391,19 +2621,19 @@ class Lexer(object):
 
         lexActionGen = LexActionToCode(symtable)
 
-        for action in action_table:
+        for action, number in action_table.items():
             self.parser_file.write("""
     def action%d(self):
-""" % (action_table[action],))
+""" % (number,))
 
             if action != None:
-                self.parser_file.write("        " + lexActionGen.Visit(action) + "\n")
+                code = lexActionGen.Visit(action).split('\n')
+                for line in code:
+                    self.parser_file.write("        " + line + "\n")
             else:
                 self.parser_file.write("        pass\n" )
 
-
     def WriteParser(self, graph, symtable):
-
         parseTable = graph.CreateParseTable(symtable)
         graph.ReportNumOfConflicts()
         # parseTable.Print()
@@ -2571,42 +2801,38 @@ if __name__ == '__main__':
         graph = LALR1StateTransitionGraph(syn)
     else:
         graph = LR1StateTransitionGraph(syn)
-        
+
     graph.Construct()
 
     # construct the lexer
-    lexingNFA = LexingNFA(syn)
-    lexingNFA.Construct()
-    lexingDFA = lexingNFA.CreateDFA()
-    lexingNFA = None # remove the reference to make it garbage
-    
-    if not options.fast:
-        lexingDFA.Optimize()
+    lexer = LexerConstructor(syn)
 
-    lexingTable = lexingDFA.CreateLexTable()
-    lexingDFA = None
+    lexer.ConstructDFAs()
+    lexer.DropNFA()
 
     if not options.fast:
-        lexingTable.ConstructEquivalenceClasses()
+        lexer.Optimize()
+
+    lexer.CreateLexTables()
+    lexer.DropDFA()
+
+    if not options.fast:
+        lexer.ConstructEquivalenceClasses()
 
     if options.debug:
         # lexingTable.Print()
-
-        # print "Parser States:", len(graph.states)
-        # print "Lexer States:", len(lexingDFA.states)
 
         for state in graph.states:
             print(str(state))
 
     # write lexer and parser
-
     fo = sys.stdout
 
     if options.ofile != None:
         fo = open(options.ofile, 'wt')
 
     writer = Writer(fo, options.lines, options.trace, options.deduplicate, options.python3)
-    writer.Write(syn, graph, lexingTable)
-    
+    writer.Write(syn, graph, lexer)
+
     if options.ofile != None:
         fo.close()
