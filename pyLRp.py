@@ -763,7 +763,9 @@ class Parser(object):
 
                     if match:
                         elem = self.syntax.RequireMeta(match.group(1))
-                        if elem not in self.defined:
+                        # terminal symbols are already defined, and returned
+                        # as such
+                        if elem.IsMeta() and elem not in self.defined:
                             self.undef.setdefault(elem, []).append(self.line)
 
                         break
