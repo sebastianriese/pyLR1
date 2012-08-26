@@ -571,7 +571,21 @@ class Parser(object):
     lexer_re = re.compile(r"%lexer\s*$")
     comment_re = re.compile(r"\s*([^\\]#.*|)(#.*)?\s*$")
 
-    lexing_rule_re = re.compile(r"(<(?P<initialNames>([a-zA-Z0-9,_]+|\s)*)>|(?P<sol>\^))?(?P<regex>(\S|(\\ ))+)\s+(%begin\(\s*(?P<begin>([A-Za-z0-9]+|\$INITIAL))\s*\)\s*,\s*)?((?P<token>[a-zA-Z_][a-zA-Z_0-9]*)|(?P<restart>%restart)|(?P<continue>%continue))\s*$")
+    lexing_rule_re = re.compile(r"""
+    # the initial condition specifier
+    (<(?P<initialNames>([a-zA-Z0-9,_]+|\s)*)>|(?P<sol>\^))?
+
+    # the regex
+    (?P<regex>(\S|(\\ ))+)\s+
+
+    # the action spec
+    (%begin\(\s*(?P<begin>([A-Za-z0-9]+|\$INITIAL))\s*\)\s*,\s*)?
+
+    ((?P<token>[a-zA-Z_][a-zA-Z_0-9]*)
+     |(?P<restart>%restart)
+     |(?P<continue>%continue))\s*$""",
+                                flags=re.X)
+
     lexing_statedef_re = re.compile(r'(?P<type>%x|%s) (?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s*$')
 
     syntax_rule_re = re.compile(r"([a-zA-Z_][a-zA-Z_0-9]*):\s*$")
