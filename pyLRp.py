@@ -765,7 +765,8 @@ class Parser(object):
                         elem = self.syntax.RequireMeta(match.group(1))
                         # terminal symbols are already defined, and returned
                         # as such
-                        if elem.IsMeta() and elem not in self.defined:
+                        if self.syntax.SymTable()[elem.Name()].SymType() == Syntax.META and \
+                                elem not in self.defined:
                             self.undef.setdefault(elem, []).append(self.line)
 
                         break
@@ -1212,7 +1213,7 @@ class StateTransitionGraph(object):
 
     def ReportNumOfConflicts(self):
         if self.conflicts:
-            self.logger.error(str(self.conflicts) + "conflicts found!")
+            self.logger.error(str(self.conflicts) + " conflict(s) found!")
 
     def Construct(self):
         raise NotImplementedError()
