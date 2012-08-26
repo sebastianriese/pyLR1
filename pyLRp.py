@@ -27,7 +27,7 @@ and LR(1) or LALR(1) parsers from them.
 
 import re
 import sys
-
+import logging
 import argparse
 
 class Production(object):
@@ -353,7 +353,7 @@ class Empty(Symbol):
 
     def ReducesToEmpty(self, visited=None):
         # empty is not allowed in productions
-        raise Exception()
+        raise Exception("Can't happen")
 
     def IsEmpty(self):
         return True
@@ -601,7 +601,9 @@ class Parser(object):
     ast_list_re = re.compile(r'%list\s+([a-zA-Z_][a-zA-Z_0-9]*)')
     ast_visitor_re = re.compile(r'%visitor\s+([a-zA-Z_][a-zA-Z_0-9]*)')
 
-    def __init__(self, grammar_file):
+    def __init__(self, grammar_file, logger):
+        self.logger = logger
+
         self.syntax = Syntax()
 
         self.grammar_file = grammar_file
@@ -637,7 +639,7 @@ class Parser(object):
 
         match = self.ast_visitor_re.match(line)
         if not match:
-            print("Error: line %i, invalid AST spec" % (self.line,))
+            self.logger.error("line %i, invalid AST spec" % (self.line,))
             return
 
         self.syntax.ASTInfo().visitor = match.group(1)
@@ -662,7 +664,7 @@ class Parser(object):
          state = set()
 
          if not match:
-             print("Error: line %i, invalid token spec" % (self.line,))
+             self.logger.error("line %i, invalid token spec" % (self.line,))
              return
 
          # determine the inital condtions
@@ -721,6 +723,7 @@ class Parser(object):
                         line = line[len(match.group(0)):]
                         line = line.strip()
                     else:
+                        self.logger.error("Syntax error in associativity definition")
                         raise Exception()
 
                 self.assocPower += 1
@@ -775,7 +778,7 @@ class Parser(object):
                         try:
                             prod.SetAssoc(self.assocDefs[match.group(1)])
                         except KeyError:
-                            print("Warning: %d: Erroneous precedence declaration" % self.line)
+                            self.logger.warning("%d: Erroneous precedence declaration" % self.line)
 
                         break
 
@@ -799,7 +802,7 @@ class Parser(object):
 
                         return
 
-                    print("Syntax error: line %d (%s)" % (self.line,line), file=sys.stderr)
+                    self.logger.error("line %d syntax error (%s)" % (self.line,line))
                     return
 
                 line = line[len(match.group(0)):]
@@ -820,7 +823,7 @@ class Parser(object):
                 if char == ' ':
                    ind += 1
                 elif char == '\t':
-                    print("Warning: Tab used for significant indention!")
+                    self.logger.warning("Tab used for significant indention!")
                     ind += 8
                 else:
                     break
@@ -874,9 +877,9 @@ class Parser(object):
             for symbol, lines in sorted(self.undef.items(), key=lambda x: x[0].Name()):
                 usedinlines = "used in lines"
                 if len(lines) == 1: usedinlines = "used in line"
-                print("Undefined symbol", symbol.Name(), usedinlines,
-                      ', '.join(str(line) for line in lines), file=sys.stderr)
-            raise Exception("Undefined meta symbols found!")
+                self.logger.error(' '.join(["Undefined symbol", symbol.Name(), usedinlines,
+                                  ', '.join(str(line) for line in lines)]))
+            self.logger.error("Undefined meta symbols found")
 
         return self.syntax
 
@@ -1195,7 +1198,9 @@ class StateTransitionGraph(object):
     common to LALR(1), LR(1), SLR(1), ... transition graphs.
     """
 
-    def __init__(self, grammar):
+    def __init__(self, grammar, logger):
+        self.logger = logger
+
         self.grammar = grammar
         self.states = []
 
@@ -1205,7 +1210,7 @@ class StateTransitionGraph(object):
 
     def ReportNumOfConflicts(self):
         if self.conflicts:
-            print(self.conflicts, "conflicts found!")
+            self.logger.error(str(self.conflicts) + "conflicts found!")
 
     def Construct(self):
         raise NotImplementedError()
@@ -1254,7 +1259,7 @@ class StateTransitionGraph(object):
 
         if old.IsReduce():
             print(state)
-            print("Default to the first reduce for reduce/reduce-conflict")
+            self.logger.info("Default to the first reduce for reduce/reduce-conflict")
             self.conflicts += 1
             if old.NumberInFile() > new.NumberInFile():
                 return new
@@ -1266,7 +1271,7 @@ class StateTransitionGraph(object):
             # shift wins over reduce by default
             if assoc == Production.NONE:
                 print(state)
-                print("Default to shift for shift/reduce-conflict")
+                self.logger.info("Default to shift for shift/reduce-conflict")
                 self.conflicts += 1
                 return old
 
@@ -1286,7 +1291,7 @@ class StateTransitionGraph(object):
                 else:
                     return old
             else:
-                raise Exception()
+                raise Exception("Can't happen")
 
 
     def Kernels(self):
@@ -1325,7 +1330,7 @@ class StateTransitionGraph(object):
                 pass
             else:
                 print(symbol.Symbol())
-                raise Exception()
+                raise Exception("Can't happen")
 
         prodToRule = dict()
 
@@ -1369,7 +1374,7 @@ class StateTransitionGraph(object):
                 else:
                     print(state)
                     print(str(symb))
-                    raise Exception()
+                    raise Exception("Can't happen")
 
             for item in state.Elements():
                 if item.AfterDot() is None:
@@ -1395,8 +1400,8 @@ class LALR1StateTransitionGraph(StateTransitionGraph):
     The LALR(1) State Transition Graph.
     """
 
-    def __init__(self, grammar):
-        super(LALR1StateTransitionGraph, self).__init__(grammar)
+    def __init__(self, grammar, logger):
+        super(LALR1StateTransitionGraph, self).__init__(grammar, logger)
 
     def Propagate(self):
         """
@@ -1457,8 +1462,8 @@ class LR1StateTransitionGraph(StateTransitionGraph):
     The LR(1) State Transition Graph.
     """
 
-    def __init__(self, grammar):
-        super(LR1StateTransitionGraph, self).__init__(grammar)
+    def __init__(self, grammar, logger):
+        super(LR1StateTransitionGraph, self).__init__(grammar, logger)
 
     def Construct(self):
 
@@ -1865,7 +1870,7 @@ class Regex(object):
                     chars |= cset
 
         except StopIteration:
-            print("error")
+            self.logger.error("Syntax error in regular expression")
             return None
 
     def lex(self):
@@ -1881,6 +1886,7 @@ class Regex(object):
                 elif char == '[':
                     tokens.append((0, self.ParseChrClass(iterator)))
                 elif char == ']':
+                    self.logger.error("Syntax error in regular expression")
                     raise Exception()
                 elif char in ('+', '?', '*'):
                     tokens.append((1, char))
@@ -1997,6 +2003,7 @@ class Regex(object):
                         args.append(OptionRegex(arg))
 
                     else:
+                        self.logger.error("Syntax error in regular expression")
                         raise Exception()
 
                     pos += 1
@@ -2015,15 +2022,18 @@ class Regex(object):
                 token, lexeme = tokens[pos]
 
                 if token != 4:
+                    self.logger.error("Syntax error in regular expression")
                     raise Exception()
                 pos += 1
             else:
+                self.logger.error("Syntax error in regular expression")
                 raise Exception()
 
         ParseEmpty()
 
         if len(args) != 1 or len(tokens) != pos + 1:
             print([str(x) for x in args])
+            self.logger.error("Syntax error in regular expression")
             raise Exception()
 
         # print args[0]
@@ -2046,7 +2056,8 @@ class LexerConstructor(object):
     applying the further manipulations to all of them.
     """
 
-    def __init__(self, lexerSpec):
+    def __init__(self, lexerSpec, logger):
+        self.logger = logger
 
         self.nfas = {}
         self.dfas = {}
@@ -2420,7 +2431,9 @@ class Writer(object):
 
         return ded, indices
 
-    def __init__(self, parser_file, lines, trace, deduplicate, python3):
+    def __init__(self, parser_file, logger, lines, trace, deduplicate, python3):
+        self.logger = logger
+
         self.parser_file = parser_file
         self.lines = lines
         self.trace = trace
@@ -2486,7 +2499,8 @@ import mmap
                         elif len(positions) == 2:
                             prod.SetAction('$$.sem = $%d.sem; $$.sem.append($%d.sem)' % tuple(positions))
                         else:
-                            raise Exception("Foo: more items than can be enlisted ")
+                            self.logger.error("Erroneous %list target: more items than can be enlisted")
+                            raise Exception()
                 else:
                     for prod in symbol.Symbol().Productions():
                         if prod in ast.bindings:
@@ -2928,8 +2942,9 @@ if __name__ == '__main__':
 
     args = arg_parser.parse_args()
 
+    logger = logging.getLogger(sys.argv[0])
 
-    p = Parser(args.infile)
+    p = Parser(args.infile, logger)
     syn = p.Parse()
     p = None # make it garbage
     args.infile.close()
@@ -2937,14 +2952,14 @@ if __name__ == '__main__':
     # construct the parser
     graph = None
     if args.lalr:
-        graph = LALR1StateTransitionGraph(syn)
+        graph = LALR1StateTransitionGraph(syn, logger)
     else:
-        graph = LR1StateTransitionGraph(syn)
+        graph = LR1StateTransitionGraph(syn, logger)
 
     graph.Construct()
 
     # construct the lexer
-    lexer = LexerConstructor(syn)
+    lexer = LexerConstructor(syn, logger)
 
     lexer.ConstructDFAs()
     lexer.DropNFA()
@@ -2970,7 +2985,12 @@ if __name__ == '__main__':
     if args.ofile != None:
         fo = open(args.ofile, 'wt')
 
-    writer = Writer(fo, args.lines, args.trace, args.deduplicate, args.python3)
+    writer = Writer(fo, logger,
+                    lines=args.lines,
+                    trace=args.trace,
+                    deduplicate=args.deduplicate,
+                    python3=args.python3)
+
     writer.Write(syn, graph, lexer)
 
     if args.ofile != None:
