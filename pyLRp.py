@@ -254,6 +254,16 @@ class LR1Item(object):
 
         return closure
 
+    def TransitionsTo(self, other):
+        """
+        Determine whether the LR item generates `other` on transition.
+        """
+
+        if self.AfterDot() is None:
+            return False
+
+        return self.Prod() == other.Prod() and self.Pos() + 1 == other.Pos()
+
 class Symbol(object):
     """Base class for all types symbols in the system (terminal, meta,
     undef and empty)."""
@@ -1538,7 +1548,7 @@ class LALR1StateTransitionGraphElement(LR1StateTransitionGraphElement):
 
                             for itemTo in stateTo.Elements():
 
-                                if itemTo.Prod() == other.Prod() and itemTo.Pos() == other.Pos() + 1:
+                                if other.TransitionsTo(itemTo):
 
                                     for la in other.Lookahead():
 
