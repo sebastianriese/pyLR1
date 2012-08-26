@@ -2,10 +2,30 @@ README - pyLRp python LR(1) parser generator
 
 Author: Sebastian Riese <sebastian.riese.mail@web.de>
 
-The sample files show how to use the parser generator. But are out
-of date at the moment. More documentation will follow.
+The sample files show how to use the parser generator. But are out of
+date at the moment. More documentation will follow. The parser
+generator is written in python3, but it can generate both python2 and
+python3 parsers.
 
-Invocation: python pyLRp.py [-o output] input [-l] [-L]
+The generated parsers are standalone modules.
+
+Usage: pyLRp.py [options] INFILE
+
+Options:
+  --version             show program's version number and exit
+  -h, --help            show this help message and exit
+  -o OFILE, --output-file=OFILE
+                        Set the output file to OFILE
+  -l, --line-tracking   Enable line tracking in the generated parser
+  -L, --lalr            Generate a LALR(1) parser instead of a LR(1) parser
+  -d, --debug           Print debug information to stdout
+  -D, --not-deduplicate
+                        Write out the tables entirely as one big literal
+  -f, --fast            Fast run: generates larger and possibly slower
+                        parsers, but takes less time
+  -T, --trace           Generate a parser that prints out a trace of its state
+  -3, --python3         Generate python3 compatible parser
+  -2, --python2         Generate python2 compatible parser
 
 Contributors
 ------------
@@ -15,7 +35,7 @@ Jonas Wielicki <j.wielicki@sotecware.net> (Python 3 support, testing)
 License
 -------
 
-Copyright 2009, 2010 Sebastian Riese
+Copyright 2009, 2010, 2012 Sebastian Riese
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

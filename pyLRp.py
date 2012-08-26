@@ -4,7 +4,7 @@ Parse parser and lexer specifications and create DFA lexers
 and LR(1) or LALR(1) parsers from them.
 """
 
-# Copyright 2009, 2010 Sebastian Riese
+# Copyright 2009, 2010, 2012 Sebastian Riese
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -31,7 +31,8 @@ import sys
 import optparse
 
 class Production(object):
-    """A production in a grammar. Productions with left set to None may be used as arbitrary symbol strings."""
+    """A production in a grammar. Productions with left set to None
+    may be used as arbitrary symbol strings."""
 
     NONE = 0
     LEFT = 1
@@ -74,7 +75,6 @@ class Production(object):
     def SetAssoc(self, assoc):
         self.assoc = assoc
 
-
     def AddSym(self, sym):
         self.syms.append(sym)
 
@@ -84,9 +84,12 @@ class Production(object):
     def GetAction(self):
         return self.text
 
-    def First(self, visited):
+    def First(self, visited=None):
         # if self.first != None:
         #     return self.first
+
+        if visited is None:
+            visited = frozenset()
 
         result = set()
 
@@ -94,7 +97,7 @@ class Production(object):
             if sub  not in visited:
                 result |= sub.First(visited | set([self])) - set([Empty.Instance()])
 
-            if not sub.ReducesToEmpty(set()):
+            if not sub.ReducesToEmpty():
                 break
 
         else:
@@ -109,7 +112,8 @@ class Production(object):
         return self.left
 
     def AtOrNone(self, index):
-        """Return the Symbol in the Production at position index ort None if index is out of range."""
+        """Return the Symbol in the Production at position index ort
+        None if index is out of range."""
         try:
             return self.syms[index]
         except IndexError:
@@ -117,15 +121,17 @@ class Production(object):
 
     def SubProduction(self, index0 = 0, index1 = None):
         """
-        Return a production with left=self.left and syms=self.syms[index0:index1].
-        The main use of this is to evaluate the FIRST set of the subproductions.
+        Return a production with left=None and
+        syms=self.syms[index0:index1]. The main use of this is to
+        evaluate the FIRST set of the subproductions.
         """
         return Production(None, self.syms[index0:index1])
 
     def Concat(self, elem):
         """
-        Return a new Production with left=None and syms=self.syms+[elem].
-        The main use of this is to evaluate the FIRST set of the concatenation.
+        Return a new Production with left=None and
+        syms=self.syms+[elem].  The main use of this is to evaluate
+        the FIRST set of the concatenation.
         """
 
         if elem.IsEmpty():
@@ -181,7 +187,7 @@ class LR1Item(object):
             and self.pos == other.pos \
             and self.la == other.la
 
-    def IsKernel(self):
+    def InKernel(self):
         return self.pos != 0 or (self.prod.left.Name() == "$START")
 
     def AfterDot(self):
@@ -198,6 +204,8 @@ class LR1Item(object):
 
     def SetLookahead(self, la):
         if (self.prod,self.pos,self.la) in self.closure:
+            # the buffered closure is no longer valid, once
+            # a new lookahead set is assigned
             del self.closure[(self.prod,self.pos,self.la)]
 
         self.la = frozenset(la)
@@ -210,14 +218,17 @@ class LR1Item(object):
         result = set()
 
         if afterDot == symbol:
-            result |= LR1Item(self.prod, self.pos+1, self.la).Closure(frozenset())
+            result |= LR1Item(self.prod, self.pos+1, self.la).Closure()
 
         return result
 
-    def Closure(self, visited):
+    def Closure(self, visited=None):
         # possibly the buffering is buggy
         if (self.prod,self.pos,self.la) in self.closure:
              return self.closure[(self.prod,self.pos,self.la)]
+
+        if visited is None:
+            visited = frozenset()
 
         closure = set([self])
         afterDot = self.AfterDot()
@@ -228,7 +239,7 @@ class LR1Item(object):
 
             for la in self.la:
                 firstconcat = self.prod.SubProduction(self.pos+1, None).Concat(la)
-                laset |= firstconcat.First(frozenset())
+                laset |= firstconcat.First()
 
             for prod in afterDot.Productions():
 
@@ -244,7 +255,8 @@ class LR1Item(object):
         return closure
 
 class Symbol(object):
-    """Base class of all symbols in the system (terminal, meta and empty)."""
+    """Base class for all types symbols in the system (terminal, meta,
+    undef and empty)."""
 
     def __init__(self, name, syntax):
         self.name = name
@@ -266,12 +278,13 @@ class Symbol(object):
         """Return an iterator over the list of productions"""
         return iter([])
 
-    def First(self, visited):
+    def First(self, visited=None):
         """The FIRST-set of the symbol."""
         raise NotImplementedError()
 
-    def ReducesToEmpty(self, visited):
-        """Return whether the symbol can be reduced to the empty symbol."""
+    def ReducesToEmpty(self, visited=None):
+        """Return whether the symbol can be reduced to the empty
+        symbol."""
         return False
 
     def Productions(self):
@@ -289,7 +302,7 @@ class EOF(Symbol):
     def __init__(self):
         super(EOF, self).__init__("$EOF", None)
 
-    def First(self, visited):
+    def First(self, visited=None):
         return set([self])
 
 class Undef(Symbol):
@@ -301,23 +314,20 @@ class Undef(Symbol):
     def __init__(self):
         super(Undef, self).__init__("$UNDEF", None)
 
-    def First(self, visited):
+    def First(self, visited=None):
         return set([self])
 
 class Empty(Symbol):
     """
-    The empty terminal symbol.
-    The class is a singleton, in order to make many of the methods of the other classes
-    work you should not instanciate it. Use the Instance method for retrieving the singleton instance.
+    The empty terminal symbol.  The class is a singleton, in order to
+    make many of the methods of the other classes work you should not
+    instanciate it. Use the Instance class method for retrieving the
+    singleton instance.
     """
 
     instance = None
 
     def __init__(self):
-        """
-        Do not use this method.
-        Use Instance() instead.
-        """
         super(Empty, self).__init__("$Empty", None)
 
     @classmethod
@@ -328,10 +338,10 @@ class Empty(Symbol):
 
         return clazz.instance
 
-    def First(self, visited):
+    def First(self, visited=None):
         return set([self])
 
-    def ReducesToEmpty(self, visited):
+    def ReducesToEmpty(self, visited=None):
         # empty is not allowed in productions
         raise Exception()
 
@@ -345,7 +355,7 @@ class Terminal(Symbol):
         super(Terminal, self).__init__(name, syntax)
         self.stoken = stoken
 
-    def First(self, visited):
+    def First(self, visited=None):
         return set([self])
 
     def IsSToken(self):
@@ -353,8 +363,7 @@ class Terminal(Symbol):
 
 class Meta(Symbol):
     """
-    The Metasymbol class.
-    This stores the grammar for the symbol.
+    The Metasymbol class. This stores the grammar for the symbol.
     """
 
     def __init__(self, name, syntax):
@@ -373,11 +382,13 @@ class Meta(Symbol):
         # the copying is just a safety measure ...
         return self.prod[:]
 
-    def First(self, visited):
+    def First(self, visited=None):
         # if self.first != None:
         #     return self.first
 
         result = set()
+
+        if visited is None: visited = frozenset()
 
         for prod in self.prod:
             result |= prod.First(visited | set([self]))
@@ -387,26 +398,31 @@ class Meta(Symbol):
 
         return result
 
-    def ReducesToEmpty(self, visited):
+    def ReducesToEmpty(self, visited=None):
 
-        if self.reduces_to_empty != None:
+        if self.reduces_to_empty is not None:
             return self.reduces_to_empty
+
+        if visited is None:
+            visited = frozenset()
 
         for prod in self.prod:
 
             for sub in prod:
                 if sub not in visited and not sub.ReducesToEmpty(visited | set([self])):
-                    # the whole production doesn't reduce to empty (because one subsymbol doesn't)
+                    # this production doesn't reduce to empty (because
+                    # one subsymbol doesn't)
                     break
             else:
-                # all subsymbols in the production reduced to empty, break the main loop
+                # all subsymbols in this production reduced to empty,
+                # therefore the symbol may reduce to empty
 
                 if len(visited) == 0:
                     self.reduces_to_empty = True
 
                 return True
 
-        # the loop's execution was broken, one production didn't reduce to empty
+        # no production for this symbol does reduce to empty
         if len(visited) == 0:
             self.reduces_to_empty = False
 
@@ -764,20 +780,21 @@ class Parser(object):
 
     def Action(self, line, eof=False):
 
-        def Indent(line):
+        def Indention(line):
             ind = 0
 
             for char in line:
                 if char == ' ':
                    ind += 1
                 elif char == '\t':
+                    print("Warning: Tab used for significant indention!")
                     ind += 8
                 else:
                     break
 
             return ind
 
-        indent = Indent(line)
+        indent = Indention(line)
         if self.indent == None:
             self.indent = indent
 
@@ -791,7 +808,7 @@ class Parser(object):
             return
 
         def Unindent(line):
-            ind = Indent(line)
+            ind = Indention(line)
             line = line.strip()
 
             return " " * (ind - self.indent) + line
@@ -816,7 +833,7 @@ class Parser(object):
             else:
                 self.state(line)
 
-        # notice the current state of eof
+        # notify the current state of eof
         # apply any pending state
         self.state('', eof=True)
 
@@ -1306,7 +1323,8 @@ class StateTransitionGraph(object):
                             prec = nprec
                             assoc = item.Prod().GetAssoc()
 
-                    acur[terminals[symb]] = Shift(stateToIndex[tstate], assoc, prec)
+                    acur[terminals[symb]] = Shift(stateToIndex[tstate],
+                                                  assoc, prec)
                 else:
                     print(state)
                     print(str(symb))
@@ -1314,10 +1332,16 @@ class StateTransitionGraph(object):
 
             for item in state.Elements():
                 if item.AfterDot() is None:
-                    reduceAction = Reduce(prodToRule[item.Prod()], item.Prod().GetAssoc(), item.Prod().NumberInFile())
+                    reduceAction = Reduce(prodToRule[item.Prod()],
+                                          item.Prod().GetAssoc(),
+                                          item.Prod().NumberInFile())
+
                     for la in item.Lookahead():
-                        if acur[terminals[la]] != None:
-                            acur[terminals[la]] = self.ResolveConflict(state, acur[terminals[la]], reduceAction)
+                        if acur[terminals[la]] is not None:
+                            acur[terminals[la]] = \
+                                self.ResolveConflict(state,
+                                                     acur[terminals[la]],
+                                                     reduceAction)
 
 
                         else:
@@ -1370,23 +1394,21 @@ class LALR1StateTransitionGraph(StateTransitionGraph):
     def Construct(self):
         # construct the starting point (virtual starting node) and use the RequireElement-method to  build up the tree
 
-        prod = Production(self.grammar.RequireMeta("$START"), [self.grammar.Start()], -1)
+        prod = Production(self.grammar.RequireMeta("$START"),
+                          [self.grammar.Start()], -1)
+
         prod.SetAction("raise Accept()")
 
         self.grammar.RequireMeta("$START").AddProd(prod)
 
-        # we use an empty lookahead set to generate the LR(0) item set
+        # we use an empty lookahead set to generate the LR(0) automaton
         start = LR1Item(prod,0,set([]))
 
-        self.start = self.RequireState(start.Closure(frozenset()))
+        self.start = self.RequireState(start.Closure())
 
-        # now we have to assign the lookahead sets
-        # self.Kernels()
-
-        # detect token generation and propagation
+        # calculate the LALR(1) lookahead sets
         self.Propagate()
 
-        # self.CloseKernels()
 
 class LR1StateTransitionGraph(StateTransitionGraph):
     """
@@ -1397,14 +1419,14 @@ class LR1StateTransitionGraph(StateTransitionGraph):
         super(LR1StateTransitionGraph, self).__init__(grammar)
 
     def Construct(self):
-        # construct the starting point (virtual starting node) and use the RequireElement-method to  build up the tree
 
-        prod = Production(self.grammar.RequireMeta("$START"), [self.grammar.Start()], -1)
+        prod = Production(self.grammar.RequireMeta("$START"),
+                          [self.grammar.Start()], -1)
         prod.SetAction("raise Accept()")
 
         self.grammar.RequireMeta("$START").AddProd(prod)
 
-        start = LR1Item(prod,0,set([self.grammar.RequireEOF()])).Closure(frozenset())
+        start = LR1Item(prod,0,set([self.grammar.RequireEOF()])).Closure()
 
         self.start = self.RequireState(start)
 
@@ -1454,7 +1476,7 @@ class LR1StateTransitionGraphElement(object):
         res = set()
 
         for elem in self.elements:
-            if elem.IsKernel():
+            if elem.InKernel():
                 res.add(elem)
 
         self.elements = res
@@ -1466,7 +1488,7 @@ class LR1StateTransitionGraphElement(object):
         res = set()
 
         for elem in self.elements:
-            res |= elem.Closure(frozenset())
+            res |= elem.Closure()
 
         self.elements = self.graph.NormalizeItemSet(res)
 
@@ -1503,7 +1525,7 @@ class LALR1StateTransitionGraphElement(LR1StateTransitionGraphElement):
         for item in self.elements:
 
             item.SetLookahead(frozenset([undef]))
-            cls = item.Closure(frozenset())
+            cls = item.Closure()
 
             for other in cls:
                 symb = other.AfterDot()
@@ -1560,10 +1582,24 @@ class AutomatonState(object):
         return "AutomatonState("+repr(id(self))+", "+ repr(self.action) +")"
 
     def Move(self, char):
+        """
+        Get the set of states reached by the transition on char.
+        """
         return set(self.transitions.get(char, set()))
 
-    def EpsilonClosure(self, visited):
+    def MoveDFA(self, chr):
+        """
+        Get the transition on character for a DFA (that is, only one
+        state, not a set of states).
+        """
+        res, = self.Move(chr)
+        return res
+
+    def EpsilonClosure(self, visited=None):
         closure = set([self])
+
+        if visited is None:
+            visited = frozenset()
 
         if self in visited:
             return closure
@@ -1636,7 +1672,8 @@ class SequenceRegex(RegexAST):
         nfa1s, nfa1e = self.regex1.NFA()
         nfa2s, nfa2e = self.regex2.NFA()
 
-        # chain the end of the first automaton to the start of the second one with an epsilon transition
+        # chain the end of the first automaton to the start of the
+        # second one with an epsilon transition
         nfa1e.AddTransition('', nfa2s)
 
         return nfa1s, nfa2e
@@ -1768,7 +1805,8 @@ class Regex(object):
                     if len(prev) != 1:
                         raise StopIteration()
 
-                    # use tuple unpacking to elegantly extract the single values from the sets
+                    # use tuple unpacking to elegantly extract the
+                    # single values from the sets
                     c, = cset
                     p, = prev
 
@@ -1824,11 +1862,7 @@ class Regex(object):
         tokens = self.lex()
         tokens.append((5,''))
 
-        # hack to overcome pythons scoping rules
-        # this simulates i in proper static scope
-        class Pos: pass
-        pos = Pos()
-        pos.i = 0
+        pos = 0
 
         # matching yacc grammar:
 
@@ -1857,7 +1891,8 @@ class Regex(object):
         # see the method lex for more detail
 
         def ParseEmpty():
-            token, lexeme = tokens[pos.i]
+            nonlocal pos
+            token, lexeme = tokens[pos]
 
             if token == 0 or token == 2:
                 ParseOr()
@@ -1865,14 +1900,15 @@ class Regex(object):
                 args.append(CharacterRegex(set('')))
 
         def ParseOr():
-            token, lexeme = tokens[pos.i]
+            nonlocal pos
+            token, lexeme = tokens[pos]
 
             if token == 0 or token == 2:
                 ParseChain()
 
-                token, lexeme = tokens[pos.i]
+                token, lexeme = tokens[pos]
                 if token == 3:
-                    pos.i += 1
+                    pos += 1
                     ParseOr()
                     a2 = args.pop()
                     a1 = args.pop()
@@ -1880,14 +1916,16 @@ class Regex(object):
 
 
         def ParseChain():
-            token, lexeme = tokens[pos.i]
+            nonlocal pos
+            token, lexeme = tokens[pos]
 
             if token == 0 or token == 2:
                 ParseOp()
                 ParseChain1()
 
         def ParseChain1():
-            token, lexeme = tokens[pos.i]
+            nonlocal pos
+            token, lexeme = tokens[pos]
 
             if token == 0 or token == 2:
                 ParseOp()
@@ -1898,12 +1936,13 @@ class Regex(object):
                 ParseChain1()
 
         def ParseOp():
-            token, lexeme = tokens[pos.i]
+            nonlocal pos
+            token, lexeme = tokens[pos]
 
             if token == 0 or token == 2:
                 ParseBasic()
 
-                token, lexeme = tokens[pos.i]
+                token, lexeme = tokens[pos]
                 if token == 1:
                     arg = args.pop()
                     if lexeme == '+':
@@ -1918,29 +1957,30 @@ class Regex(object):
                     else:
                         raise Exception()
 
-                    pos.i += 1
+                    pos += 1
 
         def ParseBasic():
-            token, lexeme = tokens[pos.i]
+            nonlocal pos
+            token, lexeme = tokens[pos]
 
             if token == 0:
                 args.append(CharacterRegex(lexeme))
-                pos.i += 1
+                pos += 1
 
             elif token == 2:
-                pos.i += 1
+                pos += 1
                 ParseEmpty()
-                token, lexeme = tokens[pos.i]
+                token, lexeme = tokens[pos]
 
                 if token != 4:
                     raise Exception()
-                pos.i += 1
+                pos += 1
             else:
                 raise Exception()
 
         ParseEmpty()
 
-        if len(args) != 1 or len(tokens) != pos.i + 1:
+        if len(args) != 1 or len(tokens) != pos + 1:
             print([str(x) for x in args])
             raise Exception()
 
@@ -1961,7 +2001,7 @@ class LexerConstructor(object):
     """
     Manages the steps of constructing the lexer, taking care of
     constructing the lextables for the different states and then
-    applying the manipulations to all of them.
+    applying the further manipulations to all of them.
     """
 
     def __init__(self, lexerSpec):
@@ -2039,7 +2079,7 @@ class LexingNFA(object):
             i -= 1
 
     def CreateDFA(self):
-        si = frozenset(self.start.EpsilonClosure(frozenset()))
+        si = frozenset(self.start.EpsilonClosure())
         dfaStates = {si : AutomatonState()}
         todo = [si]
 
@@ -2052,7 +2092,7 @@ class LexingNFA(object):
                 move = set()
                 for c in cur:
                     for m in c.Move(char):
-                        move |= m.EpsilonClosure(frozenset())
+                        move |= m.EpsilonClosure()
                 newState = frozenset(move)
 
                 if newState not in dfaStates:
@@ -2060,7 +2100,7 @@ class LexingNFA(object):
                     todo.append(newState)
                     dfaStates[newState] = AutomatonState()
 
-                    # select the correct action
+                    # select the appropriate action
                     curpri = float('-inf')
                     for state in newState:
                         pri = state.Priority()
@@ -2070,7 +2110,7 @@ class LexingNFA(object):
 
                     if len(newState) == 0:
                         # this is the error state (empty set of NFA states)
-                        # if we come here nothing can match anymore, therefore
+                        # if we get here nothing can match anymore, therefore
                         # we can retrieve our longest match
                         dfaStates[newState].SetAction(None, GetMatch())
 
@@ -2100,10 +2140,7 @@ class OptimizerPartition(object):
         self.groups[group].append(state)
 
     def GeneratePartitionTransitionTable(self, state):
-        # this code operates under the assumption, that we handle a DFA
-        # so .Move() returns a set containing exactly one element
-        # print state
-        return tuple(self.GroupOfState(state.Move(chr(char)).pop()) for char in range(0,256))
+        return tuple(self.GroupOfState(state.MoveDFA(chr(char))) for char in range(0,256))
 
     def Partition(self):
         partition = OptimizerPartition()
@@ -2143,7 +2180,7 @@ class OptimizerPartition(object):
             states[i].SetAction(None, representative.GetAction())
 
             for char in range(256):
-                states[i].AddTransition(chr(char), states[self.GroupOfState(representative.Move(chr(char)).pop())])
+                states[i].AddTransition(chr(char), states[self.GroupOfState(representative.MoveDFA(chr(char)))])
 
         return newstart, newstates
 
@@ -2314,15 +2351,13 @@ else:
 
 class LRActionToLRTableEntry(LRActionVisitor):
 
-    def __init__(self, rulelist, symtable):
-        self.rulelist = rulelist
+    def __init__(self, symtable):
         self.symtable = symtable
 
     def VisitShift(self, shift):
-        return (0,shift.Next())
+        return (0, shift.Next())
 
     def VisitReduce(self, red):
-        rule = self.rulelist[red.Red()]        # return (1,len(rule),self.symtable[rule.Left().Name()].Number())
         return (1, red.Red())
 
 
@@ -2684,7 +2719,7 @@ class Parser(object):
     # actions from the grammar
 """)
 
-        translator = LRActionToLRTableEntry(parseTable.Rules(), symtable)
+        translator = LRActionToLRTableEntry(symtable)
 
         actionTableHelper, actionTableStr = self.TableStrings("atd", tuple(tuple(translator.Visit(a) if a != None else (2,0) for a in state) for state in parseTable.Actiontable()))
 
