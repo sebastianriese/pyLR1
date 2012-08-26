@@ -28,7 +28,7 @@ and LR(1) or LALR(1) parsers from them.
 import re
 import sys
 
-import optparse
+import argparse
 
 class Production(object):
     """A production in a grammar. Productions with left set to None
@@ -1392,7 +1392,8 @@ class LALR1StateTransitionGraph(StateTransitionGraph):
         return LALR1StateTransitionGraphElement(self, number, elements)
 
     def Construct(self):
-        # construct the starting point (virtual starting node) and use the RequireElement-method to  build up the tree
+        # construct the starting point (virtual starting node) and use
+        # the RequireElement-method to build up the tree
 
         prod = Production(self.grammar.RequireMeta("$START"),
                           [self.grammar.Start()], -1)
@@ -2818,41 +2819,78 @@ class Parser(object):
 
 if __name__ == '__main__':
 
-    opt_parser = optparse.OptionParser(usage="usage: %prog [options] INFILE", version="%prog 0.1")
-    opt_parser.add_option("-o", "--output-file", dest="ofile", help="Set the output file to OFILE")
-    opt_parser.add_option("-l", "--line-tracking", dest="lines", action='store_true', default=False, help="Enable line tracking in the generated parser")
-    opt_parser.add_option("-L", "--lalr", dest="lalr", action='store_true', default=False, help="Generate a LALR(1) parser instead of a LR(1) parser")
-    opt_parser.add_option("-d", "--debug", dest="debug", action='store_true', default=False, help="Print debug information to stdout")
-    opt_parser.add_option("-D", "--not-deduplicate", dest="deduplicate", action='store_false', default=True, help="Write out the tables entirely as one big literal")
-    opt_parser.add_option("-f", "--fast", dest="fast", action='store_true', default=False, help="Fast run: generates larger and possibly slower parsers, but takes less time")
-    opt_parser.add_option("-T", "--trace", dest="trace", action='store_true', default=False, help="Generate a parser that prints out a trace of its state")
-    opt_parser.add_option("-3", "--python3", dest="python3", action='store_true', default=False, help="Generate python3 compatible parser")
-    opt_parser.add_option("-2", "--python2", dest="python3", action='store_false', default=False, help="Generate python2 compatible parser")
+    arg_parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="A pure python LALR(1)/LR(1) parser generator and lexer generator.")
+
+    arg_parser.add_argument("-o", "--output-file",
+                            dest="ofile",
+                            help="Set the output file to OFILE")
+
+    arg_parser.add_argument("-l", "--line-tracking",
+                            dest="lines",
+                            action='store_true',
+                            default=False,
+                            help="Enable line tracking in the generated parser")
+
+    arg_parser.add_argument("-L", "--lalr",
+                            dest="lalr",
+                            action='store_true',
+                            default=False,
+                            help="Generate a LALR(1) parser instead of a LR(1) parser")
+
+    arg_parser.add_argument("-d", "--debug",
+                            dest="debug",
+                            action='store_true',
+                            default=False,
+                            help="Print debug information to stdout")
+
+    arg_parser.add_argument("-D", "--not-deduplicate",
+                            dest="deduplicate",
+                            action='store_false',
+                            default=True,
+                            help="Write out the tables entirely as one big literal")
+
+    arg_parser.add_argument("-f", "--fast",
+                            dest="fast",
+                            action='store_true',
+                            default=False,
+                            help="Fast run: generates larger and possibly slower parsers, but takes less time")
+
+    arg_parser.add_argument("-T", "--trace",
+                            dest="trace",
+                            action='store_true',
+                            default=False,
+                            help="Generate a parser that prints out a trace of its state")
+
+    arg_parser.add_argument("-3", "--python3",
+                            dest="python3",
+                            action='store_true',
+                            default=True,
+                            help="Generate python3 compatible parser [default]")
+
+    arg_parser.add_argument("-2", "--python2",
+                            dest="python3",
+                            action='store_false',
+                            default=True,
+                            help="Generate python2 compatible parser")
 
 
-    options, args = opt_parser.parse_args()
+    arg_parser.add_argument("infile",
+                            type=argparse.FileType('r'),
+                            help="The parser specification to process")
 
-    if len(args) >= 2:
-        opt_parser.error("no more than on input file may be specified")
+    args = arg_parser.parse_args()
 
-    fi = sys.stdin
 
-    if len(args) == 1:
-        infile, = args
-        fi = open(infile, 'rt')
-
-    p = Parser(fi)
-
+    p = Parser(args.infile)
     syn = p.Parse()
-
-    if len(args) == 1:
-        fi.close()
-
     p = None # make it garbage
+    args.infile.close()
 
     # construct the parser
     graph = None
-    if options.lalr:
+    if args.lalr:
         graph = LALR1StateTransitionGraph(syn)
     else:
         graph = LR1StateTransitionGraph(syn)
@@ -2865,16 +2903,16 @@ if __name__ == '__main__':
     lexer.ConstructDFAs()
     lexer.DropNFA()
 
-    if not options.fast:
+    if not args.fast:
         lexer.Optimize()
 
     lexer.CreateLexTables()
     lexer.DropDFA()
 
-    if not options.fast:
+    if not args.fast:
         lexer.ConstructEquivalenceClasses()
 
-    if options.debug:
+    if args.debug:
         # lexingTable.Print()
 
         for state in graph.states:
@@ -2883,11 +2921,11 @@ if __name__ == '__main__':
     # write lexer and parser
     fo = sys.stdout
 
-    if options.ofile != None:
-        fo = open(options.ofile, 'wt')
+    if args.ofile != None:
+        fo = open(args.ofile, 'wt')
 
-    writer = Writer(fo, options.lines, options.trace, options.deduplicate, options.python3)
+    writer = Writer(fo, args.lines, args.trace, args.deduplicate, args.python3)
     writer.Write(syn, graph, lexer)
 
-    if options.ofile != None:
+    if args.ofile != None:
         fo.close()

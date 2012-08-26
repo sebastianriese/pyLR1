@@ -9,12 +9,16 @@ python3 parsers.
 
 The generated parsers are standalone modules.
 
-Usage: pyLRp.py [options] INFILE
+usage: pyLRp.py [-h] [-o OFILE] [-l] [-L] [-d] [-D] [-f] [-T] [-3] [-2] infile
 
-Options:
-  --version             show program's version number and exit
+A pure python LALR(1)/LR(1) parser generator and lexer generator.
+
+positional arguments:
+  infile                The parser specification to process
+
+optional arguments:
   -h, --help            show this help message and exit
-  -o OFILE, --output-file=OFILE
+  -o OFILE, --output-file OFILE
                         Set the output file to OFILE
   -l, --line-tracking   Enable line tracking in the generated parser
   -L, --lalr            Generate a LALR(1) parser instead of a LR(1) parser
@@ -24,7 +28,7 @@ Options:
   -f, --fast            Fast run: generates larger and possibly slower
                         parsers, but takes less time
   -T, --trace           Generate a parser that prints out a trace of its state
-  -3, --python3         Generate python3 compatible parser
+  -3, --python3         Generate python3 compatible parser [default]
   -2, --python2         Generate python2 compatible parser
 
 Contributors
