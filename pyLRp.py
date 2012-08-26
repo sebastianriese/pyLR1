@@ -2907,13 +2907,15 @@ if __name__ == '__main__':
                             default=False,
                             help="Generate a parser that prints out a trace of its state")
 
-    arg_parser.add_argument("-3", "--python3",
+    py_version = arg_parser.add_mutually_exclusive_group()
+
+    py_version.add_argument("-3", "--python3",
                             dest="python3",
                             action='store_true',
                             default=True,
                             help="Generate python3 compatible parser [default]")
 
-    arg_parser.add_argument("-2", "--python2",
+    py_version.add_argument("-2", "--python2",
                             dest="python3",
                             action='store_false',
                             default=True,
