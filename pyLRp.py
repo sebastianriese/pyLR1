@@ -488,7 +488,7 @@ class LexingAction(object):
 class List(LexingAction):
 
     def __init__(self, lst = None):
-        super(LexingAction, self).__init__()
+        super(List, self).__init__()
         self.list = lst
         if self.list is None:
             self.list = []
@@ -505,7 +505,7 @@ class List(LexingAction):
 class Begin(LexingAction):
 
     def __init__(self, state):
-        super(LexingAction, self).__init__()
+        super(Begin, self).__init__()
         self.state = state
 
     def __repr__(self):
@@ -520,7 +520,7 @@ class Begin(LexingAction):
 class Restart(LexingAction):
 
     def __init__(self):
-        super(LexingAction, self).__init__()
+        super(Restart, self).__init__()
 
     def __repr__(self):
         return "Restart()"
@@ -531,10 +531,10 @@ class Restart(LexingAction):
 class Continue(LexingAction):
 
     def __init__(self):
-        super(LexingAction, self).__init__()
+        super(Continue, self).__init__()
 
     def __repr__(self):
-        return "Restart()"
+        return "Continue()"
 
     def Accept(self, visitor):
         return visitor.VisitContinue(self)
@@ -542,7 +542,7 @@ class Continue(LexingAction):
 class Token(LexingAction):
 
     def __init__(self, name):
-        super(LexingAction, self).__init__()
+        super(Token, self).__init__()
         self.name = name
 
     def __repr__(self):
@@ -557,7 +557,7 @@ class Token(LexingAction):
 class GetMatch(LexingAction):
 
     def __init__(self):
-        super(LexingAction, self).__init__()
+        super(GetMatch, self).__init__()
 
     def __repr__(self):
         return "GetMatch()"
