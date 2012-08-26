@@ -2745,7 +2745,10 @@ class Lexer(object):
         state_trace = ""
 
         if self.trace:
-            state_trace = "print stack[-1].state, lexeme"
+            if self.python3:
+                state_trace = "print(stack[-1].state, lexeme)"
+            else:
+                state_trace = "print stack[-1].state, lexeme"
 
         self.parser_file.write("""
 class Accept(Exception):
