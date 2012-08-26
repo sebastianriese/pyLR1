@@ -615,6 +615,9 @@ class Parser(object):
         self.productionNumber = 0
         self.indent = None
 
+        self.undef = {}
+        self.defined = set()
+
         self.state = self.Header
 
     def Header(self, line, eof=False):
@@ -726,6 +729,9 @@ class Parser(object):
         match = self.syntax_rule_re.match(line)
         if match:
             symbol = self.syntax.RequireMeta(match.group(1))
+            if symbol in self.undef:
+                del self.undef[symbol]
+            self.defined.add(symbol)
 
             if self.current == None:
                 self.syntax.SetStart(symbol)
@@ -754,6 +760,9 @@ class Parser(object):
 
                     if match:
                         elem = self.syntax.RequireMeta(match.group(1))
+                        if elem not in self.defined:
+                            self.undef.setdefault(elem, []).append(self.line)
+
                         break
 
                     match = self.syntax_empty_re.match(line)
@@ -790,7 +799,7 @@ class Parser(object):
 
                         return
 
-                    print("Syntax error: line %d (%s)" % (self.line,line))
+                    print("Syntax error: line %d (%s)" % (self.line,line), file=sys.stderr)
                     return
 
                 line = line[len(match.group(0)):]
@@ -860,6 +869,14 @@ class Parser(object):
         # notify the current state of eof
         # apply any pending state
         self.state('', eof=True)
+
+        if self.undef:
+            for symbol, lines in sorted(self.undef.items(), key=lambda x: x[0].Name()):
+                usedinlines = "used in lines"
+                if len(lines) == 1: usedinlines = "used in line"
+                print("Undefined symbol", symbol.Name(), usedinlines,
+                      ', '.join(str(line) for line in lines), file=sys.stderr)
+            raise Exception("Undefined meta symbols found!")
 
         return self.syntax
 
