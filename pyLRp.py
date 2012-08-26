@@ -2886,6 +2886,7 @@ if __name__ == '__main__':
 
     arg_parser.add_argument("-o", "--output-file",
                             dest="ofile",
+                            type=argparse.FileType('wt'),
                             help="Set the output file to OFILE")
 
     arg_parser.add_argument("-l", "--line-tracking",
@@ -2940,7 +2941,7 @@ if __name__ == '__main__':
 
 
     arg_parser.add_argument("infile",
-                            type=argparse.FileType('r'),
+                            type=argparse.FileType('rt'),
                             help="The parser specification to process")
 
     args = arg_parser.parse_args()
@@ -2985,10 +2986,7 @@ if __name__ == '__main__':
     # write lexer and parser
     fo = sys.stdout
 
-    if args.ofile != None:
-        fo = open(args.ofile, 'wt')
-
-    writer = Writer(fo, logger,
+    writer = Writer(args.ofile, logger,
                     lines=args.lines,
                     trace=args.trace,
                     deduplicate=args.deduplicate,
@@ -2996,5 +2994,4 @@ if __name__ == '__main__':
 
     writer.Write(syn, graph, lexer)
 
-    if args.ofile != None:
-        fo.close()
+    args.ofile.close()
