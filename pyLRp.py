@@ -459,6 +459,9 @@ class LexingActionVisitor(object):
     def Visit(self, action):
         return action.Accept(self)
 
+    def VisitDebug(self, action):
+        pass
+
     def VisitRestart(self, action):
         pass
 
@@ -484,6 +487,18 @@ class LexingAction(object):
 
     def Accept(self):
         raise NotImplementedError()
+
+class Debug(LexingAction):
+
+    def __init__(self, text):
+        super(Debug, self).__init__()
+        self.text = text
+
+    def Text(self):
+        return self.text
+
+    def Accept(self, visitor):
+        return visitor.VisitDebug(self)
 
 class List(LexingAction):
 
@@ -579,6 +594,8 @@ class Parser(object):
     (?P<regex>(\S|(\\ ))+)\s+
 
     # the action spec
+    (%debug\(\s*"(?P<debug>[^\"]*)"\s*\)\s*,\s*)?
+
     (%begin\(\s*(?P<begin>([A-Za-z0-9]+|\$INITIAL))\s*\)\s*,\s*)?
 
     ((?P<token>[a-zA-Z_][a-zA-Z_0-9]*)
@@ -680,6 +697,10 @@ class Parser(object):
 
          # collect actions
          action = List()
+
+         if match.group('debug'):
+             action.Append(Debug(match.group('debug')))
+
          if match.group('begin'):
              action.Append(Begin(self.syntax.InitialCondition(match.group('begin'))))
 
@@ -2376,8 +2397,11 @@ class LexActionToCode(LexingActionVisitor):
         super(LexActionToCode, self).__init__()
         self.symtable = symtable
 
+    def VisitDebug(self, action):
+        return "print(%s)" % repr(action.Text())
+
     def VisitRestart(self, action):
-        return "self.root = self.position; self.state = self.start; self.current_token = (%d, self.position)" % self.symtable["$EOF"].Number()
+        return "self.current_token = (None, self.position)"
 
     def VisitToken(self, action):
         return "self.current_token = (%d, self.position)" % self.symtable[action.Name()].Number()
