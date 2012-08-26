@@ -2414,7 +2414,7 @@ else:
     raise Exception()"""
 
     def VisitBegin(self, action):
-        return "self.SetInitialCondition(%d)" % action.State().Number()
+        return "self.nextCond = %d" % action.State().Number()
 
     def VisitList(self, actionList):
         if actionList.List():
@@ -2668,9 +2668,8 @@ class %s(AST):
 
         select = "self.cactions[self.state]()"
 
-        linesPositionClass = ""
         linesPositionCalc = "position = 'No Line Tracking'"
-        linesStartTrack = ""
+        linesCount = ""
 
         if self.lines:
             linesPositionClass = """class Position(object):
@@ -2688,22 +2687,19 @@ class %s(AST):
         return "Line %d:%d - %d:%d" % (self.line0, self.col0, self.line1, self.col1)
 """
 
-            linesStartTrack = "if " + baccess + " == 10: self.linestart = self.position - 1"
+            linesCount = r"self.line += text.count('\n')"
 
-            linesPositionCalc = """self.line += self.buffer[self.last_token_end:pos] """ + extract + """ .count('\\n')
-            position = Position('', self.line, self.root-self.linestart, self.line, pos - self.linestart)"""
-
-        self.parser_file.write("""class GotToken(Exception):
+        self.parser_file.write(r"""class GotToken(Exception):
     pass
 
-""" + linesPositionClass + """
+""" + linesPositionClass + r"""
 
 class Lexer(object):
 
-    starts = """ + startstr + """
-    mappings = """ + mappingstr + """
-""" + lextablehelper + """
-    tables  = """ + lextablestr + """
+    starts = """ + startstr + r"""
+    mappings = """ + mappingstr + r"""
+""" + lextablehelper + r"""
+    tables  = """ + lextablestr + r"""
 
     def __init__(self, codefile):
         code = open(codefile, 'r')
@@ -2711,14 +2707,12 @@ class Lexer(object):
         self.size = self.buffer.size()
         code.close()
         self.root = 0
-        self.last_token_end = 0
         self.position = 0
         self.current_token = None
         self.actions = """ + actionstr + """
         self.SetInitialCondition(1)
-        self.lineStart = True
+        self.nextCond = 0
         self.line = 1
-        self.linestart = 0
 
     def SetInitialCondition(self, num):
         self.cond = num
@@ -2728,33 +2722,36 @@ class Lexer(object):
         tokens = []
         while True:
             type, text, pos = self.lex()
-            if type == """ + str(symtable["$EOF"].Number()) + """:
+            if type == """ + str(symtable["$EOF"].Number()) + r""":
                 return tokens
             tokens.append((type, text, pos))
 
     def lex(self):
-        self.current_token = (%d""" % symtable["$EOF"].Number() +""", self.size)
+        self.current_token = (%d""" % symtable["$EOF"].Number() +r""", self.size)
         self.state = self.start
         try:
             while self.position != self.size:
-                """ + linesStartTrack + """
                 self.state = self.table[self.state][""" + lookup + """]
                 self.position += 1
                 """ + select  + """
             raise GotToken()
         except GotToken:
             name, pos = self.current_token
-            """ + linesPositionCalc + """
-            text = self.buffer[self.root:pos]""" + extract + """
-            if self.cond == 0 or self.cond == 1:
-                if text and text[-1] == '\\n':
-                    self.SetInitialCondition(1)
-                else:
-                    self.SetInitialCondition(0)
+            text = self.buffer[self.root:pos]""" + extract + r"""
+            """ + linesCount + r"""
+            if self.nextCond == 0 and text and text[-1] == '\n':
+                self.nextCond = 1
+            elif self.nextCond == 1 and text and text[-1] != '\n':
+                self.nextCond = 0
+            self.SetInitialCondition(self.nextCond)
+            self.nextCond = self.cond
             self.root = pos
-            self.last_token_end = pos
             self.position = self.root
-            return (name, text, position)
+
+            if name is None:
+                return self.lex()
+            else:
+                return (name, text, Position(0,0,0,0,''))
 """)
 
         lexActionGen = LexActionToCode(symtable)
