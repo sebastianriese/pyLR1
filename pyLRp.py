@@ -2619,10 +2619,10 @@ class %s(AST):
 
         if self.python3:
             extract = '.decode("UTF-8")'
-            baccess = "self.buffer[self.position]"
+            baccess = "buffer[self.position]"
         else:
             extract = ''
-            baccess = "ord(self.buffer[self.position])"
+            baccess = "ord(buffer[self.position])"
 
 
         data = []
@@ -2645,7 +2645,7 @@ class %s(AST):
             mappingstr = ""
             if mapping:
                 # create the string mapping
-                lookup = "self.mapping[" + baccess + "]"
+                lookup = "mapping[" + baccess + "]"
 
                 mappingstr = "("
                 for entry in mapping:
@@ -2673,9 +2673,6 @@ class %s(AST):
         actionstr += ')'
         mappingstr += ')'
         startstr += ')'
-
-
-        select = "self.cactions[self.state]()"
 
         linesPositionClass = ''
         linesCount = "position = 'No Line Tracking'"
@@ -2751,12 +2748,13 @@ class Lexer(object):
 
     def lex(self):
         self.current_token = (%d""" % symtable["$EOF"].Number() +r""", self.size)
-        self.state = self.start
+        state = self.start
+        size, table, cactions, mapping, buffer = self.size, self.table, self.cactions, self.mapping, self.buffer
         try:
-            while self.position != self.size:
-                self.state = self.table[self.state][""" + lookup + """]
+            while self.position != size:
+                state = table[state][""" + lookup + """]
                 self.position += 1
-                """ + select  + """
+                cactions[state]()
             raise GotToken()
         except GotToken:
             name, pos = self.current_token
