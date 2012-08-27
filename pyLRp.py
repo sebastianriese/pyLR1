@@ -2800,6 +2800,11 @@ class Lexer(object):
                 self.parser_file.write("        pass\n" )
 
     def WriteParser(self, graph, symtable):
+        # when there is no parser specified graph is None
+        # and we don't write a parser to the output file
+        if graph is None:
+            return
+
         parseTable = graph.CreateParseTable(symtable)
         graph.ReportNumOfConflicts()
         # parseTable.Print()
@@ -3020,12 +3025,14 @@ if __name__ == '__main__':
 
     # construct the parser
     graph = None
-    if args.lalr:
-        graph = LALR1StateTransitionGraph(syn, logger)
-    else:
-        graph = LR1StateTransitionGraph(syn, logger)
 
-    graph.Construct()
+    if syn.Start() is not None:
+        if args.lalr:
+            graph = LALR1StateTransitionGraph(syn, logger)
+        else:
+            graph = LR1StateTransitionGraph(syn, logger)
+
+        graph.Construct()
 
     # construct the lexer
     lexer = LexerConstructor(syn, logger)
