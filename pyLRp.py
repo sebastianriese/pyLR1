@@ -588,7 +588,7 @@ class Parser(object):
 
     lexing_rule_re = re.compile(r"""
     # the initial condition specifier
-    (<(?P<initialNames>([a-zA-Z0-9,_]+|\s)*)>|(?P<sol>\^))?
+    (<(?P<initialNames>([a-zA-Z0-9,_]+|\s)*)>|(?P<sol>\^)|(?P<sof><<SOF>>)|)?
 
     # the regex
     (?P<regex>(\S|(\\ ))+)\s+
@@ -687,6 +687,9 @@ class Parser(object):
          # determine the inital condtions
          if match.group('sol'):
              state.add(self.syntax.InitialConditionStartOfLine())
+
+         if match.group('sof'):
+             state.add(self.syntax.InitialCondition("$SOF"))
 
          if match.group('initialNames'):
              names = [name.strip() for name in match.group('initialNames').split(',')]
@@ -929,8 +932,7 @@ class InitialCondition(object):
         self.name = name
         self.number = number
 
-    def Inclusive(self): return False
-    def Exclusive(self): return False
+    def IncludesSToken(self): return False
 
     def Match(self, conditions):
         raise NotImplementedError()
@@ -941,18 +943,21 @@ class InitialCondition(object):
     def Number(self):
         return self.number
 
-
-
 class InclusiveInitialCondition(InitialCondition):
-    def Inclusive(self): return True
+    def IncludesSToken(self): return True
+
+    def __init__(self, name, number, *conditions):
+        super().__init__(name, number)
+        self.conditions = conditions
 
     def Match(self, conditions):
-        if not conditions or self in conditions:
+        if not conditions or \
+                self in conditions or \
+                any(cond in conditions for cond in self.conditions):
             return True
         return False
 
 class ExclusiveInitialCondition(InitialCondition):
-    def Exclusive(self): return True
 
     def Match(self, conditions):
         if self in conditions:
@@ -996,11 +1001,12 @@ class Syntax(object):
         self.inline_tokens = set()
 
         self.initialConditions = {}
-        # the condition $INITIAL is the condition in action at
-        # program start, it shall only contain the unconditional rules
-        self.AddInclusiveInitialCondition('$INITIAL')
-        self.AddInclusiveInitialCondition('$sol')
-
+        # the condition $INITIAL is the default condition
+        # $SOL is the start of line condition
+        # $SOF is the start of file condition
+        self.initialConditions["$INITIAL"] = InclusiveInitialCondition("$INITIAL", len(self.initialConditions))
+        sol = self.initialConditions["$SOL"] = InclusiveInitialCondition("$SOL", len(self.initialConditions))
+        self.initialConditions["$SOF"] = InclusiveInitialCondition("$SOF", len(self.initialConditions), sol)
 
     def InlineTokens(self):
         return self.inline_tokens
@@ -1027,7 +1033,10 @@ class Syntax(object):
         return self.initialConditions.values()
 
     def InitialConditionStartOfLine(self):
-        return self.initialConditions['$sol']
+        return self.initialConditions['$SOL']
+
+    def InitialConditionStartOfFile(self):
+        return self.initialConditions['$SOL']
 
     def InitialCondition(self, name):
         return self.initialConditions[name]
@@ -2143,7 +2152,7 @@ class LexingNFA(object):
     def __init__(self, lexingRules, condition, inlineTokenNFA):
         self.start = AutomatonState()
 
-        if condition.Inclusive():
+        if condition.IncludesSToken():
             self.start.AddTransition('', inlineTokenNFA)
 
         i = -1
@@ -2722,7 +2731,7 @@ class Lexer(object):
         self.position = 0
         self.current_token = None
         self.actions = """ + actionstr + """
-        self.SetInitialCondition(1)
+        self.SetInitialCondition(2)
         self.nextCond = 0
         self.line = 1
         self.start_of_line = 0
