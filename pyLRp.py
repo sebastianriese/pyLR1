@@ -584,6 +584,7 @@ class Parser(object):
     ast_re = re.compile(r"%ast\s*$")
     parser_re = re.compile(r"%parser\s*$")
     lexer_re = re.compile(r"%lexer\s*$")
+    footer_re = re.compile(r"%footer\s*$")
     comment_re = re.compile(r"\s*([^\\]#.*|)(#.*)?\s*$")
 
     lexing_rule_re = re.compile(r"""
@@ -644,6 +645,12 @@ class Parser(object):
             return
 
         self.syntax.AddHeader(line)
+
+    def Footer(self, line, eof=False):
+        if eof:
+            return
+
+        self.sytnax.AddFooter(line)
 
     def AST(self, line, eof=False):
         if eof:
@@ -898,6 +905,8 @@ class Parser(object):
                 self.state = self.Parser
             elif self.lexer_re.match(line):
                 self.state = self.Lexer
+            elif self.footer_re.match(line):
+                self.state = self.Footer
             else:
                 self.state(line)
 
@@ -1001,7 +1010,7 @@ class Syntax(object):
         self.symbols = {}
         self.ast_info = ASTInformation()
         self.header = []
-
+        self.footer = []
         self.lexer = []
         self.inline_tokens = set()
 
@@ -1027,6 +1036,12 @@ class Syntax(object):
 
     def Start(self):
         return self.start
+
+    def AddFooter(self, line):
+        self.footer.append(line)
+
+    def Footer(self):
+        return self.footer
 
     def AddLexingRule(self, lexingrule):
         self.lexer.append(lexingrule)
@@ -2905,6 +2920,17 @@ class Parser(object):
             redNum += 1
 
 
+    def WriteFooter(self, footer):
+        if footer:
+            self.parser_file.write("""
+# The following code is copied verbatim from the %footer section of
+# the parser specification
+""")
+
+        for line in footer:
+            self.parser_file.write(line + "\n")
+
+
     def Write(self, syntax, graph, lextable):
 
         self.WriteHeader(syntax.Header())
@@ -2914,6 +2940,8 @@ class Parser(object):
         self.WriteLexer(lextable, syntax.SymTable())
 
         self.WriteParser(graph, syntax.SymTable())
+
+        self.WriteFooter(syntax.Footer())
 
 if __name__ == '__main__':
 
