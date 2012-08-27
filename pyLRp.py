@@ -686,7 +686,7 @@ class Parser(object):
 
          # determine the inital condtions
          if match.group('sol'):
-             state.add(self.syntax.InitialConditionStartOfLine())
+             state.add(self.syntax.InitialCondition("$SOL"))
 
          if match.group('sof'):
              state.add(self.syntax.InitialCondition("$SOF"))
