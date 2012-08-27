@@ -718,7 +718,12 @@ class Parser(object):
              action.Append(Continue())
 
          # put it all together, add a lexing rule
-         self.syntax.AddLexingRule(LexingRule(state, match.group('regex'), action))
+         try:
+             regex = Regex(match.group('regex'))
+         except RegexSyntaxError as e:
+             self.logger.error(str(e))
+         else:
+             self.syntax.AddLexingRule(LexingRule(state, regex, action))
 
     def Parser(self, line, eof=False):
         if eof:
@@ -1810,6 +1815,9 @@ class OrRegex(RegexAST):
 
         return start, end
 
+class RegexSyntaxError(Exception):
+    pass
+
 class Regex(object):
     """A regular expression with an NFA representation."""
 
@@ -1898,8 +1906,7 @@ class Regex(object):
                     chars |= cset
 
         except StopIteration:
-            self.logger.error("Syntax error in regular expression")
-            return None
+            raise RegexSyntaxError("Syntax error in regular expression")
 
     def lex(self):
         # tokens: CHR ([...], \...,.) - 0, OP (+ ? *) - 1, ( - 2, | - 3, ) - 4
@@ -1914,8 +1921,7 @@ class Regex(object):
                 elif char == '[':
                     tokens.append((0, self.ParseChrClass(iterator)))
                 elif char == ']':
-                    self.logger.error("Syntax error in regular expression")
-                    raise Exception()
+                    raise RegexSyntaxError("Syntax error in regular expression")
                 elif char in ('+', '?', '*'):
                     tokens.append((1, char))
                 elif char == '|':
@@ -2031,8 +2037,7 @@ class Regex(object):
                         args.append(OptionRegex(arg))
 
                     else:
-                        self.logger.error("Syntax error in regular expression")
-                        raise Exception()
+                        raise RegexSyntaxError("Syntax error in regular expression")
 
                     pos += 1
 
@@ -2050,32 +2055,26 @@ class Regex(object):
                 token, lexeme = tokens[pos]
 
                 if token != 4:
-                    self.logger.error("Syntax error in regular expression")
-                    raise Exception()
+                    raise RegexSyntaxError("Syntax error in regular expression")
                 pos += 1
             else:
-                self.logger.error("Syntax error in regular expression")
-                raise Exception()
+                raise RegexSyntaxError("Syntax error in regular expression")
 
         ParseEmpty()
 
         if len(args) != 1 or len(tokens) != pos + 1:
             print([str(x) for x in args])
-            self.logger.error("Syntax error in regular expression")
-            raise Exception()
+            raise RegexSyntaxError("Syntax error in regular expression")
 
         # print args[0]
-        return args[0].NFA()
+        return args[0]
 
     def __init__(self, regex):
         self.regex = regex
-        self.start, self.end = self.Parse()
+        self.ast = self.Parse()
 
-    def Start(self):
-        return self.start
-
-    def End(self):
-        return self.end
+    def NFA(self):
+        return self.ast.NFA()
 
 class LexerConstructor(object):
     """
@@ -2107,7 +2106,7 @@ class LexerConstructor(object):
 
         # construct the NFAs for the initial conditions
         for condition in lexerSpec.InitialConditions():
-            self.nfas[condition] = LexingNFA(lexerSpec.Lexer(), condition, inlineTokens)
+            self.nfas[condition] = LexingNFA(lexerSpec.Lexer(), condition, inlineTokens, logger)
 
     def ConstructDFAs(self):
         for condition, nfa in self.nfas.items():
@@ -2144,7 +2143,8 @@ class LexerConstructor(object):
 
 class LexingNFA(object):
 
-    def __init__(self, lexingRules, condition, inlineTokenNFA):
+    def __init__(self, lexingRules, condition, inlineTokenNFA, logger):
+        self.logger = logger
         self.start = AutomatonState()
 
         if condition.IncludesSToken():
@@ -2153,10 +2153,10 @@ class LexingNFA(object):
         i = -1
         for lexingRule in lexingRules:
             if condition.Match(lexingRule.Conditions()):
-                regex = Regex(lexingRule.Regex())
+                start, end = lexingRule.Regex().NFA()
 
-                self.start.AddTransition('', regex.Start())
-                regex.End().SetAction(i, lexingRule.Action())
+                self.start.AddTransition('', start)
+                end.SetAction(i, lexingRule.Action())
             i -= 1
 
     def CreateDFA(self):
