@@ -85,7 +85,7 @@ class Production(object):
         return self.text
 
     def First(self, visited=None):
-        # if self.first != None:
+        # if self.first is not None:
         #     return self.first
 
         if visited is None:
@@ -393,7 +393,7 @@ class Meta(Symbol):
         return self.prod[:]
 
     def First(self, visited=None):
-        # if self.first != None:
+        # if self.first is not None:
         #     return self.first
 
         result = set()
@@ -729,7 +729,7 @@ class Parser(object):
         if eof:
             return
 
-        if self.current == None:
+        if self.current is None:
             match = self.syntax_binding_re.match(line)
             obj = None
 
@@ -765,7 +765,7 @@ class Parser(object):
                 del self.undef[symbol]
             self.defined.add(symbol)
 
-            if self.current == None:
+            if self.current is None:
                 self.syntax.SetStart(symbol)
 
             self.current = symbol
@@ -863,7 +863,7 @@ class Parser(object):
             return ind
 
         indent = Indention(line)
-        if self.indent == None:
+        if self.indent is None:
             self.indent = indent
 
         # finish the action on unindent eof
@@ -1609,7 +1609,7 @@ class LALR1StateTransitionGraphElement(LR1StateTransitionGraphElement):
 
             for other in cls:
                 symb = other.AfterDot()
-                if symb != None:
+                if symb is not None:
 
                     for trans in self.transitions:
                         if trans.Symbol() == symb:
@@ -1869,7 +1869,7 @@ class Regex(object):
                     return chars
 
                 elif char == '-':
-                    if prev == None:
+                    if prev is None:
                         raise StopIteration()
                     else:
                         group = True
@@ -2185,7 +2185,7 @@ class LexingNFA(object):
                     curpri = float('-inf')
                     for state in newState:
                         pri = state.Priority()
-                        if pri != None and pri > curpri:
+                        if pri is not None and pri > curpri:
                             dfaStates[newState].SetAction(None, state.GetAction())
                             curpri = pri
 
@@ -2777,7 +2777,7 @@ class Lexer(object):
     def action%d(self):
 """ % (number,))
 
-            if action != None:
+            if action is not None:
                 code = lexActionGen.Visit(action).split('\n')
                 for line in code:
                     self.parser_file.write("        " + line + "\n")
@@ -2820,7 +2820,7 @@ class Parser(object):
 
         translator = LRActionToLRTableEntry(symtable)
 
-        actionTableHelper, actionTableStr = self.TableStrings("atd", tuple(tuple(translator.Visit(a) if a != None else (2,0) for a in state) for state in parseTable.Actiontable()))
+        actionTableHelper, actionTableStr = self.TableStrings("atd", tuple(tuple(translator.Visit(a) if a is not None else (2,0) for a in state) for state in parseTable.Actiontable()))
 
         gotoTableHelper, gotoTableStr = self.TableStrings("gtd", tuple(tuple(a if a else 0 for a in state) for state in parseTable.Gototable()))
 
