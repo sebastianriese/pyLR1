@@ -2668,8 +2668,7 @@ class %s(AST):
 
         select = "self.cactions[self.state]()"
 
-        linesPositionCalc = "position = 'No Line Tracking'"
-        linesCount = ""
+        linesCount = "position = 'No Line Tracking'"
 
         if self.lines:
             linesPositionClass = """class Position(object):
@@ -2684,10 +2683,22 @@ class %s(AST):
         return Position(self.file, self.line0, self.col0, oth.line1, oth.col1)
 
     def __str__(self):
-        return "Line %d:%d - %d:%d" % (self.line0, self.col0, self.line1, self.col1)
+        return "%s Line %d:%d - %d:%d" % (self.file, self.line0, self.col0, self.line1, self.col1)
 """
 
-            linesCount = r"self.line += text.count('\n')"
+            linesCount = r"""
+            line0 = self.line
+            sol0 = self.start_of_line
+            self.line += text.count('\n')
+            sol1 = text.rfind('\n')
+            if sol1 != -1:
+                self.start_of_line = self.root + sol1 + 1
+            position = Position(self.filename,
+                                line0,
+                                self.root - sol0,
+                                self.line,
+                                pos - self.start_of_line)
+"""
 
         self.parser_file.write(r"""class GotToken(Exception):
     pass
@@ -2703,6 +2714,7 @@ class Lexer(object):
 
     def __init__(self, codefile):
         code = open(codefile, 'r')
+        self.filename = codefile
         self.buffer = mmap.mmap(code.fileno(), 0, access=mmap.ACCESS_READ)
         self.size = self.buffer.size()
         code.close()
@@ -2713,6 +2725,7 @@ class Lexer(object):
         self.SetInitialCondition(1)
         self.nextCond = 0
         self.line = 1
+        self.start_of_line = 0
 
     def SetInitialCondition(self, num):
         self.cond = num
@@ -2751,7 +2764,7 @@ class Lexer(object):
             if name is None:
                 return self.lex()
             else:
-                return (name, text, Position(0,0,0,0,''))
+                return (name, text, position)
 """)
 
         lexActionGen = LexActionToCode(symtable)
