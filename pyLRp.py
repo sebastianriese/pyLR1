@@ -1004,9 +1004,9 @@ class Syntax(object):
         # the condition $INITIAL is the default condition
         # $SOL is the start of line condition
         # $SOF is the start of file condition
-        self.initialConditions["$INITIAL"] = InclusiveInitialCondition("$INITIAL", len(self.initialConditions))
-        sol = self.initialConditions["$SOL"] = InclusiveInitialCondition("$SOL", len(self.initialConditions))
-        self.initialConditions["$SOF"] = InclusiveInitialCondition("$SOF", len(self.initialConditions), sol)
+        self.initialConditions["$INITIAL"] = InclusiveInitialCondition("$INITIAL", 0)
+        sol = self.initialConditions["$SOL"] = InclusiveInitialCondition("$SOL", 1)
+        self.initialConditions["$SOF"] = InclusiveInitialCondition("$SOF", 2, sol)
 
     def InlineTokens(self):
         return self.inline_tokens
@@ -1031,12 +1031,6 @@ class Syntax(object):
 
     def InitialConditions(self):
         return self.initialConditions.values()
-
-    def InitialConditionStartOfLine(self):
-        return self.initialConditions['$SOL']
-
-    def InitialConditionStartOfFile(self):
-        return self.initialConditions['$SOL']
 
     def InitialCondition(self, name):
         return self.initialConditions[name]
@@ -1243,14 +1237,15 @@ class StateTransitionGraph(object):
 
     def ReportNumOfConflicts(self):
         if self.conflicts:
-            self.logger.error(str(self.conflicts) + " conflict(s) found!")
+            self.logger.warning(str(self.conflicts) + " conflict(s) found!")
 
     def Construct(self):
         raise NotImplementedError()
 
     def NormalizeItemSet(self, elements):
         """
-        Normalize the item set (each core shall occur only once, the lookahead sets are unified)
+        Normalize the item set (each core shall occur only once, the
+        lookahead sets are unified)
         """
         cores = {}
         for elem in elements:
