@@ -2677,6 +2677,7 @@ class %s(AST):
 
         select = "self.cactions[self.state]()"
 
+        linesPositionClass = ''
         linesCount = "position = 'No Line Tracking'"
 
         if self.lines:
@@ -2989,7 +2990,7 @@ if __name__ == '__main__':
 
     args = arg_parser.parse_args()
 
-    logger = logging.getLogger(sys.argv[0])
+    logger = logging.getLogger('pyLR1')
 
     p = Parser(args.infile, logger)
     syn = p.Parse()
