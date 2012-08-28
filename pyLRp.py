@@ -27,6 +27,7 @@ and LR(1) or LALR(1) parsers from them.
 
 import re
 import sys
+import os
 import logging
 import argparse
 
@@ -1377,7 +1378,7 @@ class StateTransitionGraph(object):
             elif symbol.SymType() == Syntax.UNDEF:
                 pass
             else:
-                print(symbol.Symbol())
+                print(symbol.Symbol(), file=sys.stderr)
                 raise Exception("Can't happen")
 
         prodToRule = dict()
@@ -1420,8 +1421,8 @@ class StateTransitionGraph(object):
                     acur[terminals[symb]] = Shift(stateToIndex[tstate],
                                                   assoc, prec)
                 else:
-                    print(state)
-                    print(str(symb))
+                    print(state, file=sys.stderr)
+                    print(str(symb), file=sys.stderr)
                     raise Exception("Can't happen")
 
             for item in state.Elements():
@@ -2799,15 +2800,11 @@ class Lexer(object):
             else:
                 self.parser_file.write("        pass\n" )
 
-    def WriteParser(self, graph, symtable):
-        # when there is no parser specified graph is None
+    def WriteParser(self, parseTable, symtable):
+        # when there is no parser specified parseTable is None
         # and we don't write a parser to the output file
-        if graph is None:
+        if parseTable is None:
             return
-
-        parseTable = graph.CreateParseTable(symtable)
-        graph.ReportNumOfConflicts()
-        # parseTable.Print()
 
         linesPosAddition = ""
         linesNullPos = ""
@@ -2936,7 +2933,7 @@ class Parser(object):
             self.parser_file.write(line + "\n")
 
 
-    def Write(self, syntax, graph, lextable):
+    def Write(self, syntax, parsetable, lextable):
 
         self.WriteHeader(syntax.Header())
 
@@ -2944,9 +2941,32 @@ class Parser(object):
 
         self.WriteLexer(lextable, syntax.SymTable())
 
-        self.WriteParser(graph, syntax.SymTable())
+        self.WriteParser(parsetable, syntax.SymTable())
 
         self.WriteFooter(syntax.Footer())
+
+class CountingLogger(logging.getLoggerClass()):
+
+    class ErrorsOccured(Exception):
+        pass
+
+    def __init__(self, name):
+        super().__init__(name)
+        self.errors = 0
+
+    def raiseOnErrors(self):
+        if self.errors > 0:
+            raise CountingLogger.ErrorsOccured()
+
+    def exitOnErrors(self, exitCode=1):
+        exit(exitCode)
+
+    def loggedErrors(self):
+        return bool(self.errors)
+
+    def error(self, *args, **kwargs):
+        self.errors += 1
+        super().error(*args, **kwargs)
 
 if __name__ == '__main__':
 
@@ -2956,8 +2976,7 @@ if __name__ == '__main__':
 
     arg_parser.add_argument("-o", "--output-file",
                             dest="ofile",
-                            type=argparse.FileType('wt'),
-                            help="Set the output file to OFILE")
+                            help="Set the output file to OFILE [default: derived from infile]")
 
     arg_parser.add_argument("-l", "--line-tracking",
                             dest="lines",
@@ -3011,21 +3030,44 @@ if __name__ == '__main__':
 
 
     arg_parser.add_argument("infile",
-                            type=argparse.FileType('rt'),
                             help="The parser specification to process")
 
     args = arg_parser.parse_args()
 
-    logger = logging.getLogger('pyLR1')
+    # determine the name of the output file if it is not given
+    # explicitly
+    if not args.ofile:
+        m = re.match(r'(.*\.py)LRp?$', args.infile)
+        if m:
+            args.ofile = m.group(1)
+        elif '.' not in args.infile:
+            args.ofile = args.infile + '.py'
 
-    p = Parser(args.infile, logger)
+    logging.setLoggerClass(CountingLogger)
+    logger = logging.getLogger('pyLR1')
+    logger.setLevel('INFO')
+
+    # parse the input file
+    try:
+        infile = open(args.infile, 'rt')
+    except IOError as e:
+        print(str(e), file=sys.stderr)
+        exit(1)
+
+    p = Parser(infile, logger)
     syn = p.Parse()
-    p = None # make it garbage
-    args.infile.close()
+    del p
+    infile.close()
+
+    if logger.loggedErrors():
+        exit(1)
 
     # construct the parser
-    graph = None
+    parseTable = None
 
+    # XXX: should we be more strict here and not generate a parser
+    # when no %parser section is present but error on an empty
+    # %parser section
     if syn.Start() is not None:
         if args.lalr:
             graph = LALR1StateTransitionGraph(syn, logger)
@@ -3033,6 +3075,14 @@ if __name__ == '__main__':
             graph = LR1StateTransitionGraph(syn, logger)
 
         graph.Construct()
+
+        if args.debug:
+            for state in graph.states:
+                print(str(state))
+
+        parseTable = graph.CreateParseTable(syn.SymTable())
+        graph.ReportNumOfConflicts()
+        del graph
 
     # construct the lexer
     lexer = LexerConstructor(syn, logger)
@@ -3049,21 +3099,33 @@ if __name__ == '__main__':
     if not args.fast:
         lexer.ConstructEquivalenceClasses()
 
-    if args.debug:
-        # lexingTable.Print()
-
-        for state in graph.states:
-            print(str(state))
+    if logger.loggedErrors():
+        exit(1)
 
     # write lexer and parser
-    fo = sys.stdout
+    try:
+        fo = open(args.ofile, 'wt')
+    except IOError as e:
+        # XXX: this is not good, I don't want to be told my
+        # output file is invalid after I watched a tool
+        # computing 5 minutes, yet I do even less want my
+        # output files truncated, if the input file is
+        # erroneous, and open(mode='r+t').close() at the start
+        # of the main function should help ...
+        print(str(e), file=sys.sterr)
+        exit(1)
 
-    writer = Writer(args.ofile, logger,
+    writer = Writer(fo, logger,
                     lines=args.lines,
                     trace=args.trace,
                     deduplicate=args.deduplicate,
                     python3=args.python3)
 
-    writer.Write(syn, graph, lexer)
+    writer.Write(syn, parseTable, lexer)
 
-    args.ofile.close()
+    fo.close()
+
+    if logger.loggedErrors():
+        # unlink the invalid output file
+        os.unlink(args.ofile)
+        exit(1)
