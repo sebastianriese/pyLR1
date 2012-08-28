@@ -1308,7 +1308,7 @@ class StateTransitionGraph(object):
 
         if old.IsReduce():
             print(state)
-            self.logger.info("Default to the first reduce for reduce/reduce-conflict")
+            self.logger.warning("Default to the first reduce for reduce/reduce-conflict")
             self.conflicts += 1
             if old.NumberInFile() > new.NumberInFile():
                 return new
@@ -1320,7 +1320,7 @@ class StateTransitionGraph(object):
             # shift wins over reduce by default
             if assoc == Production.NONE:
                 print(state)
-                self.logger.info("Default to shift for shift/reduce-conflict")
+                self.logger.warning("Default to shift for shift/reduce-conflict")
                 self.conflicts += 1
                 return old
 
@@ -2990,11 +2990,11 @@ if __name__ == '__main__':
                             default=False,
                             help="Generate a LALR(1) parser instead of a LR(1) parser")
 
-    arg_parser.add_argument("-d", "--debug",
-                            dest="debug",
+    arg_parser.add_argument("-g", "--print-graph",
+                            dest="graph",
                             action='store_true',
                             default=False,
-                            help="Print debug information to stdout")
+                            help="Print the LR state graph to stdout")
 
     arg_parser.add_argument("-D", "--not-deduplicate",
                             dest="deduplicate",
@@ -3076,7 +3076,7 @@ if __name__ == '__main__':
 
         graph.Construct()
 
-        if args.debug:
+        if args.graph:
             for state in graph.states:
                 print(str(state))
 
