@@ -1681,7 +1681,7 @@ class AutomatonState(object):
         """
         Get the set of states reached by the transition on char.
         """
-        return set(self.transitions.get(char, set()))
+        return self.transitions.get(char, set())
 
     def MoveDFA(self, chr):
         """
