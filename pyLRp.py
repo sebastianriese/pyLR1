@@ -651,7 +651,7 @@ class Parser(object):
         if eof:
             return
 
-        self.sytnax.AddFooter(line)
+        self.syntax.AddFooter(line)
 
     def AST(self, line, eof=False):
         if eof:
