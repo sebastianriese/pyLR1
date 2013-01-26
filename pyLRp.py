@@ -509,6 +509,9 @@ class List(LexingAction):
         if self.list is None:
             self.list = []
 
+    def __str__(self):
+        return "List([" + ", ".join(map(str, self.list)) + "])"
+
     def Append(self, action):
         self.list.append(action)
 
@@ -2157,6 +2160,13 @@ class LexerConstructor(object):
         for cond, lextable in self.lextables.items():
             yield tuple([cond] + list(lextable.Get()))
 
+    def PrintTables(self):
+        for key, table in self.lextables.items():
+            print("-----------------", key.Name(), "--------------------")
+            table.Print()
+
+
+
 class LexingNFA(object):
 
     def __init__(self, lexingRules, condition, inlineTokenNFA, logger):
@@ -2377,8 +2387,8 @@ class Lextable(object):
     def Print(self):
         print("start: %d\n" % self.start)
 
-        for action in self.actions:
-            print(str(action))
+        for num, action in enumerate(self.actions):
+            print(num, str(action))
 
         if not self.mapping:
             print("\n    ", end=' ')
@@ -2996,6 +3006,11 @@ if __name__ == '__main__':
                             default=False,
                             help="Print the LR state graph to stdout")
 
+    arg_parser.add_argument("--print-lextable",
+                            action='store_true',
+                            default=False,
+                            help="Print the lextables to stdout")
+
     arg_parser.add_argument("-D", "--not-deduplicate",
                             dest="deduplicate",
                             action='store_false',
@@ -3095,6 +3110,9 @@ if __name__ == '__main__':
 
     lexer.CreateLexTables()
     lexer.DropDFA()
+
+    if args.print_lextable:
+        lexer.PrintTables()
 
     if not args.fast:
         lexer.ConstructEquivalenceClasses()
