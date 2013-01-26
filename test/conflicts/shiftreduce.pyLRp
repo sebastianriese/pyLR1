@@ -1,0 +1,14 @@
+
+%lexer
+
+\s+ %restart
+
+a A
+b B
+
+%parser
+
+x:
+    A x B x
+    A x
+
