@@ -30,6 +30,8 @@ import sys
 import os
 import logging
 import argparse
+from functools import reduce
+import operator
 
 class Production(object):
     """A production in a grammar. Productions with left set to None
@@ -482,6 +484,16 @@ class LexingActionVisitor(object):
         pass
 
 class LexingAction(object):
+    """
+    Lexing actions.
+
+    Take care these do not get dictionary keys or set members (or
+    anything they are required to have a constant hash for or `==` based
+    on `id`) while they might change.
+
+    Rationale: They are compared and hashed for their members because
+    we will make them unique, before writing them to the output file.
+    """
 
     def __init__(self):
         pass
@@ -489,11 +501,30 @@ class LexingAction(object):
     def Accept(self):
         raise NotImplementedError()
 
+    def __eq__(self, other):
+        return self.__class__ == other.__class__ \
+            and self.__dict__ == other.__dict__
+
+    def __hash__(self):
+        return reduce(operator.__xor__,
+                      map(hash, self.__dict__),
+                      id(self.__class__))
+
 class Debug(LexingAction):
 
     def __init__(self, text):
         super(Debug, self).__init__()
         self.text = text
+
+    def __str__(self):
+        return "Debug(" + repr(self.text) + ")"
+
+    def __eq__(self, other):
+        return self.__class__ == other.__class__ \
+            and self.text == other.text
+
+    def __hash__(self):
+        return hash(self.text)
 
     def Text(self):
         return self.text
