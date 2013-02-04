@@ -320,6 +320,18 @@ class EOF(Symbol):
     def First(self, visited=None):
         return set([self])
 
+class Error(Symbol):
+    """
+    The Error symbol. This is the terminal symbol emitted on invalid
+    lexemes.
+    """
+
+    def __init__(self):
+        super(Error, self).__init__("$ERROR", None)
+
+    def First(self, visited=None):
+        return set([self])
+
 class Undef(Symbol):
     """
     The Undef symbol used in the LALR(1) lookahead
@@ -1021,6 +1033,7 @@ class Syntax(object):
     META = 1
     EOF = 2
     UNDEF = 3
+    ERROR = 4
 
 
     class SymbolTableEntry(object):
@@ -1058,6 +1071,9 @@ class Syntax(object):
         self.initialConditions["$INITIAL"] = InclusiveInitialCondition("$INITIAL", 0)
         sol = self.initialConditions["$SOL"] = InclusiveInitialCondition("$SOL", 1)
         self.initialConditions["$SOF"] = InclusiveInitialCondition("$SOF", 2, sol)
+
+        # require the error symbol
+        self.RequireError()
 
     def InlineTokens(self):
         return self.inline_tokens
@@ -1110,6 +1126,14 @@ class Syntax(object):
             self.termcounter += 1
 
         return self.symbols["$EOF"].Symbol()
+
+    def RequireError(self):
+        if "$ERROR" not in self.symbols:
+            self.symbols['$ERROR'] = Syntax.SymbolTableEntry(Error(), self.termcounter, self.ERROR)
+            self.termcounter += 1
+
+        return self.symbols["$ERROR"].Symbol()
+
 
     def RequireUndef(self):
         if "$UNDEF" not in self.symbols:
@@ -1408,8 +1432,10 @@ class StateTransitionGraph(object):
         terminals = dict()
         metas = dict()
 
-        for symbol  in symtable.values():
-            if symbol.SymType() == Syntax.TERMINAL or symbol.SymType() == Syntax.EOF:
+        for symbol in symtable.values():
+            if symbol.SymType() == Syntax.TERMINAL \
+                    or symbol.SymType() == Syntax.EOF \
+                    or symbol.SymType() == Syntax.ERROR:
                 terminals[symbol.Symbol()] = symbol.Number()
             elif symbol.SymType() == Syntax.META:
                 metas[symbol.Symbol()] = symbol.Number()
@@ -2472,11 +2498,7 @@ class LexActionToCode(LexingActionVisitor):
         return "self.current_token = (%d, self.position)" % self.symtable[action.Name()].Number()
 
     def VisitGetMatch(self, action):
-        return """\
-if self.current_token:
-    raise GotToken()
-else:
-    raise Exception()"""
+        return "raise GotToken()"
 
     def VisitBegin(self, action):
         return "self.nextCond = %d" % action.State().Number()
@@ -2775,12 +2797,50 @@ class Lexer(object):
 """ + lextablehelper + r"""
     tables  = """ + lextablestr + r"""
 
-    def __init__(self, codefile):
-        code = open(codefile, 'r')
-        self.filename = codefile
-        self.buffer = mmap.mmap(code.fileno(), 0, access=mmap.ACCESS_READ)
-        self.size = self.buffer.size()
+    @classmethod
+    def from_filename(cls, codefile, **kwargs):
+        code = open(codefile, 'rb')
+        res = cls(code, filename=codefile, **kwargs)
         code.close()
+        return res
+
+    def __init__(self, code, mmap_file=True, filename='<>', string=False):
+        '''
+        A DFA-based Lexer.
+
+        The `lex` method returns the tokens from `code`, if
+        `mmap_file` is *True* (the default) the lexer will try to
+        `mmap` the file for lexing.
+
+        `filename` gives the file name to display on errors.
+
+        If `string` is *True* `code` is considered to be the string of
+        input to parse. (py3 note: this should be a buffer)
+        '''
+
+        self.filename = filename
+
+        if string:
+            self.buffer = code
+            self.size = len(self.buffer)
+        else:
+            if mmap_file:
+                try:
+                    self.buffer = mmap.mmap(code.fileno(), 0, access=mmap.ACCESS_READ)
+                except mmap.error:
+                    # we could not mmap the file: perhaps warn, but open it
+                    # through a FileBuffer
+                    mmap_file = False
+
+                self.size = self.buffer.size()
+
+            if not mmap_file:
+                # for now: just slurp the file, sorry if it is large,
+                # a tty or a pipe -> TODO
+                self.buffer = """
+      + ("codefile.readall()" if self.python3 else "codfile.read()") + r"""
+                self.size = len(self.buffer)
+
         self.root = 0
         self.position = 0
         self.current_token = None
@@ -2803,7 +2863,7 @@ class Lexer(object):
             tokens.append((type, text, pos))
 
     def lex(self):
-        self.current_token = (%d""" % symtable["$EOF"].Number() +r""", self.size)
+        self.current_token = None
         state = self.start
         size, table, cactions, mapping, buffer = self.size, self.table, self.cactions, self.mapping, self.buffer
         try:
@@ -2813,6 +2873,15 @@ class Lexer(object):
                 cactions[state]()
             raise GotToken()
         except GotToken:
+            if self.current_token is None:
+                if self.position == self.root:
+                    return ("""
+           + "{0}, {1}, {2}".format(symtable["$EOF"].Number(), "''", eofPosition) +
+                               r""")
+                else:
+                    self.current_token = ("""
+            + "{0}, {1}".format(symtable["$ERROR"].Number(), "self.position") +
+                               r""")
             name, pos = self.current_token
             text = self.buffer[self.root:pos]""" + extract + r"""
             """ + linesCount + r"""
@@ -2875,6 +2944,12 @@ class StackObject(object):
         self.state = state
         self.pos = None
         self.sem = None
+
+class SyntaxError(Exception):
+    def __init__(self, message='', position=None):
+        self.message = message
+        self.position = position
+
 
 class Parser(object):
     # actions from the grammar
@@ -2940,7 +3015,7 @@ class Parser(object):
                     # action, e.g. a lexcal tie-in
 
                 else:
-                    raise Exception("Syntax Error: " + str(stack[-1].pos))
+                    raise SyntaxError(position=stack[-1].pos)
         except Accept:
             return stack[-1].sem
 """)
@@ -3131,6 +3206,10 @@ if __name__ == '__main__':
         parseTable = graph.CreateParseTable(syn.SymTable())
         graph.ReportNumOfConflicts()
         del graph
+    else:
+        # generate the tokens required by the parser
+        # and used for special lexer conditions
+        syn.RequireEOF()
 
     # construct the lexer
     lexer = LexerConstructor(syn, logger)
