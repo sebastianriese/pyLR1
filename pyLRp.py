@@ -1387,7 +1387,12 @@ class StateTransitionGraph(object):
 
             elif assoc == Production.NONASSOC:
                 # generate an error entry for nonassoc
-                return None
+                if preci > prec:
+                    return new
+                elif preci == prec:
+                    return None
+                else:
+                    return old
 
             elif assoc == Production.LEFT:
                 if preci >= prec:
