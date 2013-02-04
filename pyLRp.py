@@ -1346,6 +1346,8 @@ class StateTransitionGraph(object):
             self.conflicts += 1
             if old.NumberInFile() > new.NumberInFile():
                 return new
+            else:
+                return old
 
         elif old.IsShift():
             assoc, prec = old.GetAssoc()
