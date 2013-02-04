@@ -1367,7 +1367,7 @@ class StateTransitionGraph(object):
     def ResolveConflict(self, state, old, new):
 
         if old.IsReduce():
-            print(state)
+            self.logger.info(str(state))
             self.logger.warning("Default to the first reduce for reduce/reduce-conflict")
             self.conflicts += 1
             if old.NumberInFile() > new.NumberInFile():
@@ -1381,7 +1381,7 @@ class StateTransitionGraph(object):
 
             # shift wins over reduce by default
             if assoc == Production.NONE:
-                print(state)
+                self.logger.info(str(state))
                 self.logger.warning("Default to shift for shift/reduce-conflict")
                 self.conflicts += 1
                 return old
@@ -2143,7 +2143,7 @@ class Regex(object):
         ParseEmpty()
 
         if len(args) != 1 or len(tokens) != pos + 1:
-            print([str(x) for x in args])
+            # print([str(x) for x in args])
             raise RegexSyntaxError("Syntax error in regular expression")
 
         # print args[0]
@@ -3069,17 +3069,31 @@ class CountingLogger(logging.getLoggerClass()):
         pass
 
     def __init__(self, name):
+        """
+        A logger that counts errors.
+
+        `name` is passed on.
+        """
         super().__init__(name)
         self.errors = 0
 
     def raiseOnErrors(self):
+        """
+        Raise the exception `ErrorsOccured` of there were errors.
+        """
         if self.errors > 0:
             raise CountingLogger.ErrorsOccured()
 
     def exitOnErrors(self, exitCode=1):
-        exit(exitCode)
+        """
+        Exit if there were errors.
+        """
+        sys.exit(exitCode)
 
     def loggedErrors(self):
+        """
+        Return true if there were errors.
+        """
         return bool(self.errors)
 
     def error(self, *args, **kwargs):
@@ -3123,13 +3137,25 @@ if __name__ == '__main__':
                             dest="deduplicate",
                             action='store_false',
                             default=True,
-                            help="Write out the tables entirely as one big literal")
+                            help="Compress tables by reusing identical lines")
+
+    arg_parser.add_argument("-d", "--debug",
+                            dest='debug',
+                            action='store_true',
+                            default=False,
+                            help="Write debug information to the generated file")
 
     arg_parser.add_argument("-f", "--fast",
                             dest="fast",
                             action='store_true',
                             default=False,
                             help="Fast run: generates larger and possibly slower parsers, but takes less time")
+
+    arg_parser.add_argument("-q", "--quiet",
+                            dest="quiet",
+                            action='store_true',
+                            default=False,
+                            help="Print less info")
 
     arg_parser.add_argument("-T", "--trace",
                             dest="trace",
@@ -3166,16 +3192,18 @@ if __name__ == '__main__':
         elif '.' not in args.infile:
             args.ofile = args.infile + '.py'
 
+    # setup logging for error reporting
+    logging.basicConfig(format="{msg}", style="{")
     logging.setLoggerClass(CountingLogger)
     logger = logging.getLogger('pyLR1')
-    logger.setLevel('INFO')
+    logger.setLevel(logging.WARNING if args.quiet else logging.INFO)
 
     # parse the input file
     try:
         infile = open(args.infile, 'rt')
     except IOError as e:
         print(str(e), file=sys.stderr)
-        exit(1)
+        sys.exit(1)
 
     p = Parser(infile, logger)
     syn = p.Parse()
@@ -3183,7 +3211,7 @@ if __name__ == '__main__':
     infile.close()
 
     if logger.loggedErrors():
-        exit(1)
+        sys.exit(1)
 
     # construct the parser
     parseTable = None
