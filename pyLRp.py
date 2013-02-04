@@ -2923,12 +2923,10 @@ class Parser(object):
                     size, sym, action = reductions[d]
                     state = gtable[stack[-size-1].state][sym]
                     new = StackObject(state)
-                    """ + linesPosAddition  + """
+                    """ + linesPosAddition  + r"""
                     action(new)
-
-                    for j in """ + ("range(size)" if self.python3 else "xrange(size)") + """:
-                        stack.pop()
-
+                    if size > 0:
+                        del stack[-size:]
                     stack.append(new)
                     t, d = atable[stack[-1].state][token]
                     """ + state_trace + """
