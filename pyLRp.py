@@ -4,7 +4,7 @@ Parse parser and lexer specifications and create DFA lexers
 and LR(1) or LALR(1) parsers from them.
 """
 
-# Copyright 2009, 2010, 2012 Sebastian Riese
+# Copyright 2009, 2010, 2012, 2013 Sebastian Riese
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal

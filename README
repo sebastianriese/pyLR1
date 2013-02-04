@@ -42,6 +42,13 @@ Contributors
 
 Jonas Wielicki <j.wielicki@sotecware.net> (Python 3 support, testing)
 
+Testing
+-------
+
+To run the TestSuite run
+
+[pyLR1]$ python3 -m unittest discover -s test -v
+
 License
 -------
 
