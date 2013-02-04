@@ -32,6 +32,8 @@ import logging
 import argparse
 from functools import reduce
 import operator
+import tempfile
+import shutil
 
 class Production(object):
     """A production in a grammar. Productions with left set to None
@@ -3149,32 +3151,27 @@ if __name__ == '__main__':
         lexer.ConstructEquivalenceClasses()
 
     if logger.loggedErrors():
-        exit(1)
+        sys.exit(1)
 
     # write lexer and parser
     try:
-        fo = open(args.ofile, 'wt')
-    except IOError as e:
-        # XXX: this is not good, I don't want to be told my
-        # output file is invalid after I watched a tool
-        # computing 5 minutes, yet I do even less want my
-        # output files truncated, if the input file is
-        # erroneous, and open(mode='r+t').close() at the start
-        # of the main function should help ...
-        print(str(e), file=sys.sterr)
-        exit(1)
+        with tempfile.TemporaryFile(mode="w+t") as temp_gen:
+            writer = Writer(temp_gen, logger,
+                            lines=args.lines,
+                            trace=args.trace,
+                            deduplicate=args.deduplicate,
+                            debug=args.debug,
+                            python3=args.python3)
 
-    writer = Writer(fo, logger,
-                    lines=args.lines,
-                    trace=args.trace,
-                    deduplicate=args.deduplicate,
-                    python3=args.python3)
+            writer.Write(syn, parseTable, lexer)
 
-    writer.Write(syn, parseTable, lexer)
+            if logger.loggedErrors():
+                print("error: ", e, file=sys.stderr)
+                sys.exit(1)
 
-    fo.close()
-
-    if logger.loggedErrors():
-        # unlink the invalid output file
-        os.unlink(args.ofile)
-        exit(1)
+            with open(args.ofile, "wt") as fo:
+                temp_gen.seek(0)
+                shutil.copyfileobj(temp_gen, fo)
+    except Exception as e:
+        print("error: ", e, file=sys.stderr)
+        sys.exit(1)
