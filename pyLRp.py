@@ -1236,11 +1236,10 @@ class ParseTable(object):
                 pass
 
 
-class LRAction(object):
+class LRAction(metaclass=AutoAccept):
 
     def IsShift(self): return False
     def IsReduce(self): return False
-    def IsAccept(self): return False
 
     def __init__(self, prec, numInFile):
         self.prec = prec
@@ -1265,9 +1264,6 @@ class Shift(LRAction):
     def Next(self):
         return self.newstate
 
-    def Accept(self, visitor):
-        return visitor.VisitShift(self)
-
 class Reduce(LRAction):
     def IsReduce(self): return True
 
@@ -1281,19 +1277,7 @@ class Reduce(LRAction):
     def Red(self):
         return self.reduction
 
-    def Accept(self, visitor):
-        return visitor.VisitReduce(self)
-
-class LRActionVisitor(object):
-
-    def Visit(self, action):
-        return action.Accept(self)
-
-    def VisitShift(self, shift):
-        pass
-
-    def VisitReduce(self, red):
-        pass
+LRActionVisitor = LRAction.base_visitor()
 
 class StateTransition(object):
     """
