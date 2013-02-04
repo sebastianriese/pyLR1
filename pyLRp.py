@@ -493,6 +493,12 @@ class LexingActionVisitor(object):
     def VisitBegin(self, action):
         pass
 
+    def VisitPush(self, action):
+        pass
+
+    def VisitPop(self, action):
+        pass
+
     def VisitContinue(self, action):
         pass
 
@@ -580,6 +586,32 @@ class Begin(LexingAction):
     def State(self):
         return self.state
 
+class Push(LexingAction):
+
+    def __init__(self, state):
+        super(Push, self).__init__()
+        self.state = state
+
+    def __repr__(self):
+        return "Push(%s)" % self.state
+
+    def Accept(self, visitor):
+        return visitor.VisitPush(self)
+
+    def State(self):
+        return self.state
+
+class Pop(LexingAction):
+
+    def __init__(self):
+        super(Pop, self).__init__()
+
+    def __repr__(self):
+        return "Pop()"
+
+    def Accept(self, visitor):
+        return visitor.VisitPop(self)
+
 class Restart(LexingAction):
 
     def __init__(self):
@@ -645,7 +677,8 @@ class Parser(object):
     # the action spec
     (%debug\(\s*"(?P<debug>[^\"]*)"\s*\)\s*,\s*)?
 
-    (%begin\(\s*(?P<begin>([A-Za-z0-9]+|\$INITIAL))\s*\)\s*,\s*)?
+    ((?P<beginType>%begin|%push|%pop)
+        \(\s*(?P<begin>([A-Za-z0-9]+|\$INITIAL|))\s*\)\s*,\s*)?
 
     ((?P<token>[a-zA-Z_][a-zA-Z_0-9]*)
      |(?P<restart>%restart)
@@ -736,7 +769,7 @@ class Parser(object):
          state = set()
 
          if not match:
-             self.logger.error("line %i, invalid token spec" % (self.line,))
+             self.logger.error("line {}: invalid token spec", self.line)
              return
 
          # determine the inital condtions
@@ -759,8 +792,18 @@ class Parser(object):
          if match.group('debug'):
              action.Append(Debug(match.group('debug')))
 
-         if match.group('begin'):
-             action.Append(Begin(self.syntax.InitialCondition(match.group('begin'))))
+         if match.group('beginType'):
+             if match.group('beginType') == '%begin':
+                 action.Append(Begin(self.syntax.InitialCondition(match.group('begin'))))
+             elif match.group('beginType') == '%push':
+                 action.Append(Push(self.syntax.InitialCondition(match.group('begin'))))
+             elif match.group('beginType') == '%pop':
+                 if match.group('begin'):
+                     logger.error("line {}: state argument for %pop", self.line)
+                 action.Append(Pop())
+             else:
+                 logger.error("line {}: invalid lexing action", self.line)
+                 return
 
          if match.group('restart'):
              action.Append(Restart())
@@ -2505,7 +2548,13 @@ class LexActionToCode(LexingActionVisitor):
         return "raise GotToken()"
 
     def VisitBegin(self, action):
-        return "self.nextCond = %d" % action.State().Number()
+        return "self.nextCond[-1] = %d" % action.State().Number()
+
+    def VisitPush(self, action):
+        return "self.nextCond.append(%d)" % action.State().Number()
+
+    def VisitPop(self, action):
+        return "self.nextCond.pop()"
 
     def VisitList(self, actionList):
         if actionList.List():
@@ -2861,7 +2910,7 @@ class Lexer(object):
         self.current_token = None
         self.actions = """ + actionstr + """
         self.SetInitialCondition(2)
-        self.nextCond = 0
+        self.nextCond = [0]
         self.line = 1
         self.start_of_line = 0
 
@@ -2900,12 +2949,12 @@ class Lexer(object):
             name, pos = self.current_token
             text = self.buffer[self.root:pos]""" + extract + r"""
             """ + linesCount + r"""
-            if self.nextCond == 0 and text and text[-1] == '\n':
-                self.nextCond = 1
-            elif self.nextCond == 1 and text and text[-1] != '\n':
-                self.nextCond = 0
-            self.SetInitialCondition(self.nextCond)
-            self.nextCond = self.cond
+            if self.nextCond[-1] == 0 and text and text[-1] == '\n':
+                self.nextCond[-1] = 1
+            elif self.nextCond[-1] == 1 and text and text[-1] != '\n':
+                self.nextCond[-1] = 0
+            self.SetInitialCondition(self.nextCond[-1])
+            self.nextCond[-1] = self.cond
             self.root = pos
             self.position = self.root
 

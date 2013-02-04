@@ -127,7 +127,47 @@ class UserDefinedConditionsTest(utils.FailOnLogTestCase,
                                 utils.ParseResultTestCase):
 
     def test_inclusive(self):
-        pass
+        parser, _ = self.compile(r"""
+%lexer
+
+%x COMMENT
+%s QUOTE
+
+\s+ %restart
+
+# the QUOTSYMB is earlier in the file therefore
+# takes precedence, when QUOTE is active
+{ %begin(QUOTE), %restart
+<QUOTE>[a-zA-Z_][a-zA-Z0-9_]+ QUOTSYMB
+<QUOTE>} %begin($INITIAL), %restart
+
+[a-zA-Z_][a-zA-Z0-9_]+ SYMB
+
+# comment minilanguage at the courtesy of the flex manual
+/\* %push(COMMENT), %restart
+<COMMENT>[^*]* %restart
+<COMMENT>\*+[^*/]* %restart
+<COMMENT>\*+\/ %pop(), %restart
+
+%parser
+doc:
+    %empty: $$.sem = []
+    doc SYMB: $$.sem = $1.sem + ["symb"]
+    doc QUOTSYMB: $$.sem = $1.sem + ["quot"]
+
+""")
+
+        self.verify_parse_result(parser, b"/* no comment */", [])
+        self.verify_parse_result(parser, b"""
+{
+    /* no comment */
+    quoted
+}
+/* { */
+   notquoted
+/* } */
+""", ["quot", "symb"])
+
 
     def test_exclusive(self):
         pass

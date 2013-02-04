@@ -96,10 +96,10 @@ class ParseResultTestCase(unittest.TestCase):
 
 class FailOnLogTestCase(unittest.TestCase):
 
-    def compile(self, source):
+    def compile(self, source, listing=None, trace=False):
         self.logger = unique_logger()
         self.logger.addHandler(FailOnLogHandler(self))
-        return compile(self.logger, source)
+        return compile(self.logger, source, listing=listing, trace=trace)
 
 
 def compile(logger, source, listing=None, trace=False):
