@@ -33,6 +33,7 @@ from functools import reduce
 import operator
 import tempfile
 import shutil
+import abc
 
 class Production(object):
     """A production in a grammar. Productions with left set to None
@@ -470,39 +471,38 @@ class LexingRule(object):
     def Conditions(self):
         return self.conditions
 
-class LexingActionVisitor(object):
+class AutoAccept(type):
+    def __new__(cls, name, bases, dict):
+        """
+        Provide automagical VisitorBase and Accept generation with
+        completeness checking for subclasses.
+        """
+        if 'Accept' not in dict:
+            dict['Accept'] = cls._make_accept(name)
+        return super().__new__(cls, name, bases, dict)
 
-    def Visit(self, action):
-        return action.Accept(self)
+    @staticmethod
+    def _make_accept(name):
+        visitor_name = "Visit" + name
+        def accept(self, visitor):
+            return getattr(visitor, visitor_name)(self)
+        return accept
 
-    def VisitDebug(self, action):
-        pass
+    @staticmethod
+    def _make_visit():
+        def visit(self, obj):
+            pass
+        return visit
 
-    def VisitRestart(self, action):
-        pass
+    def base_visitor(self):
+        dict = {}
+        for subclass in self.__subclasses__():
+            dict["Visit" + subclass.__name__] = abc.abstractmethod(self._make_visit())
+        dict["Visit"] = lambda self, obj: obj.Accept(self)
 
-    def VisitToken(self, action):
-        pass
+        return abc.ABCMeta(self.__name__+"Visitor", (object,), dict)
 
-    def VisitGetMatch(self, action):
-        pass
-
-    def VisitList(self, action):
-        pass
-
-    def VisitBegin(self, action):
-        pass
-
-    def VisitPush(self, action):
-        pass
-
-    def VisitPop(self, action):
-        pass
-
-    def VisitContinue(self, action):
-        pass
-
-class LexingAction(object):
+class LexingAction(object, metaclass=AutoAccept):
     """
     Lexing actions.
 
@@ -548,9 +548,6 @@ class Debug(LexingAction):
     def Text(self):
         return self.text
 
-    def Accept(self, visitor):
-        return visitor.VisitDebug(self)
-
 class List(LexingAction):
 
     def __init__(self, lst = None):
@@ -568,9 +565,6 @@ class List(LexingAction):
     def List(self):
         return self.list
 
-    def Accept(self, visitor):
-        return visitor.VisitList(self)
-
 class Begin(LexingAction):
 
     def __init__(self, state):
@@ -579,9 +573,6 @@ class Begin(LexingAction):
 
     def __repr__(self):
         return "Begin(%s)" % self.state
-
-    def Accept(self, visitor):
-        return visitor.VisitBegin(self)
 
     def State(self):
         return self.state
@@ -595,9 +586,6 @@ class Push(LexingAction):
     def __repr__(self):
         return "Push(%s)" % self.state
 
-    def Accept(self, visitor):
-        return visitor.VisitPush(self)
-
     def State(self):
         return self.state
 
@@ -609,9 +597,6 @@ class Pop(LexingAction):
     def __repr__(self):
         return "Pop()"
 
-    def Accept(self, visitor):
-        return visitor.VisitPop(self)
-
 class Restart(LexingAction):
 
     def __init__(self):
@@ -620,9 +605,6 @@ class Restart(LexingAction):
     def __repr__(self):
         return "Restart()"
 
-    def Accept(self, visitor):
-        return visitor.VisitRestart(self)
-
 class Continue(LexingAction):
 
     def __init__(self):
@@ -630,9 +612,6 @@ class Continue(LexingAction):
 
     def __repr__(self):
         return "Continue()"
-
-    def Accept(self, visitor):
-        return visitor.VisitContinue(self)
 
 class Token(LexingAction):
 
@@ -646,9 +625,6 @@ class Token(LexingAction):
     def Name(self):
         return self.name
 
-    def Accept(self, visitor):
-        return visitor.VisitToken(self)
-
 class GetMatch(LexingAction):
 
     def __init__(self):
@@ -657,8 +633,7 @@ class GetMatch(LexingAction):
     def __repr__(self):
         return "GetMatch()"
 
-    def Accept(self, visitor):
-        return visitor.VisitGetMatch(self)
+LexingActionVisitor = LexingAction.base_visitor()
 
 class Parser(object):
     ast_re = re.compile(r"%ast\s*$")
