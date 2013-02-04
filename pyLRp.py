@@ -24,7 +24,6 @@ and LR(1) or LALR(1) parsers from them.
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-
 import re
 import sys
 import os
@@ -2545,7 +2544,7 @@ class Writer(object):
 
         return ded, indices
 
-    def __init__(self, parser_file, logger, lines, trace, deduplicate, python3):
+    def __init__(self, parser_file, logger, lines, trace, deduplicate, python3, debug=False):
         self.logger = logger
 
         self.parser_file = parser_file
@@ -2553,13 +2552,13 @@ class Writer(object):
         self.trace = trace
         self.deduplicate = deduplicate
         self.python3 = python3
+        self.debug = debug
 
     def WriteHeader(self, header):
         self.parser_file.write("""# this file was generated automagically by pyLR1
 # do not edit, if you want to modify the parser, adapt the grammar file
 
 import mmap
-
 """)
 
         for headline in header:
@@ -2753,7 +2752,17 @@ class %s(AST):
         startstr += ')'
 
         linesPositionClass = ''
-        linesCount = "position = 'No Line Tracking'"
+        linesCount = "position = None"
+        eofPosition = "None"
+
+        lexerDebugData = ""
+        if self.debug:
+            lexerDebugData = r"""
+    TOKEN_NAMES = {"""
+            for key, value in symtable.items():
+                lexerDebugData += "{token}:{key},".format(key=repr(key), token=value.Number())
+            lexerDebugData += r"""}
+"""
 
         if self.lines:
             linesPositionClass = """class Position(object):
@@ -2784,6 +2793,7 @@ class %s(AST):
                                 self.line,
                                 pos - self.start_of_line)
 """
+            eofPosition = r"""Position(self.filename, self.line, 0, self.line, 0)"""
 
         self.parser_file.write(r"""class GotToken(Exception):
     pass
@@ -2795,7 +2805,7 @@ class Lexer(object):
     starts = """ + startstr + r"""
     mappings = """ + mappingstr + r"""
 """ + lextablehelper + r"""
-    tables  = """ + lextablestr + r"""
+    tables  = """ + lextablestr + lexerDebugData + r"""
 
     @classmethod
     def from_filename(cls, codefile, **kwargs):
@@ -2931,9 +2941,9 @@ class Lexer(object):
 
         if self.trace:
             if self.python3:
-                state_trace = "print(stack[-1].state, lexeme)"
+                state_trace = "print(' '.join(str(entry.state) for entry in stack), '#', str((t,d)) ," + ("self.lexer.TOKEN_NAMES[token]" if self.debug else "token") + ", '\"' + lexeme + '\"')"
             else:
-                state_trace = "print stack[-1].state, lexeme"
+                state_trace = "print stack[-1].state, token lexeme"
 
         self.parser_file.write("""
 class Accept(Exception):
