@@ -35,6 +35,15 @@ import tempfile
 import shutil
 import abc
 
+class CantHappen(Exception):
+    """
+    Exception raised in code branches that should never be reached.
+    """
+    def __init__(self):
+        super().__init__("""It seems you just found a bug
+
+Please report this.""")
+
 class Production(object):
     """A production in a grammar. Productions with left set to None
     may be used as arbitrary symbol strings."""
@@ -1838,7 +1847,7 @@ class CharacterRegex(RegexAST):
         self.chars = frozenset(chars)
 
     def __str__(self):
-        return "CharacterRegex()"
+        return "CharacterRegex({})".format(list(self.chars))
 
     def NFA(self):
         start = AutomatonState()
@@ -2014,7 +2023,7 @@ class Regex(object):
                     chars |= cset
 
         except StopIteration:
-            raise RegexSyntaxError("Syntax error in regular expression")
+            raise RegexSyntaxError("unclosed character class")
 
     def lex(self):
         # tokens: CHR ([...], \...,.) - 0, OP (+ ? *) - 1, ( - 2, | - 3, ) - 4
@@ -2029,7 +2038,7 @@ class Regex(object):
                 elif char == '[':
                     tokens.append((0, self.ParseChrClass(iterator)))
                 elif char == ']':
-                    raise RegexSyntaxError("Syntax error in regular expression")
+                    raise RegexSyntaxError("single closing bracket")
                 elif char in ('+', '?', '*'):
                     tokens.append((1, char))
                 elif char == '|':
@@ -2044,138 +2053,98 @@ class Regex(object):
                     tokens.append((0, set(char)))
 
         except StopIteration:
+            tokens.append((5, ''))
             return tokens
 
     def Parse(self):
-        args = []
 
-        tokens = self.lex()
-        tokens.append((5,''))
-
-        pos = 0
-
-        # matching yacc grammar:
-
-        # empty : /* empty */
-        #       | or
-        #       ;
-
-        # or : or '|' chain
-        #    | chain
-        #    ;
-
-        # chain : chain op
-        #       | op
-        #       ;
-
-        # op : basic OP
-        #    | basic
-        #    ;
-
-        # basic : '(' empty ')'
-        #       | CHR
-        #       ;
-
-        # CHR is a single character, a character class, a dot or an escape
-        # OP is one of + * ?
-        # see the method lex for more detail
-
-        def ParseEmpty():
-            nonlocal pos
-            token, lexeme = tokens[pos]
-
-            if token == 0 or token == 2:
-                ParseOr()
-            else:
-                args.append(CharacterRegex(set('')))
+        tokens = iter(self.lex())
+        current_token = next(tokens)
 
         def ParseOr():
-            nonlocal pos
-            token, lexeme = tokens[pos]
+            nonlocal current_token
 
-            if token == 0 or token == 2:
-                ParseChain()
+            first = ParseChain()
+            if first is None:
+                first = CharacterRegex([''])
 
-                token, lexeme = tokens[pos]
-                if token == 3:
-                    pos += 1
-                    ParseOr()
-                    a2 = args.pop()
-                    a1 = args.pop()
-                    args.append(OrRegex(a1,a2))
+            if current_token[0] == 3:
+                current_token = next(tokens)
+                second = ParseOr()
+                return OrRegex(first, second)
+
+            return first
 
 
         def ParseChain():
-            nonlocal pos
-            token, lexeme = tokens[pos]
-
-            if token == 0 or token == 2:
-                ParseOp()
-                ParseChain1()
-
-        def ParseChain1():
-            nonlocal pos
-            token, lexeme = tokens[pos]
-
-            if token == 0 or token == 2:
-                ParseOp()
-
-                a2 = args.pop()
-                a1 = args.pop()
-                args.append(SequenceRegex(a1,a2))
-                ParseChain1()
+            first = ParseOp()
+            if first is None:
+                return None
+            else:
+                second = ParseChain()
+                if second is None:
+                    return first
+                else:
+                    return SequenceRegex(first, second)
 
         def ParseOp():
-            nonlocal pos
-            token, lexeme = tokens[pos]
+            nonlocal current_token
 
-            if token == 0 or token == 2:
-                ParseBasic()
+            basic = ParseBasic()
+            if basic is None:
+                return None
 
-                token, lexeme = tokens[pos]
-                if token == 1:
-                    arg = args.pop()
-                    if lexeme == '+':
-                        args.append(SequenceRegex(arg, RepeatorRegex(arg)))
+            token, lexeme = current_token
+            if token == 1:
+                if lexeme == '+':
+                    res = SequenceRegex(basic, RepeatorRegex(basic))
 
-                    elif lexeme == '*':
-                        args.append(RepeatorRegex(arg))
+                elif lexeme == '*':
+                    res = RepeatorRegex(basic)
 
-                    elif lexeme == '?':
-                        args.append(OptionRegex(arg))
+                elif lexeme == '?':
+                    res = OptionRegex(basic)
 
-                    else:
-                        raise RegexSyntaxError("Syntax error in regular expression")
+                else:
+                    # this is a bug in the implementation!
+                    raise CantHappen()
+                current_token = next(tokens)
+            else:
+                res = basic
 
-                    pos += 1
+            return res
 
         def ParseBasic():
-            nonlocal pos
-            token, lexeme = tokens[pos]
+            nonlocal current_token
+            token, lexeme = current_token
 
             if token == 0:
-                args.append(CharacterRegex(lexeme))
-                pos += 1
+                res = CharacterRegex(lexeme)
+                current_token = next(tokens)
+                return res
 
             elif token == 2:
-                pos += 1
-                ParseEmpty()
-                token, lexeme = tokens[pos]
+                current_token = next(tokens)
+                res = ParseOr()
+                if current_token[0] != 4:
+                    raise RegexSyntaxError("missing closing paren")
 
-                if token != 4:
-                    raise RegexSyntaxError("Syntax error in regular expression")
-                pos += 1
+                current_token = next(tokens)
+                return res
             else:
-                raise RegexSyntaxError("Syntax error in regular expression")
+                return None
 
-        ParseEmpty()
+        res = ParseOr()
 
-        if len(args) != 1 or len(tokens) != pos + 1:
-            # print([str(x) for x in args])
-            raise RegexSyntaxError("Syntax error in regular expression")
-
-        # print args[0]
-        return args[0]
+        token, lexeme = current_token
+        if token == 1:
+            raise RegexSyntaxError("missing argument for '{}' operator".format(lexeme))
+        elif token == 4:
+            raise RegexSyntaxError("superfluous closing paren")
+        elif token == 5:
+            return res
+        else:
+            raise CantHappen()
 
     def __init__(self, regex):
         self.regex = regex
