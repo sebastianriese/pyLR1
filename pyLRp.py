@@ -379,7 +379,7 @@ class Empty(Symbol):
 
     def ReducesToEmpty(self, visited=None):
         # empty is not allowed in productions
-        raise Exception("Can't happen")
+        raise CantHappen()
 
     def IsEmpty(self):
         return True
@@ -767,7 +767,7 @@ class Parser(object):
              elif match.group('type') == '%s':
                  self.syntax.AddInclusiveInitialCondition(match.group('name'))
              else:
-                 raise Exception("can't happen")
+                 raise CantHappen()
 
              return
 
@@ -1439,7 +1439,7 @@ class StateTransitionGraph(object):
                 else:
                     return old
             else:
-                raise Exception("Can't happen")
+                raise CantHappen()
 
 
     def Kernels(self):
@@ -1480,7 +1480,7 @@ class StateTransitionGraph(object):
                 pass
             else:
                 print(symbol.Symbol(), file=sys.stderr)
-                raise Exception("Can't happen")
+                raise CantHappen()
 
         prodToRule = dict()
 
@@ -1524,7 +1524,7 @@ class StateTransitionGraph(object):
                 else:
                     print(state, file=sys.stderr)
                     print(str(symb), file=sys.stderr)
-                    raise Exception("Can't happen")
+                    raise CantHappen()
 
             for item in state.Elements():
                 if item.AfterDot() is None:
