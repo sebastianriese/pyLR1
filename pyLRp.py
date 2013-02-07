@@ -472,6 +472,7 @@ class LexingRule(object):
         return self.conditions
 
 class AutoAccept(type):
+
     def __new__(cls, name, bases, dict):
         """
         Provide automagical VisitorBase and Accept generation with
@@ -479,7 +480,22 @@ class AutoAccept(type):
         """
         if 'Accept' not in dict:
             dict['Accept'] = cls._make_accept(name)
-        return super().__new__(cls, name, bases, dict)
+
+        # setup portable subclass tracking
+        # XXX: maybe this should be weaklist
+        # or ordered set
+        dict['_subclasses_'] = []
+
+        res = super().__new__(cls, name, bases, dict)
+
+        for base in bases:
+            if isinstance(base, AutoAccept):
+                base._register_subclass(res)
+
+        return res
+
+    def _register_subclass(self, subclass):
+        self._subclasses_.append(subclass)
 
     @staticmethod
     def _make_accept(name):
@@ -494,11 +510,17 @@ class AutoAccept(type):
             pass
         return visit
 
+    @staticmethod
+    def _make_visit_any():
+        def visit(self, obj):
+            return obj.Accept(self)
+        return visit
+
     def base_visitor(self):
         dict = {}
-        for subclass in self.__subclasses__():
+        for subclass in self._subclasses_:
             dict["Visit" + subclass.__name__] = abc.abstractmethod(self._make_visit())
-        dict["Visit"] = lambda self, obj: obj.Accept(self)
+        dict["Visit"] = self._make_visit_any()
 
         return abc.ABCMeta(self.__name__+"Visitor", (object,), dict)
 
