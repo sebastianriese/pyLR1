@@ -126,7 +126,7 @@ This parrot is dead!""", None)
 class UserDefinedConditionsTest(utils.FailOnLogTestCase,
                                 utils.ParseResultTestCase):
 
-    def test_inclusive(self):
+    def test_exclincl(self):
         parser, _ = self.compile(r"""
 %lexer
 
@@ -169,6 +169,6 @@ doc:
 """, ["quot", "symb"])
 
 
-    def test_exclusive(self):
+    def test_inclusive_and_sof(self):
         pass
 
