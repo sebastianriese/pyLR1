@@ -855,10 +855,10 @@ class Parser(object):
                  action.Append(Push(self.syntax.InitialCondition(match.group('begin'))))
              elif match.group('beginType') == '%pop':
                  if match.group('begin'):
-                     logger.error("line {}: state argument for %pop", self.line)
+                     self.logger.error("line {}: state argument for %pop", self.line)
                  action.Append(Pop())
              else:
-                 logger.error("line {}: invalid lexing action", self.line)
+                 self.logger.error("line {}: invalid lexing action", self.line)
                  return
 
          if match.group('restart'):
@@ -906,8 +906,8 @@ class Parser(object):
                         line = line[len(match.group(0)):]
                         line = line.strip()
                     else:
-                        self.logger.error("Syntax error in associativity definition")
-                        raise Exception()
+                        self.logger.error("line {}: Syntax error in associativity definition", self.line)
+                        return
 
                 self.assocPower += 1
                 return
@@ -1221,13 +1221,13 @@ class Syntax(object):
 
     def AddInclusiveInitialCondition(self, name):
         if name in self.initialConditions:
-            raise Exception("Initial condition name %s already in use" % name)
+            raise SyntaxNameError("Initial condition name {} already in use".format(name))
 
         self.initialConditions[name] = InclusiveInitialCondition(name, len(self.initialConditions))
 
     def AddExclusiveInitialCondition(self, name):
         if name in self.initialConditions:
-            raise Exception("Initial condition name %s already in use" % name)
+            raise SyntaxNameError("Initial condition name {} already in use".format(name))
 
         self.initialConditions[name] = ExclusiveInitialCondition(name, len(self.initialConditions))
 
@@ -3243,9 +3243,9 @@ class CountingLogger(logging.getLoggerClass()):
         """
         return bool(self.errors)
 
-    def error(self, *args, **kwargs):
+    def error(self, msg, *args, **kwargs):
         self.errors += 1
-        super().error(*args, **kwargs)
+        super().error(msg, *args, **kwargs)
 
 if __name__ == '__main__':
 
