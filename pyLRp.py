@@ -772,8 +772,7 @@ class Parser(object):
         if self.indent is None:
             self.indent = indent
 
-        # here we are quite liberal, hopefully this will do no harm
-        if line.strip() and indent < self.indent:
+        if indent < self.indent:
             self.indent = None
             self.state = self.Lexer
             return self.Lexer(line)
@@ -1016,19 +1015,20 @@ class Parser(object):
         return ind
 
     def Action(self, line, eof=False):
+        if eof:
+            self.current.Left().AddProd(self.current)
+            return
 
         indent = self.Indention(line)
         if self.indent is None:
             self.indent = indent
 
-        # finish the action on unindent eof
-        if eof or indent < self.indent:
+        if indent < self.indent:
             self.state = self.Parser
             self.current.Left().AddProd(self.current)
             self.current = self.current.Left()
             self.indent = None
-            self.state(line)
-            return
+            return self.state(line)
 
         def Unindent(line):
             ind = self.Indention(line)
