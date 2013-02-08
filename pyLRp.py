@@ -692,6 +692,15 @@ class Parser(object):
                                 flags=re.X)
 
     lexing_statedef_re = re.compile(r'(?P<type>%x|%s) (?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s*$')
+    lexing_named_pattern_def_re = re.compile(r'''%def
+    (?P<one>\s+
+          (?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s+
+          (?P<regex>(\S|(\\ ))+)
+    )?\s*$''', flags=re.X)
+    lexing_named_pattern_line_re = re.compile(r'''
+          (?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s+
+          (?P<regex>(\S|(\\ ))+)\s*
+    $''', flags=re.X)
 
     syntax_rule_re = re.compile(r"([a-zA-Z_][a-zA-Z_0-9]*):\s*$")
     syntax_symbol_re = re.compile(r"([a-zA-Z_][a-zA-Z_0-9]*)")
@@ -755,6 +764,31 @@ class Parser(object):
 
         self.syntax.ASTInfo().visitor = match.group(1)
 
+    def LexerDefs(self, line, eof=False):
+        if eof:
+            return
+
+        indent = self.Indention(line)
+        if self.indent is None:
+            self.indent = indent
+
+        # here we are quite liberal, hopefully this will do no harm
+        if line.strip() and indent < self.indent:
+            self.indent = None
+            self.state = self.Lexer
+            return self.Lexer(line)
+
+        match = self.lexing_named_pattern_line_re.match(line.strip())
+        if match:
+            try:
+                self.syntax.AddNamedPattern(match.group('name'),
+                                            Regex(match.group('regex'),
+                                                  bindings=self.syntax.NamedPatterns()).ast)
+            except (RegexSyntaxError, SyntaxNameError) as e:
+                self.logger.error("line {}: syntax error in regex def: {}".format(self.line, e.args[0]))
+        else:
+            self.logger.error("line {}, invalid named pattern spec".format(self.line))
+
 
     def Lexer(self, line, eof=False):
          if eof:
@@ -762,14 +796,30 @@ class Parser(object):
 
          match = self.lexing_statedef_re.match(line)
          if match:
-             if match.group('type') == '%x':
-                 self.syntax.AddExclusiveInitialCondition(match.group('name'))
-             elif match.group('type') == '%s':
-                 self.syntax.AddInclusiveInitialCondition(match.group('name'))
-             else:
-                 raise CantHappen()
-
+             try:
+                 if match.group('type') == '%x':
+                     self.syntax.AddExclusiveInitialCondition(match.group('name'))
+                 elif match.group('type') == '%s':
+                     self.syntax.AddInclusiveInitialCondition(match.group('name'))
+                 else:
+                     raise CantHappen()
+             except SyntaxNameError as e:
+                 self.logger.error("line {}: {}".format(self.line, str(e)))
              return
+
+         match = self.lexing_named_pattern_def_re.match(line)
+         if match:
+             if match.group('one'):
+                 try:
+                     self.syntax.AddNamedPattern(match.group('name'),
+                                                 Regex(match.group('regex'),
+                                                       bindings=self.syntax.NamedPatterns()).ast)
+                 except (RegexSyntaxError, SyntaxNameError) as e:
+                     self.logger.error("line {}: syntax error in regex def: {}".format(self.line, e.args[0]))
+             else:
+                 self.state = self.LexerDefs
+                 return
+
 
          match = self.lexing_rule_re.match(line)
          state = set()
@@ -823,9 +873,9 @@ class Parser(object):
 
          # put it all together, add a lexing rule
          try:
-             regex = Regex(match.group('regex'))
+             regex = Regex(match.group('regex'), bindings=self.syntax.NamedPatterns())
          except RegexSyntaxError as e:
-             self.logger.error(str(e))
+             self.logger.error("line {}: syntax error in regex: {}".format(self.line, e.args[0]))
          else:
              self.syntax.AddLexingRule(LexingRule(state, regex, action))
 
@@ -950,23 +1000,24 @@ class Parser(object):
 
             self.current.AddProd(prod)
 
+    @staticmethod
+    def Indention(line):
+        ind = 0
+
+        for char in line:
+            if char == ' ':
+               ind += 1
+            elif char == '\t':
+                self.logger.warning("Tab used for significant indention!")
+                ind += 8
+            else:
+                break
+
+        return ind
+
     def Action(self, line, eof=False):
 
-        def Indention(line):
-            ind = 0
-
-            for char in line:
-                if char == ' ':
-                   ind += 1
-                elif char == '\t':
-                    self.logger.warning("Tab used for significant indention!")
-                    ind += 8
-                else:
-                    break
-
-            return ind
-
-        indent = Indention(line)
+        indent = self.Indention(line)
         if self.indent is None:
             self.indent = indent
 
@@ -980,7 +1031,7 @@ class Parser(object):
             return
 
         def Unindent(line):
-            ind = Indention(line)
+            ind = self.Indention(line)
             line = line.strip()
 
             return " " * (ind - self.indent) + line
@@ -1075,6 +1126,9 @@ class ExclusiveInitialCondition(InitialCondition):
             return True
         return False
 
+class SyntaxNameError(Exception):
+    pass
+
 class Syntax(object):
 
     TERMINAL = 0
@@ -1106,6 +1160,7 @@ class Syntax(object):
 
         self.start = None
         self.symbols = {}
+        self.lexer_defs = {}
         self.ast_info = ASTInformation()
         self.header = []
         self.footer = []
@@ -1149,6 +1204,14 @@ class Syntax(object):
 
     def AddInlineLexingRule(self, token):
         self.inline_tokens.add(token)
+
+    def AddNamedPattern(self, name, regex):
+        if name in self.lexer_defs:
+            raise SyntaxNameError("Pattern name {} already in use".format(name))
+        self.lexer_defs[name] = regex
+
+    def NamedPatterns(self):
+        return self.lexer_defs
 
     def InitialConditions(self):
         return self.initialConditions.values()
@@ -2025,6 +2088,20 @@ class Regex(object):
         except StopIteration:
             raise RegexSyntaxError("unclosed character class")
 
+    def ParseBrace(self, iterator):
+        res = ['']
+        # we rely on the fact, that (iter(iterator) is iterator)
+        # which is specified in the python stdlib docs
+        for chr in iterator:
+            if chr == '}':
+                return res
+            elif chr == ',':
+                res.append('')
+            else:
+                res[-1] += chr
+
+        raise RegexSyntaxError("unclosed brace expression")
+
     def lex(self):
         # tokens: CHR ([...], \...,.) - 0, OP (+ ? *) - 1, ( - 2, | - 3, ) - 4
         tokens = []
@@ -2049,6 +2126,10 @@ class Regex(object):
                     tokens.append((4, ')'))
                 elif char == '.':
                     tokens.append((0, set(chr(i) for i in range(0,256)) - set('\n')))
+                elif char == '{':
+                    tokens.append((6, self.ParseBrace(iterator)))
+                elif char == '}':
+                    raise RegexSyntaxError("single closing brace")
                 else:
                     tokens.append((0, set(char)))
 
@@ -2056,7 +2137,7 @@ class Regex(object):
             tokens.append((5, ''))
             return tokens
 
-    def Parse(self):
+    def Parse(self, bindings):
 
         tokens = iter(self.lex())
         current_token = next(tokens)
@@ -2109,6 +2190,48 @@ class Regex(object):
                     # this is a bug in the implementation!
                     raise CantHappen()
                 current_token = next(tokens)
+            elif token == 6:
+                try:
+                    start = int(lexeme[0])
+                    if start <= 0:
+                        raise ValueError
+
+                    if len(lexeme) == 1:
+                        # exactly {n} times
+                        res = basic
+                        for i in range(1, start):
+                            res = SequenceRegex(basic, res)
+                    elif len(lexeme) == 2:
+                        stop = lexeme[1]
+                        if stop.strip():
+                            # between {n, m} times
+                            stop = int(stop)
+                            if stop <= 0:
+                                raise ValueError
+
+                            res = basic
+                            for i in range(1, start):
+                                res = SequenceRegex(basic, res)
+
+                            if stop > start:
+                                opt_basic = OrRegex(basic, CharacterRegex(['']))
+                                for i in range(start, stop):
+                                    res = SequenceRegex(res, opt_basic)
+                            elif start == stop:
+                                res = res1
+                            else:
+                                raise RegexSyntaxError("m greater than n in {m,n}-style repeator")
+
+                        else:
+                            # more than {n, } times
+                            res = RepeatorRegex(basic)
+                            for i in range(start):
+                                res = SequenceRegex(basic, res)
+                    else:
+                        raise RegexSyntaxError("too many numbers in repetition operator")
+                except ValueError:
+                    raise RegexSyntaxError("item in brace repitition operator not a positive integer")
+                current_token = next(tokens)
             else:
                 res = basic
 
@@ -2131,6 +2254,16 @@ class Regex(object):
 
                 current_token = next(tokens)
                 return res
+            elif token == 6:
+                # make this least surprising, if a {2,3}-style
+                # repeator has no operand
+                lexeme = ','.join(part.strip() for part in lexeme)
+                try:
+                    res = bindings[lexeme]
+                except KeyError:
+                    raise RegexSyntaxError("unbound named pattern {{{}}}".format(lexeme))
+                current_token = next(tokens)
+                return res
             else:
                 return None
 
@@ -2146,9 +2279,9 @@ class Regex(object):
         else:
             raise CantHappen()
 
-    def __init__(self, regex):
+    def __init__(self, regex, bindings=None):
         self.regex = regex
-        self.ast = self.Parse()
+        self.ast = self.Parse(bindings or {})
 
     def NFA(self):
         return self.ast.NFA()

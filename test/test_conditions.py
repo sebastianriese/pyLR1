@@ -137,9 +137,9 @@ class UserDefinedConditionsTest(utils.FailOnLogTestCase,
 
 # the QUOTSYMB is earlier in the file therefore
 # takes precedence, when QUOTE is active
-{ %begin(QUOTE), %restart
+\{ %begin(QUOTE), %restart
 <QUOTE>[a-zA-Z_][a-zA-Z0-9_]+ QUOTSYMB
-<QUOTE>} %begin($INITIAL), %restart
+<QUOTE>\} %begin($INITIAL), %restart
 
 [a-zA-Z_][a-zA-Z0-9_]+ SYMB
 
