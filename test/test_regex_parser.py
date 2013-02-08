@@ -13,9 +13,13 @@ class RegexParserTestCase(unittest.TestCase):
                                (r'a|', "OrRegex(CharacterRegex(['a']), CharacterRegex(['']))"),
                                (r'a|b*', "OrRegex(CharacterRegex(['a']),"
                                 " RepeatorRegex(CharacterRegex(['b'])))"),
-                               (r'a{3}', "SequenceRegex(CharacterRegex(['a']), SequenceRegex(CharacterRegex(['a']), CharacterRegex(['a'])))"),
-                               (r'a{3,}', "SequenceRegex(CharacterRegex(['a']), SequenceRegex(CharacterRegex(['a']), SequenceRegex(CharacterRegex(['a']), RepeatorRegex(CharacterRegex(['a'])))))"),
-                               (r'a{1,2}', "SequenceRegex(CharacterRegex(['a']), OrRegex(CharacterRegex(['a']), CharacterRegex([''])))")]:
+                               (r'a{3}', "SequenceRegex(CharacterRegex(['a']),"
+                                " SequenceRegex(CharacterRegex(['a']), CharacterRegex(['a'])))"),
+                               (r'a{3,}', "SequenceRegex(CharacterRegex(['a']),"
+                                " SequenceRegex(CharacterRegex(['a']), SequenceRegex(CharacterRegex(['a']),"
+                                " RepeatorRegex(CharacterRegex(['a'])))))"),
+                               (r'a{1,2}', "SequenceRegex(CharacterRegex(['a']),"
+                                " OrRegex(CharacterRegex(['a']), CharacterRegex([''])))")]:
             self.assertEqual(str(pyLRp.Regex(regex).ast), str_rep)
 
     def test_regex_parser_errors(self):
