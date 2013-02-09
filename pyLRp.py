@@ -56,10 +56,12 @@ class Production(object):
     def __init__(self, left, syms, number = -1):
         self.left = left
         self.syms = list(syms)
-        self.number = number
+        self.numberInFile = number
         self.assoc = Production.NONE, 0
         self.text = ""
 
+        # number in the reduction rules vector
+        self.number = None
         # self.first = None
 
     def __iter__(self):
@@ -76,12 +78,12 @@ class Production(object):
     def __len__(self):
         return len(self.syms)
 
-    # important note: this number is completely independet of the
+    # important note: this number is completely independent of the
     # number used to represent  the production in the parse table!
     # This one is  used  exclusivley to resolve  conflicts in the
     # parse  tables  (earlier  declaration  ->  higer  precedence)
     def NumberInFile(self):
-        return self.number
+        return self.numberInFile
 
     def GetAssoc(self):
         return self.assoc
@@ -97,6 +99,13 @@ class Production(object):
 
     def GetAction(self):
         return self.text
+
+    # this is the number used in the production rule
+    def SetNumber(self, num):
+        self.number = num
+
+    def GetNumber(self):
+        return self.number
 
     def First(self, visited=None):
         # if self.first is not None:
@@ -207,6 +216,9 @@ class LR1Item(object):
     def AfterDot(self):
         return self.prod.AtOrNone(self.pos)
 
+    def IsReduce(self):
+        return self.prod.AtOrNone(self.pos) is None
+
     def Prod(self):
         return self.prod
 
@@ -273,7 +285,7 @@ class LR1Item(object):
         Determine whether the LR item generates `other` on transition.
         """
 
-        if self.AfterDot() is None:
+        if self.IsReduce():
             return False
 
         return self.Prod() == other.Prod() and self.Pos() + 1 == other.Pos()
@@ -352,6 +364,7 @@ class Undef(Symbol):
 
     def First(self, visited=None):
         return set([self])
+
 
 class Empty(Symbol):
     """
@@ -1275,6 +1288,23 @@ class Syntax(object):
     def Header(self):
         return iter(self.header)
 
+    def SymTableMap(self, key=None, value=None, filt=None):
+        """
+        map/filter on the symtable
+        """
+        if key is None:
+            key = lambda x: x.Symbol()
+
+        if value is None:
+            value = lambda x: x
+
+        if filt is None:
+            filt = lambda x: True
+
+        return {key(symbol): value(symbol)
+                for symbol in self.symbols.values()
+                if filt(symbol)}
+
 class ParseTable(object):
     """
     A LR parse table.
@@ -1395,13 +1425,14 @@ class StateTransition(object):
     def State(self):
         return self.state
 
-class StateTransitionGraph(object):
-    """
-    An *LR(1) state transition graph, this has the behaviour
-    common to LALR(1), LR(1), SLR(1), ... transition graphs.
-    """
+class StateTransitionGraph(object, metaclass=abc.ABCMeta):
 
     def __init__(self, grammar, logger):
+        """
+        An *LR(1) state transition graph, this has the behaviour
+        common to LALR(1), LR(1), SLR(1), ... transition graphs.
+        """
+
         self.logger = logger
 
         self.grammar = grammar
@@ -1415,13 +1446,24 @@ class StateTransitionGraph(object):
         if self.conflicts:
             self.logger.warning(str(self.conflicts) + " conflict(s) found!")
 
+    @abc.abstractmethod
     def Construct(self):
-        raise NotImplementedError()
+        """
+        Construct the *LR(1) automaton.
+        """
+        pass
 
     def NormalizeItemSet(self, elements):
         """
-        Normalize the item set (each core shall occur only once, the
-        lookahead sets are unified)
+        Normalize the item set.
+
+        Normal means:
+
+        * each core occurs only once
+        * the lookahead set assigned to a core is the union of the
+          ones assigned to the occurences of core before
+
+        Returns the normalized item set.
         """
         cores = {}
         for elem in elements:
@@ -1439,8 +1481,9 @@ class StateTransitionGraph(object):
 
     def RequireState(self, elements):
         """
-        Check whether a state having the given elements already exists.
-        If it does exist return it else create the new state and determine it's sub states.
+        Check whether a state having the given elements already
+        exists. If it does exist return it, otherwise create the new
+        state and recursively determine its sub states.
         """
 
         elements = self.NormalizeItemSet(elements)
@@ -1456,10 +1499,34 @@ class StateTransitionGraph(object):
         state.GenerateSubStates()
         return state
 
+    @abc.abstractmethod
     def GenerateState(self, number, elements):
-        raise NotImplementedError()
+        """
+        Generate an appropriate `LR1StateGraphElement`. Where `number`
+        is the assigned id number and `elements` is the associated set
+        of LR1Items.
+        """
+        pass
 
     def ResolveConflict(self, state, old, new):
+        """
+        Resolve a parse table conflict.
+
+        The `state` argument is the LR(1) graph state causing the
+        conflict, `old` and `new` are the action already in the table
+        respective the proposed action.
+
+        For reduce/reduce-conflicts the production later in file takes
+        precedence and a warning is issued.
+
+        For shift/reduce-conflicts the precedence declarations are
+        used to resolve the conflict. If no precedence is declared
+        a warning is issued and the shift action is chosen.
+
+        Returns the preceding action.
+        """
+        if old is None:
+            return new
 
         if old.IsReduce():
             self.logger.info(str(state))
@@ -1486,6 +1553,10 @@ class StateTransitionGraph(object):
                 if preci > prec:
                     return new
                 elif preci == prec:
+                    # XXX: can there be a situation where this None is
+                    # mistaken for: nothing so far and then an action
+                    # is written though there are three nonassoc
+                    # productions of equal precedence
                     return None
                 else:
                     return old
@@ -1522,55 +1593,49 @@ class StateTransitionGraph(object):
         for state in self.states:
             state.Close()
 
-    def CreateParseTable(self, symtable):
+    def CreateParseTable(self, terminals, metas):
+        """
+        Create the parse table from the LR graph. Requires two mappings
+        from `Symbol` objects to their respective numbers: One of them
+        for the terminals and another for the meta-symbols.
 
+        They can be created from the `Syntax` object by calling:
+
+            termsyms = frozenset([Syntax.TERMINAL, Syntax.EOF, Syntax.ERROR])
+            syn.SymTableMap(filt=lambda x: x.SymType() in termsyms,
+                            value=lambda x: x.Number())
+
+            syn.SymTableMap(filt=lambda x: x.SymType() == Syntax.META,
+                            value=lambda x: x.Number())
+
+        The function returns a `Parsetable` object.
+        """
         atable = []
         jtable = []
 
         rules = []
 
-        terminals = dict()
-        metas = dict()
-
-        for symbol in symtable.values():
-            if symbol.SymType() == Syntax.TERMINAL \
-                    or symbol.SymType() == Syntax.EOF \
-                    or symbol.SymType() == Syntax.ERROR:
-                terminals[symbol.Symbol()] = symbol.Number()
-            elif symbol.SymType() == Syntax.META:
-                metas[symbol.Symbol()] = symbol.Number()
-            elif symbol.SymType() == Syntax.UNDEF:
-                pass
-            else:
-                print(symbol.Symbol(), file=sys.stderr)
-                raise CantHappen()
-
-        prodToRule = dict()
-
+        # populate the rules vector
         for meta in metas:
             for rule in meta.Productions():
-                prodToRule[rule] = len(rules)
+                rule.SetNumber(len(rules))
                 rules.append(rule)
 
-        stateToIndex = dict()
-
-        k = 0
         for state in self.states:
-            stateToIndex[state] = state.Number()
-
-        for state in self.states:
-            acur = [None for i in range(len(terminals))]
-            jcur = [None for i in range(len(metas))]
+            # append the current row to the action- and jumptables
+            acur = [None] * len(terminals)
+            jcur = [None] * len(metas)
 
             atable.append(acur)
             jtable.append(jcur)
 
+            # fill goto table and write shifts to the action table
             for trans, prods in state.Transitions().items():
                 symb = trans.Symbol()
                 tstate = trans.State()
 
                 if symb in metas:
-                    jcur[metas[symb]] = stateToIndex[tstate]
+                    jcur[metas[symb]] = tstate.Number()
 
                 elif symb in terminals:
                     assoc = Production.NONE
@@ -1582,43 +1647,44 @@ class StateTransitionGraph(object):
                             prec = nprec
                             assoc = item.Prod().GetAssoc()
 
-                    acur[terminals[symb]] = Shift(stateToIndex[tstate],
+                    acur[terminals[symb]] = Shift(tstate.Number(),
                                                   assoc, prec)
                 else:
                     print(state, file=sys.stderr)
                     print(str(symb), file=sys.stderr)
                     raise CantHappen()
 
-            for item in state.Elements():
-                if item.AfterDot() is None:
-                    reduceAction = Reduce(prodToRule[item.Prod()],
-                                          item.Prod().GetAssoc(),
-                                          item.Prod().NumberInFile())
+            # write reductions to the action table
+            for item in state.Reductions():
+                prod = item.Prod()
+                reduceAction = Reduce(prod.GetNumber(),
+                                      prod.GetAssoc(),
+                                      prod.NumberInFile())
 
-                    for la in item.Lookahead():
-                        if acur[terminals[la]] is not None:
-                            acur[terminals[la]] = \
-                                self.ResolveConflict(state,
-                                                     acur[terminals[la]],
-                                                     reduceAction)
+                for la in item.Lookahead():
+                    acur[terminals[la]] = \
+                        self.ResolveConflict(state,
+                                             acur[terminals[la]],
+                                             reduceAction)
 
-
-                        else:
-                            acur[terminals[la]] = reduceAction
-
-        return ParseTable(atable, jtable, stateToIndex[self.start], rules)
+        return ParseTable(atable, jtable, self.start.Number(), rules)
 
 class LALR1StateTransitionGraph(StateTransitionGraph):
-    """
-    The LALR(1) State Transition Graph.
-    """
 
     def __init__(self, grammar, logger):
+        """
+        The LALR(1) State Transition Graph.
+        """
         super(LALR1StateTransitionGraph, self).__init__(grammar, logger)
 
     def Propagate(self):
         """
-        Generate the lookahead sets
+        Generate the lookahead sets.
+
+        The other parts of this computation are done in the
+        `LALR1StateTransitionGraphElement`.
+
+        For details on the algorithm see the Dragon Book.
         """
 
         self.Kernels()
@@ -1627,7 +1693,7 @@ class LALR1StateTransitionGraph(StateTransitionGraph):
         for state in self.states:
             state.DeterminePropagationAndGeneration()
 
-
+        # add EOF to the "$START <- start ." lookahead set
         for item in self.start.Elements():
             if item.Prod().left == self.grammar.RequireMeta("$START"):
                 item.SetLookahead(set([self.grammar.RequireEOF()]))
@@ -1639,7 +1705,6 @@ class LALR1StateTransitionGraph(StateTransitionGraph):
         # propagate the lookahead tokens
         propagated = True
         while propagated:
-            # print "Propagation Round"
             propagated = False
 
             for state in self.states:
@@ -1651,6 +1716,7 @@ class LALR1StateTransitionGraph(StateTransitionGraph):
         return LALR1StateTransitionGraphElement(self, number, elements)
 
     def Construct(self):
+
         # construct the starting point (virtual starting node) and use
         # the RequireElement-method to build up the tree
 
@@ -1714,19 +1780,29 @@ class LR1StateTransitionGraphElement(object):
         for trans in self.transitions:
             lines.append((trans.Symbol().Name() or "None") + " -> " + str(trans.State().number))
 
-        text = ""
-        for line in lines:
-            text += line + "\n"
-
-        return text
+        return '\n'.join(lines)
 
     def Elements(self):
         return self.elements
 
+    def Reductions(self):
+        """
+        A generator yielding the reduction items in this LR state.
+        """
+        for elem in self.elements:
+            if elem.IsReduce():
+                yield elem
+
     def Transitions(self):
+        """
+        Return the state transitions.
+        """
         return self.transitions
 
     def Number(self):
+        """
+        Return the number.
+        """
         return self.number
 
     def Kernel(self):
@@ -1754,7 +1830,8 @@ class LR1StateTransitionGraphElement(object):
 
     def GenerateSubStates(self):
         """
-        Determine the substates of this state and add them to the transition graph.
+        Determine the substates of this state and add them to the
+        transition graph.
         """
 
         for elem in self.elements:
@@ -1774,12 +1851,23 @@ class LR1StateTransitionGraphElement(object):
 class LALR1StateTransitionGraphElement(LR1StateTransitionGraphElement):
 
     def __init__(self, graph, number, elements):
+        """
+        A State in a LALR(1) automaton.
+        """
         super(LALR1StateTransitionGraphElement, self).__init__(graph, number, elements)
 
         self.lapropagation = []
         self.lageneration = []
 
     def DeterminePropagationAndGeneration(self):
+        """
+        Determine where and how the LA entries are generated or
+        propagate.
+
+        For a detailed explanation of the algorithm see the Dragon
+        Book.
+        """
+
         undef = self.graph.grammar.RequireUndef()
 
         for item in self.elements:
@@ -1801,7 +1889,7 @@ class LALR1StateTransitionGraphElement(LR1StateTransitionGraphElement):
 
                                     for la in other.Lookahead():
 
-                                        if la == undef:
+                                        if la is undef:
                                             # print "Propagate", self.Number(), stateTo.Number(), item, "->", itemTo
                                             self.lapropagation.append((item, itemTo))
 
@@ -1812,12 +1900,18 @@ class LALR1StateTransitionGraphElement(LR1StateTransitionGraphElement):
             item.SetLookahead(frozenset())
 
     def Generate(self):
+        """
+        Do the LA entry generation.
+        """
         for item, symb in self.lageneration:
             newLa = set(item.Lookahead())
             newLa.add(symb)
             item.SetLookahead(newLa)
 
     def Propagate(self):
+        """
+        Do the LA entry propagation.
+        """
         propagated = False
         for item, to in self.lapropagation:
             newLa = to.Lookahead() | item.Lookahead()
@@ -3378,7 +3472,13 @@ if __name__ == '__main__':
             for state in graph.states:
                 print(str(state))
 
-        parseTable = graph.CreateParseTable(syn.SymTable())
+        termsyms = frozenset([Syntax.TERMINAL, Syntax.EOF, Syntax.ERROR])
+        parseTable = graph.CreateParseTable(
+            syn.SymTableMap(filt=lambda x: x.SymType() in termsyms,
+                            value=lambda x: x.Number()),
+            syn.SymTableMap(filt=lambda x: x.SymType() == Syntax.META,
+                            value=lambda x: x.Number())
+            )
         graph.ReportNumOfConflicts()
         del graph
     else:

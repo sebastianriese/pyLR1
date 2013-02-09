@@ -120,7 +120,16 @@ def compile(logger, source, listing=None, trace=False):
     if syn.Start() is not None:
         graph = pyLRp.LALR1StateTransitionGraph(syn, logger)
         graph.Construct()
-        parseTable = graph.CreateParseTable(syn.SymTable())
+
+        termsyms = frozenset([pyLRp.Syntax.TERMINAL,
+                              pyLRp.Syntax.EOF,
+                              pyLRp.Syntax.ERROR])
+        parseTable = graph.CreateParseTable(
+            syn.SymTableMap(filt=lambda x: x.SymType() in termsyms,
+                            value=lambda x: x.Number()),
+            syn.SymTableMap(filt=lambda x: x.SymType() == pyLRp.Syntax.META,
+                            value=lambda x: x.Number())
+            )
         graph.ReportNumOfConflicts()
         # for state in graph.states:
         #     print(str(state))
