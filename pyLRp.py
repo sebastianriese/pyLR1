@@ -569,8 +569,12 @@ class LexingAction(object, metaclass=AutoAccept):
             and self.__dict__ == other.__dict__
 
     def __hash__(self):
+        # TODO: find better solution than xor, it destroys a lot of
+        # the hashes because there will be many hash(x) == id(x)
+        # objects and the addresses id(x) will tend to be in a narrow
+        # region.
         return reduce(operator.__xor__,
-                      map(hash, self.__dict__),
+                      map(hash, self.__dict__.items()),
                       id(self.__class__))
 
 class Debug(LexingAction):
@@ -582,13 +586,6 @@ class Debug(LexingAction):
     def __str__(self):
         return "Debug(" + repr(self.text) + ")"
 
-    def __eq__(self, other):
-        return self.__class__ == other.__class__ \
-            and self.text == other.text
-
-    def __hash__(self):
-        return hash(self.text)
-
     def Text(self):
         return self.text
 
@@ -596,9 +593,7 @@ class List(LexingAction):
 
     def __init__(self, lst = None):
         super(List, self).__init__()
-        self.list = lst
-        if self.list is None:
-            self.list = []
+        self.list = lst or []
 
     def __str__(self):
         return "List([" + ", ".join(map(str, self.list)) + "])"
@@ -608,6 +603,13 @@ class List(LexingAction):
 
     def List(self):
         return self.list
+
+    # we have to implement this because lists
+    # do not hash well
+    def __hash__(self):
+        return reduce(operator.__xor__,
+                      map(hash, self.list),
+                      id(self.__class__))
 
 class Begin(LexingAction):
 
