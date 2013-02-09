@@ -1924,32 +1924,49 @@ class LALR1StateTransitionGraphElement(LR1StateTransitionGraphElement):
 
         return propagated
 
-class AutomatonState(object):
+class LexingAutomatonState(metaclass=abc.ABCMeta):
 
     def __init__(self):
-        self.transitions = dict()
-        # self.clone = None
+        self.transitions = {}
         self.action = None
         self.priority = None
 
-    # this was added for one specific debugging task
-    # either remove or adapt
-    def __repr__(self):
-        return "AutomatonState("+repr(id(self))+", "+ repr(self.action) +")"
+    @abc.abstractmethod
+    def Move(self, chr):
+        """
+        Get the states reached.
+        """
+        pass
+
+    @abc.abstractmethod
+    def AddTransition(self, chr, state):
+        pass
+
+    def AddTransitions(self, chrs, state):
+        for chr in chrs:
+            self.AddTransition(chr, state)
+
+    def Transitions(self):
+        return self.transitions.items()
+
+    def SetAction(self, priority, action):
+        self.action = action
+        self.priority = priority
+
+    def GetAction(self):
+        return self.action
+
+    def Priority(self):
+        return self.priority
+
+class NFAState(LexingAutomatonState):
+
 
     def Move(self, char):
         """
         Get the set of states reached by the transition on char.
         """
         return self.transitions.get(char, set())
-
-    def MoveDFA(self, chr):
-        """
-        Get the transition on character for a DFA (that is, only one
-        state, not a set of states).
-        """
-        res, = self.Move(chr)
-        return res
 
     def EpsilonClosure(self, visited=None):
         closure = set([self])
@@ -1968,31 +1985,25 @@ class AutomatonState(object):
 
         return closure | nc
 
-    def AddTransitions(self, chars, state):
-        for char in chars:
-            if char not in self.transitions:
-                self.transitions[char] = set()
-
-            self.transitions[char].add(state)
-
     def AddTransition(self, char, state):
         if char not in self.transitions:
             self.transitions[char] = set()
 
         self.transitions[char].add(state)
 
-    def Transitions(self):
-        return self.transitions.items()
+class DFAState(LexingAutomatonState):
 
-    def SetAction(self, priority, action):
-        self.action = action
-        self.priority = priority
+    def Move(self, chr):
+        """
+        Get the transition on character for a DFA.
+        """
+        return self.transitions[chr]
 
-    def GetAction(self):
-        return self.action
+    def AddTransition(self, char, state):
+        if char in self.transitions:
+            raise CantHappen()
 
-    def Priority(self):
-        return self.priority
+        self.transitions[char] = state
 
 class RegexAST(object):
     """An AST representing a regular expression."""
@@ -2009,8 +2020,8 @@ class CharacterRegex(RegexAST):
         return "CharacterRegex({})".format(list(self.chars))
 
     def NFA(self):
-        start = AutomatonState()
-        end = AutomatonState()
+        start = NFAState()
+        end = NFAState()
 
         start.AddTransitions(self.chars, end)
 
@@ -2059,7 +2070,7 @@ class RepeatorRegex(RegexAST):
         return "RepeatorRegex(%s)" % str(self.regex)
 
     def NFA(self):
-        nfas, nfae = AutomatonState(), AutomatonState()
+        nfas, nfae = NFAState(), NFAState()
         nfars, nfare = self.regex.NFA()
 
         nfas.AddTransition('', nfae)
@@ -2081,7 +2092,7 @@ class OrRegex(RegexAST):
 
         nfa1s, nfa1e = self.regex1.NFA()
         nfa2s, nfa2e = self.regex2.NFA()
-        start, end = AutomatonState(), AutomatonState()
+        start, end = NFAState(), NFAState()
 
         start.AddTransition('', nfa1s)
         start.AddTransition('', nfa2s)
@@ -2397,14 +2408,14 @@ class LexerConstructor(object):
         self.lextables = {}
 
         # construct the automaton for matching the inline tokens
-        inlineTokens = AutomatonState()
+        inlineTokens = NFAState()
         for token in lexerSpec.InlineTokens():
 
-            previous = AutomatonState()
+            previous = NFAState()
             inlineTokens.AddTransition('', previous)
 
             for char in token:
-                new = AutomatonState()
+                new = NFAState()
                 previous.AddTransition(char, new)
                 previous = new
 
@@ -2458,7 +2469,7 @@ class LexingNFA(object):
 
     def __init__(self, lexingRules, condition, inlineTokenNFA, logger):
         self.logger = logger
-        self.start = AutomatonState()
+        self.start = NFAState()
 
         if condition.IncludesSToken():
             self.start.AddTransition('', inlineTokenNFA)
@@ -2474,7 +2485,7 @@ class LexingNFA(object):
 
     def CreateDFA(self):
         si = frozenset(self.start.EpsilonClosure())
-        dfaStates = {si : AutomatonState()}
+        dfaStates = {si : DFAState()}
         todo = [si]
 
         while todo:
@@ -2492,7 +2503,7 @@ class LexingNFA(object):
                 if newState not in dfaStates:
 
                     todo.append(newState)
-                    dfaStates[newState] = AutomatonState()
+                    dfaStates[newState] = DFAState()
 
                     # select the appropriate action
                     curpri = float('-inf')
@@ -2534,7 +2545,7 @@ class OptimizerPartition(object):
         self.groups[group].append(state)
 
     def GeneratePartitionTransitionTable(self, state):
-        return tuple(self.GroupOfState(state.MoveDFA(chr(char))) for char in range(0,256))
+        return tuple(self.GroupOfState(state.Move(chr(char))) for char in range(0,256))
 
     def Partition(self):
         partition = OptimizerPartition()
@@ -2560,7 +2571,7 @@ class OptimizerPartition(object):
 
         # create the new states
         for i in range(0, len(self.groups)):
-            states.append(AutomatonState())
+            states.append(DFAState())
             newstates[states[-1]] = i
 
             if start in self.groups[i]:
@@ -2574,7 +2585,7 @@ class OptimizerPartition(object):
             states[i].SetAction(None, representative.GetAction())
 
             for char in range(256):
-                states[i].AddTransition(chr(char), states[self.GroupOfState(representative.MoveDFA(chr(char)))])
+                states[i].AddTransition(chr(char), states[self.GroupOfState(representative.Move(chr(char)))])
 
         return newstart, newstates
 
@@ -2618,8 +2629,7 @@ class LexingDFA(object):
             mylist = lextable[self.states[state]]
 
             for char, nstate in state.Transitions():
-                for cstate in nstate:
-                    mylist[ord(char)].append(self.states[cstate])
+                mylist[ord(char)].append(self.states[nstate])
 
         return Lextable(lextable, self.states[self.start], actions)
 
