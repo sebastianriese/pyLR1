@@ -1640,7 +1640,7 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
                     jcur[metas[symb]] = tstate.Number()
 
                 elif symb in terminals:
-                    assoc = Production.NONE
+                    assoc = Production.NONE, -1
                     prec = -1
 
                     for item in prods:
