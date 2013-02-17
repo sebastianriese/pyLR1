@@ -710,7 +710,7 @@ class Parser(object):
      |(?P<continue>%continue))\s*$""",
                                 flags=re.X)
 
-    lexing_statedef_re = re.compile(r'(?P<type>%x|%s) (?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s*$')
+    lexing_statedef_re = re.compile(r'(?P<type>%x|%s) (?P<names>([a-zA-Z_][a-zA-Z0-9_]*(\s*,\s*)?)+)\s*$')
     lexing_named_pattern_def_re = re.compile(r'''%def
     (?P<one>\s+
           (?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s+
@@ -814,11 +814,15 @@ class Parser(object):
 
          match = self.lexing_statedef_re.match(line)
          if match:
+             statenames = [name.strip() for name in match.group('names').split(',')]
+             statenames = sum([name.split() for name in statenames], [])
              try:
                  if match.group('type') == '%x':
-                     self.syntax.AddExclusiveInitialCondition(match.group('name'))
+                     for name in statenames:
+                         self.syntax.AddExclusiveInitialCondition(name)
                  elif match.group('type') == '%s':
-                     self.syntax.AddInclusiveInitialCondition(match.group('name'))
+                     for name in statenames:
+                         self.syntax.AddInclusiveInitialCondition(name)
                  else:
                      raise CantHappen()
              except SyntaxNameError as e:
