@@ -690,7 +690,7 @@ class Parser(object):
 
     lexing_rule_re = re.compile(r"""
     # the initial condition specifier
-    (<(?P<initialNames>([a-zA-Z0-9,_]+|\s)*)>|(?P<sol>\^)|(?P<sof><<SOF>>)|)?
+    (<(?P<initialNames>([a-zA-Z0-9,_]+|\$SOL|\$SOF|\s)*)>|(?P<sol>\^)|)
 
     # the regex
     (?P<regex>(\S|(\\ ))+)\s+
@@ -845,9 +845,6 @@ class Parser(object):
          # determine the inital condtions
          if match.group('sol'):
              state.add(self.syntax.InitialCondition("$SOL"))
-
-         if match.group('sof'):
-             state.add(self.syntax.InitialCondition("$SOF"))
 
          if match.group('initialNames'):
              names = [name.strip() for name in match.group('initialNames').split(',')]

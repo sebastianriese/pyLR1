@@ -17,7 +17,7 @@ class DefaultConditionsTestCase(utils.FailOnLogTestCase,
 \s+ %restart
 
 # allow shebang
-<<SOF>>\#!.* %restart
+<$SOF>\#!.* %restart
 
 # otherwise the language has "" comments
 "[^"]*" %restart
@@ -42,7 +42,7 @@ doc:
 This "ljljlkj" parrot is dead!
 """, ["parrot"])
 
-        # no shebang <<SOF>> must be inclusive
+        # no shebang <$SOF> must be inclusive
         self.verify_parse_result(parser, br"""This parrot is dead!""", ["parrot"])
 
         # the FAKE shebang must be parsed correctly in other contexts
@@ -72,10 +72,10 @@ This "ljljlkj" parrot is dead!
 \s+ %restart
 
 # here for confusion and to verify longest-match sematics
-<<SOF>>--c %restart
+<$SOF>--c %restart
 
 # this language has start of file --| |-- block comments
-<<SOF>>--\|([^|]*|\|[^\-]|\|-[^\-])*\|-- %restart
+<$SOF>--\|([^|]*|\|[^\-]|\|-[^\-])*\|-- %restart
 
 # this language has start of line -- comments
 ^--.* %restart
