@@ -847,7 +847,7 @@ class Parser(object):
          state = set()
 
          if not match:
-             self.logger.error("line {}: invalid token spec", self.line)
+             self.logger.error("line {}: invalid token spec".format(self.line))
              return
 
          # determine the inital condtions
@@ -874,10 +874,10 @@ class Parser(object):
                  action.Append(Push(self.syntax.InitialCondition(match.group('begin'))))
              elif match.group('beginType') == '%pop':
                  if match.group('begin'):
-                     self.logger.error("line {}: state argument for %pop", self.line)
+                     self.logger.error("line {}: state argument for %pop".format(self.line))
                  action.Append(Pop())
              else:
-                 self.logger.error("line {}: invalid lexing action", self.line)
+                 self.logger.error("line {}: invalid lexing action".format(self.line))
                  return
 
          if match.group('beginType2'):
@@ -887,10 +887,10 @@ class Parser(object):
                  action.Append(Push(self.syntax.InitialCondition(match.group('begin2'))))
              elif match.group('beginType2') == '%pop':
                  if match.group('begin2'):
-                     self.logger.error("line {}: state argument for %pop", self.line)
+                     self.logger.error("line {}: state argument for %pop".format(self.line))
                  action.Append(Pop())
              else:
-                 self.logger.error("line {}: invalid lexing action", self.line)
+                 self.logger.error("line {}: invalid lexing action".format(self.line))
                  return
 
          if match.group('restart'):
@@ -938,7 +938,7 @@ class Parser(object):
                         line = line[len(match.group(0)):]
                         line = line.strip()
                     else:
-                        self.logger.error("line {}: Syntax error in associativity definition", self.line)
+                        self.logger.error("line {}: Syntax error in associativity definition".format(self.line))
                         return
 
                 self.assocPower += 1
