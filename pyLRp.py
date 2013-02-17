@@ -701,6 +701,10 @@ class Parser(object):
     ((?P<beginType>%begin|%push|%pop)
         \(\s*(?P<begin>([A-Za-z0-9]+|\$INITIAL|))\s*\)\s*,\s*)?
 
+    # allow up to two state stack operations
+    ((?P<beginType2>%begin|%push|%pop)
+        \(\s*(?P<begin2>([A-Za-z0-9]+|\$INITIAL|))\s*\)\s*,\s*)?
+
     ((?P<token>[a-zA-Z_][a-zA-Z_0-9]*)
      |(?P<restart>%restart)
      |(?P<continue>%continue))\s*$""",
@@ -866,6 +870,19 @@ class Parser(object):
                  action.Append(Push(self.syntax.InitialCondition(match.group('begin'))))
              elif match.group('beginType') == '%pop':
                  if match.group('begin'):
+                     self.logger.error("line {}: state argument for %pop", self.line)
+                 action.Append(Pop())
+             else:
+                 self.logger.error("line {}: invalid lexing action", self.line)
+                 return
+
+         if match.group('beginType2'):
+             if match.group('beginType2') == '%begin':
+                 action.Append(Begin(self.syntax.InitialCondition(match.group('begin2'))))
+             elif match.group('beginType2') == '%push':
+                 action.Append(Push(self.syntax.InitialCondition(match.group('begin2'))))
+             elif match.group('beginType2') == '%pop':
+                 if match.group('begin2'):
                      self.logger.error("line {}: state argument for %pop", self.line)
                  action.Append(Pop())
              else:
