@@ -693,7 +693,7 @@ class Parser(object):
     (<(?P<initialNames>([a-zA-Z0-9,_]+|\$SOL|\$SOF|\s)*)>|(?P<sol>\^)|)
 
     # the regex
-    (?P<regex>(\S|(\\ ))+)\s+
+    (?P<regex>(\S|(\\\ ))+)\s+
 
     # the action spec
     (%debug\(\s*"(?P<debug>[^\"]*)"\s*\)\s*,\s*)?
