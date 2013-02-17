@@ -2126,14 +2126,18 @@ class RegexSyntaxError(Exception):
 class Regex(object):
     """A regular expression with an NFA representation."""
 
+    ESCAPES = {
+        'n' : '\n',
+        't' : '\t',
+        'f' : '\f',
+        'v' : '\v',
+        's' : ' \n\t\v\r\f',
+        'd' : '0123456789',
+        'w' : 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ013456789_'
+        }
+
     def ParseEscape(self, iterator):
         char = next(iterator)
-
-        if char == 'n':
-            return set('\n')
-
-        if char == 't':
-            return set('\t')
 
         if char == 'x':
             string = ''
@@ -2141,17 +2145,7 @@ class Regex(object):
             string += next(iterator)
             return set(chr(int(string, base=16)))
 
-        if char == 's':
-            return set(' \n\t\v\r\f')
-
-        if char == 'd':
-            return set('0123456789')
-
-        if char == 'w':
-            return set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ013456789_')
-
-        return set(char)
-
+        return set(self.ESCAPES.get(char, char))
 
     def ParseChrClass(self, iterator):
         try:
