@@ -39,8 +39,15 @@ class RegexParserTestCase(unittest.TestCase):
                                          {'foo': pyLRp.CharacterRegex('b')}).ast),
                          "CharacterRegex(['b'])")
 
+        # test that {name} is treated as a SEQ {foo} in trailing position
+        self.assertEqual(str(pyLRp.Regex(r'a{foo}',
+                                         {'foo': pyLRp.CharacterRegex('b')}).ast),
+                         "SequenceRegex(CharacterRegex(['a']), CharacterRegex(['b']))")
+
         self.assertRaisesRegex(pyLRp.RegexSyntaxError, 'unbound named pattern {baz}',
                                pyLRp.Regex, r'{baz}')
 
-        self.assertRaisesRegex(pyLRp.RegexSyntaxError, 'unbound named pattern {baz,}',
+        self.assertRaisesRegex(pyLRp.RegexSyntaxError, "comma in named regex reference",
                                pyLRp.Regex, r'{baz,}', bindings={'baz': None})
+
+

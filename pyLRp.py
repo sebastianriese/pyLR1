@@ -710,11 +710,11 @@ class Parser(object):
     lexing_named_pattern_def_re = re.compile(r'''%def
     (?P<one>\s+
           (?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s+
-          (?P<regex>(\S|(\\ ))+)
+          (?P<regex>(\S|(\\\ ))+)
     )?\s*$''', flags=re.X)
     lexing_named_pattern_line_re = re.compile(r'''
           (?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s+
-          (?P<regex>(\S|(\\ ))+)\s*
+          (?P<regex>(\S|(\\\ ))+)\s*
     $''', flags=re.X)
 
     syntax_rule_re = re.compile(r"([a-zA-Z_][a-zA-Z_0-9]*):\s*$")
@@ -2201,8 +2201,17 @@ class Regex(object):
         # which is specified in the python stdlib docs
         for chr in iterator:
             if chr == '}':
-                return res
+                res[-1] = res[-1].strip()
+                try:
+                    res = [int(entry) if entry else None for entry in res]
+                except ValueError:
+                    if len(res) != 1:
+                        raise RegexSyntaxError("comma in named regex reference")
+                    return (6, res[0])
+                else:
+                    return (7, res)
             elif chr == ',':
+                res[-1] = res[-1].strip()
                 res.append('')
             else:
                 res[-1] += chr
@@ -2234,7 +2243,7 @@ class Regex(object):
                 elif char == '.':
                     tokens.append((0, set(chr(i) for i in range(0,256)) - set('\n')))
                 elif char == '{':
-                    tokens.append((6, self.ParseBrace(iterator)))
+                    tokens.append(self.ParseBrace(iterator))
                 elif char == '}':
                     raise RegexSyntaxError("single closing brace")
                 else:
@@ -2297,9 +2306,9 @@ class Regex(object):
                     # this is a bug in the implementation!
                     raise CantHappen()
                 current_token = next(tokens)
-            elif token == 6:
+            elif token == 7:
                 try:
-                    start = int(lexeme[0])
+                    start = lexeme[0]
                     if start <= 0:
                         raise ValueError
 
@@ -2310,9 +2319,9 @@ class Regex(object):
                             res = SequenceRegex(basic, res)
                     elif len(lexeme) == 2:
                         stop = lexeme[1]
-                        if stop.strip():
+
+                        if stop is not None:
                             # between {n, m} times
-                            stop = int(stop)
                             if stop <= 0:
                                 raise ValueError
 
@@ -2362,9 +2371,6 @@ class Regex(object):
                 current_token = next(tokens)
                 return res
             elif token == 6:
-                # make this least surprising, if a {2,3}-style
-                # repeator has no operand
-                lexeme = ','.join(part.strip() for part in lexeme)
                 try:
                     res = bindings[lexeme]
                 except KeyError:
@@ -2381,7 +2387,7 @@ class Regex(object):
             raise RegexSyntaxError("missing argument for '{}' operator".format(lexeme))
         elif token == 4:
             raise RegexSyntaxError("superfluous closing paren")
-        elif token == 5:
+        elif token == 5: # parsed up to EOF, we are happy
             return res
         else:
             raise CantHappen()
