@@ -2743,22 +2743,24 @@ class LexActionToCode(LexingActionVisitor):
         self.symtable = symtable
 
     def VisitDebug(self, action):
-        return "print(%s)" % repr(action.Text())
+        return "print(%s, repr(text))" % repr(action.Text())
 
     def VisitRestart(self, action):
-        return "self.current_token = (None, self.position)"
+        return "return None"
 
     def VisitToken(self, action):
-        return "self.current_token = (%d, self.position)" % self.symtable[action.Name()].Number()
+        return "return {:d}".format(self.symtable[action.Name()].Number())
 
     def VisitGetMatch(self, action):
-        return "raise GotToken()"
+        # this is never actually called!
+        assert False
+        return "pass"
 
     def VisitBegin(self, action):
-        return "self.nextCond[-1] = %d" % action.State().Number()
+        return "self.nextCond[-1] = {:d}".format(action.State().Number())
 
     def VisitPush(self, action):
-        return "self.nextCond.append(%d)" % action.State().Number()
+        return "self.nextCond.append({:d})".format(action.State().Number())
 
     def VisitPop(self, action):
         return "self.nextCond.pop()"
@@ -2957,10 +2959,10 @@ class %s(AST):
 
         if self.python3:
             extract = '.decode("UTF-8")'
-            baccess = "buffer[self.position]"
+            baccess = "buffer[cur_pos]"
         else:
             extract = ''
-            baccess = "ord(buffer[self.position])"
+            baccess = "ord(buffer[cur_pos])"
 
 
         data = []
@@ -2968,47 +2970,50 @@ class %s(AST):
 
         for cond, table, start, actions, mapping in lexer.Get():
 
-            lextablehelper, lextablestr = self.TableStrings("ltd%d" % cond.Number(), tuple(tuple(a[0] for a in state) for state in table))
+            lextablehelper, lextablestr = \
+                self.TableStrings("ltd%d" % cond.Number(),
+                  tuple(tuple(a[0] for a in state)for state in table))
 
             # create the string representing the actions
-            actionstr = "(\n"
+            action_vector = []
             for action in actions:
-                if action not in action_table:
-                    action_table[action] = len(action_table)
-
-                actionstr += "            self.action%d" % (action_table[action],) + ", \n"
-
-            actionstr += "        )"
+                if action is None:
+                    action_vector.append('None')
+                elif action == GetMatch():
+                    action_vector.append('-1')
+                else:
+                    if action not in action_table:
+                        action_table[action] = len(action_table)
+                    action_vector.append('{}'.format(action_table[action]))
+            actionmapstr = "({})".format(','.join(action_vector))
 
             mappingstr = ""
             if mapping:
                 # create the string mapping
                 lookup = "mapping[" + baccess + "]"
+                mappingstr = '({})'.format(','.join(map(str, mapping)))
 
-                mappingstr = "("
-                for entry in mapping:
-                    mappingstr += str(entry)
-                    mappingstr += ","
-                mappingstr += ")"
-
-            data.append((cond,start, actionstr, mappingstr, lextablehelper, lextablestr))
+            data.append((cond, start, actionmapstr, mappingstr, lextablehelper, lextablestr))
         data.sort(key=lambda x: x[0].Number())
+
+        actionstr = ','.join('self.action{:d}'.format(i) for i in range(len(action_table)))
+        actionstr = '({})'.format(actionstr)
 
         startstr = '('
         mappingstr = '('
-        actionstr = '('
+        actionmapstr = '('
         lextablestr = '('
         lextablehelper = ''
 
         for cond, start, astr, mstr, lthstr, ltstr in data:
             startstr += str(start) + ','
             mappingstr += mstr + ',\n'
-            actionstr += astr + ',\n'
+            actionmapstr += astr + ',\n'
             lextablestr +=   ltstr + ',\n'
             lextablehelper += '    ' + lthstr + '\n'
 
         lextablestr += ')'
-        actionstr += ')'
+        actionmapstr += ')'
         mappingstr += ')'
         startstr += ')'
 
@@ -3018,12 +3023,20 @@ class %s(AST):
 
         lexerDebugData = ""
         if self.debug:
-            lexerDebugData = r"""
-    TOKEN_NAMES = {"""
+            token_names = []
+            token_numbers = []
+            symtypes = frozenset([Syntax.TERMINAL, Syntax.EOF, Syntax.ERROR])
             for key, value in symtable.items():
-                lexerDebugData += "{token}:{key},".format(key=repr(key), token=value.Number())
-            lexerDebugData += r"""}
-"""
+                if value.SymType() in symtypes:
+                    token_names.append("{token}: {key}".format(key=repr(key),
+                                                               token=value.Number()))
+                    token_numbers.append("{key}: {token}".format(key=repr(key),
+                                                                 token=value.Number()))
+
+            lexerDebugData = r"""
+    TOKEN_NAMES = {{{}}}
+    TOKEN_NUMBERS = {{{}}}
+""".format(','.join(token_names), ','.join(token_numbers))
 
         if self.lines:
             linesPositionClass = """class Position(object):
@@ -3067,6 +3080,7 @@ class Lexer(object):
     mappings = """ + mappingstr + r"""
 """ + lextablehelper + r"""
     tables  = """ + lextablestr + lexerDebugData + r"""
+    actionmap = """ + actionmapstr + """
 
     @classmethod
     def from_filename(cls, codefile, **kwargs):
@@ -3098,32 +3112,32 @@ class Lexer(object):
             if mmap_file:
                 try:
                     self.buffer = mmap.mmap(code.fileno(), 0, access=mmap.ACCESS_READ)
+                    self.size = self.buffer.size()
                 except mmap.error:
                     # we could not mmap the file: perhaps warn, but open it
                     # through a FileBuffer
                     mmap_file = False
 
-                self.size = self.buffer.size()
-
             if not mmap_file:
                 # for now: just slurp the file, sorry if it is large,
                 # a tty or a pipe -> TODO
-                self.buffer = """
-      + ("codefile.readall()" if self.python3 else "codfile.read()") + r"""
+                self.buffer = code.read()
                 self.size = len(self.buffer)
 
         self.root = 0
-        self.position = 0
-        self.current_token = None
-        self.actions = """ + actionstr + """
         self.SetInitialCondition(2)
         self.nextCond = [0]
+        self.token_push_back = []
         self.line = 1
         self.start_of_line = 0
+        self.actions = """ + actionstr + r"""
+
+    def push_back(self, token):
+        self.token_push_back.append(token)
 
     def SetInitialCondition(self, num):
         self.cond = num
-        self.start, self.table, self.cactions, self.mapping = self.starts[num], self.tables[num], self.actions[num], self.mappings[num]
+        self.start, self.table, self.cactions, self.mapping = self.starts[num], self.tables[num], self.actionmap[num], self.mappings[num]
 
     def lexAll(self):
         tokens = []
@@ -3134,36 +3148,46 @@ class Lexer(object):
             tokens.append((type, text, pos))
 
     def lex(self):
-        self.current_token = None
+        if self.token_push_back:
+            return self.token_push_back.pop()
+
         state = self.start
         size, table, cactions, mapping, buffer = self.size, self.table, self.cactions, self.mapping, self.buffer
+        actionvec = self.actions
+        cur_pos = self.root
+        action = None
         try:
-            while self.position != size:
+            while cur_pos != size:
                 state = table[state][""" + lookup + """]
-                self.position += 1
-                cactions[state]()
-            raise GotToken()
+                cur_pos += 1
+                if cactions[state] is None:
+                    pass
+                elif cactions[state] < 0:
+                    raise GotToken
+                else:
+                    action = (cur_pos, actionvec[cactions[state]])
+            raise GotToken
         except GotToken:
-            if self.current_token is None:
-                if self.position == self.root:
+            if action is None:
+                if cur_pos == self.root:
                     return ("""
            + "{0}, {1}, {2}".format(symtable["$EOF"].Number(), "''", eofPosition) +
                                r""")
                 else:
-                    self.current_token = ("""
-            + "{0}, {1}".format(symtable["$ERROR"].Number(), "self.position") +
-                               r""")
-            name, pos = self.current_token
+                    action = cur_pos, self.error_action
+            pos, faction = action
+
             text = self.buffer[self.root:pos]""" + extract + r"""
+
             """ + linesCount + r"""
+            name = faction(text)
+
             if self.nextCond[-1] == 0 and text and text[-1] == '\n':
                 self.nextCond[-1] = 1
             elif self.nextCond[-1] == 1 and text and text[-1] != '\n':
                 self.nextCond[-1] = 0
             self.SetInitialCondition(self.nextCond[-1])
-            self.nextCond[-1] = self.cond
             self.root = pos
-            self.position = self.root
 
             if name is None:
                 return self.lex()
@@ -3175,15 +3199,17 @@ class Lexer(object):
 
         for action, number in action_table.items():
             self.parser_file.write("""
-    def action%d(self):
+    def action%d(self, text):
 """ % (number,))
 
-            if action is not None:
-                code = lexActionGen.Visit(action).split('\n')
-                for line in code:
-                    self.parser_file.write("        " + line + "\n")
-            else:
-                self.parser_file.write("        pass\n" )
+            code = lexActionGen.Visit(action).split('\n')
+            for line in code:
+                self.parser_file.write("        " + line + "\n")
+
+        self.parser_file.write(r"""
+    def error_action(self, text):
+        return """ + "{}".format(symtable["$ERROR"].Number()) + r"""
+""")
 
     def WriteParser(self, parseTable, symtable):
         # when there is no parser specified parseTable is None
@@ -3319,7 +3345,7 @@ class Parser(object):
 """)
 
         for line in footer:
-            self.parser_file.write(line + "\n")
+            self.parser_file.write(line)
 
 
     def Write(self, syntax, parsetable, lextable):
