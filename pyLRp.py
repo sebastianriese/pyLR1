@@ -671,6 +671,19 @@ class Token(LexingAction):
     def Name(self):
         return self.name
 
+class Function(LexingAction):
+
+    def __init__(self, name):
+        super().__init__()
+        self.name = name
+
+    def __repr__(self):
+        return "Function('%s')" % self.name
+
+    def Name(self):
+        return self.name
+
+
 class GetMatch(LexingAction):
 
     def __init__(self):
@@ -698,11 +711,11 @@ class Parser(object):
     # the action spec
     (%debug\(\s*"(?P<debug>[^\"]*)"\s*\)\s*,\s*)?
 
-    ((?P<beginType>%begin|%push|%pop)
+    ((?P<beginType>%begin|%push|%pop|%function)
         \(\s*(?P<begin>([A-Za-z0-9]+|\$INITIAL|))\s*\)\s*,\s*)?
 
     # allow up to two state stack operations
-    ((?P<beginType2>%begin|%push|%pop)
+    ((?P<beginType2>%begin|%push|%pop|%function)
         \(\s*(?P<begin2>([A-Za-z0-9]+|\$INITIAL|))\s*\)\s*,\s*)?
 
     ((?P<token>[a-zA-Z_][a-zA-Z_0-9]*)
@@ -876,6 +889,8 @@ class Parser(object):
                  if match.group('begin'):
                      self.logger.error("line {}: state argument for %pop".format(self.line))
                  action.Append(Pop())
+             elif match.group('beginType') == '%function':
+                 action.Append(Function(match.group('begin')))
              else:
                  self.logger.error("line {}: invalid lexing action".format(self.line))
                  return
@@ -2777,6 +2792,9 @@ class LexActionToCode(LexingActionVisitor):
 
     def VisitContinue(self, action):
         return 'self.state = self.start'
+
+    def VisitFunction(self, action):
+        return '{}(self, text, position)'.format(action.name)
 
 class LRActionToLRTableEntry(LRActionVisitor):
 
