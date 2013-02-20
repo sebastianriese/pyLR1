@@ -872,7 +872,10 @@ class Parser(object):
          if match.group('initialNames'):
              names = [name.strip() for name in match.group('initialNames').split(',')]
              for name in names:
-                 state.add(self.syntax.InitialCondition(name))
+                 try:
+                     state.add(self.syntax.InitialCondition(name))
+                 except  SyntaxNameError as e:
+                     self.logger.error("line {}: error in start condition list: {}".format(self.line, e.args[0]))
 
          # print('SOL match:', match.group('sol'), 'inital names match:', match.group('initialNames'))
 
