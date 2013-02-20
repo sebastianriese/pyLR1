@@ -4,89 +4,279 @@
 
 %lexer
 
+%x INDENT
 
-\#.*\n+ NEWLINE
+# states used for correct inline python handling
+%x PYBLOB, PYBLOBNOSPC, MLSTRD, MLSTRS, PYINLINE
 
-\n\s+ NEWLINE
-# no lexer stater are available in the pre-parser,
-# space matters here and there (python code ...)
-# therefore anyone who is whitespace ignorant: please notiy us
-\s+ SPACE
+# states used by the autoaction spec
+%x AST
 
-\%restart RESTART
-\%lexer LEXER
-\%parser PARSER
+# states used by the lexer spec
+%x LEXER, CONDSPEC, REGEX, DEF, DEFINDENT, LEXACTION, SCOPE, SCOPEDEF, DEFNEWLINE
 
-.* ARBLINE
+# states used by the parser spec
+%x PARSER, FIXITYSPEC, PARSERMETA, PARSERULE, PARSERINDENT
 
-\".*\" TEXT
-[A-Za-z_][A-Za-z0-9_]* SYMBOL
+# states used by the footer
+%x FOOTER
 
-\<[A-Z]+\> STATE
-# this could be more concrete
-([^ \t]|\\ )+ REGEX
+# symbol list states
+%x SYMBOLLIST
+
+# match the empty string as empty indentation
+%nullmatch INDENT
+
+%def
+    space     [\ \t\v\f]
+    regexchar [^\ \t\v\f\n]
+    tonewline [^\n]*
+    name      [a-zA-Z_][a-zA-Z0-9_]*
+    comment   {space}*(\#{tonewline})?
+    stoken    "([^\"]|\\\")+"|'([^\']|\\\')+'
+
+#######################################################
+# section switching and uniform empty line ignorance
+#######################################################
+<$SOL,LEXER>%ast{comment}\n    %begin(AST), AST
+<$SOL,AST>%lexer{comment}\n    %begin(LEXER), LEXER
+<$SOL,LEXER,AST>%parser{comment}\n %begin(PARSER), PARSER
+<LEXER,AST,PARSER>%footer{comment}\n %begin(FOOTER), FOOTER
+
+<LEXER,PARSER,AST,INDENT>{comment}\n  %restart
+<INDENT>[\ \t]* %function(indent), %restart
+
+# two never matching rules to define terminal symbols
+# generated programatically (by the indent function in %footer)
+[] INDENT
+[] DEDENT
+
+#######################################################
+# header and footer: PYVERB
+#######################################################
+<FOOTER,$INITIAL>[^\n]*\n PYVERB
+
+#######################################################
+# commonly used syntactic contructs
+#######################################################
+<SYMBOLLIST,FIXITYSPEC>{space}+    %restart
+<SYMBOLLIST,FIXITYSPEC>{comment}\n %pop(), NEWLINE
+<SYMBOLLIST,FIXITYSPEC>\\\n        %restart
+<SYMBOLLIST,FIXITYSPEC>,           COMMA
+<SYMBOLLIST,FIXITYSPEC>{name}      SYMBOL
+
+# fixityspecs allow stokens to appear in the list
+<FIXITYSPEC>{stoken}               SYMBOL
+
+#######################################################
+# the lexer spec
+#######################################################
+<LEXER>%x %push(SYMBOLLIST), EXCLUSIVE
+<LEXER>%s %push(SYMBOLLIST), INCLUSIVE
+<LEXER>%def{comment}\n %push(DEF), %push(INDENT), DEF
+<LEXER>\< %push(CONDSPEC), LANGLE
+<LEXER>^  %push(LEXACTION), %push(REGEX), CARET
+<LEXER>[^\^\<\n]({regexchar}|(\\\ ))* %push(LEXACTION), REGEX
+
+<DEF>{name} SYMBOL
+# this is the space separating the name and the newline
+<DEF>{space}+ %begin(DEFNEWLINE), %push(REGEX), %restart
+<DEFNEWLINE>{comment}\n %begin(DEF), %push(INDENT), %restart
+
+
+<LEXER,SCOPE>%scope %push(SCOPEDEF), SCOPE
+<SCOPEDEF>{space}+ %restart
+<SCOPEDEF>,        COMMA
+<SCOPEDEF>{name}|$SOL|$SOF|$INITIAL SYMBOL
+<SCOPEDEF>\+        PLUS
+<SCOPEDEF>-        MINUS
+<SCOPEDEF>\(       OPAREN
+<SCOPEDEF>\)       CPAREN
+<SCOPEDEF>{comment}\n %begin(SCOPE), %push(INDENT), %restart
+
+<CONDSPEC>{name}|$SOL|$SOF|$INITIAL SYMBOL
+<CONDSPEC>,        COMMA
+<CONDSPEC>{space}+ %restart
+<CONDSPEC>\>       %begin(LEXACTION), %push(REGEX), RANGLE
+
+<REGEX>({regexchar}|(\\\ ))+  %pop(), REGEX
+
+<LEXACTION>{space}+ %restart
+<LEXACTION>,        COMMA
+<LEXACTION>%push    PUSH
+<LEXACTION>%pop     POP
+<LEXACTION>%begin   BEGIN
+<LEXACTION>%continue CONTINUE
+<LEXACTION>%restart RESTART
+<LEXACTION>%debug   DEBUG
+<LEXACTION>{name}   SYMBOL
+<LEXACTION>\(       OPAREN
+<LEXACTION>\)       CPAREN
+<LEXACTION>{comment}\n %pop(), NEWLINE
+<LEXACTION>\\\n     %restart
+
+
+#######################################################
+# the grammar spec
+#######################################################
+<PARSER>{name}    %begin(PARSERMETA), SYMBOL
+<PARSER>%left     %push(FIXITYSPEC),  LEFT
+<PARSER>%right    %begin(FIXITYSPEC), RIGHT
+<PARSER>%nonassoc %begin(FIXITYSPEC), NONASSOC
+<PARSERMETA>:{comment} %begin(PARSER), %push(PARSERULE), %push(INDENT), COLON
+
+<PARSERULE>{name}          SYMBOL
+<PARSERULE>{stoken}        STOKEN
+<PARSERULE>%empty          EMPTY
+<PARSERULE>%prec           PREC
+<PARSERULE>\(              OPAREN
+<PARSERULE>\)              CPAREN
+<PARSERULE>{space}+     %restart
+<PARSERULE>\\\n            %restart
+<PARSERULE>\n              %push(INDENT), NEWLINE
+<PARSERULE>:               %push(PYINLINE), COLON
+
+<PYINLINE>{space}+ %restart
+<PYINLINE>{comment}\n %begin(PYBLOB), %push(INDENT), %restart
+<PYINLINE>[^\#\n]{tonewline}\n %pop(), PYSINGLE
+
+#######################################################
+# multiline python actions
+#######################################################
+
+# python strings, we must not alter their contents
+# and must ignore leading whitespace and stuff within
+<PYBLOB,PYBLOBNOSPC>[bu]?r?\"\"\" %push(MLSTRD), PYBLOB
+<PYBLOB,PYBLOBNOSPC>[bu]?r?"([^\"\n]|\"|\\\n)*" PYBLOB
+<PYBLOB,PYBLOBNOSPC>[bu]?r?\'\'\' %push(MLSTRS), PYBLOB
+<PYBLOB,PYBLOBNOSPC>[bu]?r?'([^\']|\'|\\\n)*' PYBLOB
+
+<MLSTRD>(\"|\"\"|[^\"\\]*)(\\\"|\\[^\"])? PYBLOB
+<MLSTRD>\"\"\" %pop(), PYBLOB
+<MLSTRD>(\'|\'\'|[^\'\\]*)(\\\'|\\[^\'])? PYBLOB
+<MLSTRS>\'\'\' %pop(), PYBLOB
+
+# this idea comes directly from the CPython lexer
+# count grouping operators to tell whether the linebreak counts
+<PYBLOB,PYBLOBNOSPC>[\(\[\{] %push(PYBLOBNOSPC), PYBLOB
+<PYBLOB,PYBLOBNOSPC>[\)\]\}] %pop(), PYBLOB
+
+<PYBLOB,PYBLOBNOSPC>[a-zA-Z_][a-zA-Z0-9_]* PYBLOB
+<PYBLOB,PYBLOBNOSPC>0x[0-9a-fA-F]+|0o[0-7]+|[0-9]+ PYBLOB
+<PYBLOB,PYBLOBNOSPC>[=+\-*/\\.:,@<>%&|=^]+ PYBLOB
+
+# explicit line continuations
+<PYBLOB,PYBLOBNOSPC>\\\n PYBLOB
+
+# preserve insignificant space
+<PYBLOBNOSPC>\s+ PYBLOB
+<PYBLOBNOSPC,PYBLOB>{comment} PYBLOB
+<PYBLOB>{space}+ PYBLOB
+
+# discern indentation
+<PYBLOB>\n %push(INDENT), %restart
 
 %parser
 
 file:
-    %empty
-    file part
+    init header lexer parser footer
+    init header lexer footer
+    init header parser footer
 
-part:
-    header
-    lexer
-    parser
+init:
+    %empty:
+        self.syntax = pyLRp.Syntax()
+        self.assocDefs = {}
+
+symbollist:
+    symbollist_ NEWLINE
+
+symbollist_:
+    SYMBOL:                  $$.sem = [$1.sem]
+    symbollist_ COMMA SYMBOL: $$.sem = $1.sem + $3.sem
+    symbollist_ SYMBOL:       $$.sem = $1.sem + $2.sem
+
+pyblob:
+    PYSINGLE
+    INDENT PYBLOB
+    INDENT pyblob DEDENT
+    pyblob PYBLOB
 
 header:
     %empty
-    header pycodeline
-
-pycodeline:
-    NEWLINE
-    SPACE ARBLINE NEWLINE
+    header PYVERB
 
 lexer:
-    LEXER SPACE NEWLINE
-    lexerline
-
-lexerline:
-    STATE SPACE REGEX SPACE lexeraction SPACE NEWLINE
-    REGEX SPACE lexeraction SPACE NEWLINE
-
-lexeraction:
-    lexeraction1
-    lexeraction SPACE "," SPACE lexeraction1
-
-lexeraction1:
-    RESTART
-    SYMBOL
-    BEGIN
-    END
-    APPEND
-    COLLECT
+    LEXER
+    lexer "a"
 
 parser:
-    PARSER SPACE NEWLINE
-    rule
+    PARSER assocdefs
+    parser ruleset DEDENT
 
-rule:
-    SYMBOL SPACE ":" SPACE rulebody
+assocdefs:
+    %empty
+    assocdefs assocdef
 
-rulebody:
-    NEWLINE
-    NEWLINE SPACE EMPTY SPACE "{" action "}" SPACE NEWLINE
-    NEWLINE SPACE prod  SPACE "{" action "}" SPACE NEWLINE
+assocdef:
+    LEFT symbollist: self.assocDefs.append()
+    RIGHT symbollist
+    NONASSOC symbollist
 
-prod:
-    prod1
-    prod SPACE prod1
+ruleset:
+    SYMBOL COLON INDENT
+    ruleset parserule
 
-prod1:
+parserule:
+    production COLON pyblob
+    production NEWLINE
+
+production:
     SYMBOL
-    TEXT
+    EMPTY
+    STOKEN
+    production PREC OPAREN SYMBOL CPAREN
+    production SYMBOL
+    production EMPTY
+    production STOKEN
 
-# clean
-action:
-    SPACE NEWLINE
-    action SPACE ARBLINE NEWLINE
-    
+footer:
+    FOOTER
+    footer PYVERB
+
+%footer
+
+def indent(lexer, text, position):
+    if not hasattr(lexer, 'indent_stack'):
+        lexer.indent_stack = [0]
+
+    if len(text) > lexer.indent_stack[-1]:
+        lexer.indent_stack.append(len(text))
+        lexer.nextCond.pop()
+        lexer.push_back((lexer.TOKEN_NUMBERS['INDENT'], text, position))
+        return
+
+    cnt = 0
+    try:
+        while lexer.indent_stack.pop() != len(text):
+            cnt += 1
+    except IndexError:
+        return (lexer.TOKEN_NUMBERS['$ERROR'], text, position)
+
+    lexer.indent_stack.append(len(text))
+
+    for i in range(cnt):
+        # pop one further state per DEDENT
+        lexer.nextCond.pop()
+        lexer.push_back((lexer.TOKEN_NUMBERS['DEDENT'], text, position))
+
+    lexer.nextCond.pop()
+
+if __name__ == '__main__':
+    import sys
+    l = Lexer(open(sys.argv[1], 'r'))
+
+    token_type = -1
+    while token_type != Lexer.TOKEN_NUMBERS['$EOF']:
+        token_type, lexeme, position = l.lex()
+        print(Lexer.TOKEN_NAMES[token_type], '"""{}"""'.format(lexeme), l.nextCond)
