@@ -2880,8 +2880,10 @@ import mmap
         if self.deduplicate:
             ded, indices = self.Deduplicate(tableTuple)
 
-            tablehelper = helper + ' = (' + ',\n'.join(str(entry).replace(' ', '') for entry in ded) + ')'
+            tablehelper = helper + ' = (' + ',\n'.join(str(entry).replace(' ', '') for entry in ded) + (',)' if len(ded) == 1 else ')')
             tablestr += ','.join(helper + '[%d]' % i for i in indices)
+            if len(indices) == 1:
+                tablestr += ','
         else:
             for state in tableTuple:
                 tablestr += str(state).replace(' ', '')
@@ -3043,7 +3045,7 @@ class %s(AST):
         data.sort(key=lambda x: x[0].Number())
 
         actionstr = ','.join('self.action{:d}'.format(i) for i in range(len(action_table)))
-        actionstr = '({})'.format(actionstr)
+        actionstr = ('({},)' if len(action_table) == 1 else '({})').format(actionstr)
 
         startstr = '('
         mappingstr = '('
