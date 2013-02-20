@@ -1263,7 +1263,10 @@ class Syntax(object):
         return self.initialConditions.values()
 
     def InitialCondition(self, name):
-        return self.initialConditions[name]
+        try:
+            return self.initialConditions[name]
+        except KeyError:
+            raise SyntaxNameError("Initial condition {} not defined".format(name))
 
     def AddInclusiveInitialCondition(self, name):
         if name in self.initialConditions:
