@@ -703,7 +703,7 @@ class Parser(object):
 
     lexing_rule_re = re.compile(r"""
     # the initial condition specifier
-    (<(?P<initialNames>([a-zA-Z0-9,_]+|\$SOL|\$SOF|\s)*)>|(?P<sol>\^)|)
+    (<(?P<initialNames>([a-zA-Z0-9,_]+|\$SOL|\$SOF|\$INITIAL|\s)*)>|(?P<sol>\^)|)
 
     # the regex
     (?P<regex>(\S|(\\\ ))+)\s+
@@ -1163,7 +1163,7 @@ class InclusiveInitialCondition(InitialCondition):
     def Match(self, conditions):
         if not conditions or \
                 self in conditions or \
-                any(cond in conditions for cond in self.conditions):
+                any(cond.Match(conditions) for cond in self.conditions):
             return True
         return False
 
@@ -1219,8 +1219,8 @@ class Syntax(object):
         # the condition $INITIAL is the default condition
         # $SOL is the start of line condition
         # $SOF is the start of file condition
-        self.initialConditions["$INITIAL"] = InclusiveInitialCondition("$INITIAL", 0)
-        sol = self.initialConditions["$SOL"] = InclusiveInitialCondition("$SOL", 1)
+        initial = self.initialConditions["$INITIAL"] = InclusiveInitialCondition("$INITIAL", 0)
+        sol = self.initialConditions["$SOL"] = InclusiveInitialCondition("$SOL", 1, initial)
         self.initialConditions["$SOF"] = InclusiveInitialCondition("$SOF", 2, sol)
 
         # require the error symbol
