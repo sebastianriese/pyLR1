@@ -725,7 +725,7 @@ class Parser(object):
      |(?P<continue>%continue))\s*$""",
                                 flags=re.X)
 
-    lexing_statedef_re = re.compile(r'(?P<type>%x|%s) (?P<names>([a-zA-Z_][a-zA-Z0-9_]*(\s*,\s*)?)+)\s*$')
+    lexing_statedef_re = re.compile(r'(?P<type>%x|%s|%nullmatch) (?P<names>([a-zA-Z_][a-zA-Z0-9_]*(\s*,\s*)?)+)\s*$')
     lexing_named_pattern_def_re = re.compile(r'''%def
     (?P<one>\s+
           (?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s+
@@ -838,6 +838,9 @@ class Parser(object):
                  elif match.group('type') == '%s':
                      for name in statenames:
                          self.syntax.AddInclusiveInitialCondition(name)
+                 elif match.group('type') == '%nullmatch':
+                     for name in statenames:
+                         self.syntax.InitialCondition(name).DeclareNullmatch()
                  else:
                      raise CantHappen()
              except SyntaxNameError as e:
@@ -1142,8 +1145,15 @@ class InitialCondition(object):
     def __init__(self, name, number):
         self.name = name
         self.number = number
+        self.nullmatch = False
 
     def IncludesSToken(self): return False
+
+    def Nullmatch(self):
+        return self.nullmatch
+
+    def DeclareNullmatch(self):
+        self.nullmatch = True
 
     def Match(self, conditions):
         raise NotImplementedError()
@@ -2511,6 +2521,10 @@ class LexingNFA(object):
         if condition.IncludesSToken():
             self.start.AddTransition('', inlineTokenNFA)
 
+        self.nullmatch = False
+        if condition.Nullmatch():
+            self.nullmatch = True
+
         i = -1
         for lexingRule in lexingRules:
             if condition.Match(lexingRule.Conditions()):
@@ -2521,9 +2535,26 @@ class LexingNFA(object):
             i -= 1
 
     def CreateDFA(self):
+
+        def SelectAction(nfaStates):
+            curpri = float('-inf')
+            curaction = None
+            for state in nfaStates:
+                pri = state.Priority()
+                if pri is not None and pri > curpri:
+                    curaction = state.GetAction()
+                    curpri = pri
+            return curaction
+
         si = frozenset(self.start.EpsilonClosure())
         dfaStates = {si : DFAState()}
         todo = [si]
+
+
+        # XXX: add feature to warn when there are nullmatches
+        # but they are ignored
+        if self.nullmatch:
+            dfaStates[si].SetAction(None, SelectAction(si))
 
         while todo:
             cur = todo.pop()
@@ -2541,14 +2572,7 @@ class LexingNFA(object):
 
                     todo.append(newState)
                     dfaStates[newState] = DFAState()
-
-                    # select the appropriate action
-                    curpri = float('-inf')
-                    for state in newState:
-                        pri = state.Priority()
-                        if pri is not None and pri > curpri:
-                            dfaStates[newState].SetAction(None, state.GetAction())
-                            curpri = pri
+                    dfaStates[newState].SetAction(None, SelectAction(newState))
 
                     if len(newState) == 0:
                         # this is the error state (empty set of NFA states)
@@ -3168,11 +3192,15 @@ class Lexer(object):
         if self.token_push_back:
             return self.token_push_back.pop()
 
-        state = self.start
-        size, table, cactions, mapping, buffer = self.size, self.table, self.cactions, self.mapping, self.buffer
+        cond = self.nextCond[-1]
+        state = self.starts[cond]
+        size, table, cactions, mapping, buffer = self.size, self.tables[cond], self.actionmap[cond], self.mappings[cond], self.buffer
         actionvec = self.actions
         cur_pos = self.root
-        action = None
+        if cactions[state] is not None:
+            action = cur_pos, actionvec[cactions[state]]
+        else:
+            action = None
         try:
             while cur_pos != size:
                 state = table[state][""" + lookup + """]
