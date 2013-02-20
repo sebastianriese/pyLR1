@@ -3147,8 +3147,7 @@ class Lexer(object):
                 self.size = len(self.buffer)
 
         self.root = 0
-        self.SetInitialCondition(2)
-        self.nextCond = [0]
+        self.nextCond = [2]
         self.token_push_back = []
         self.line = 1
         self.start_of_line = 0
@@ -3156,10 +3155,6 @@ class Lexer(object):
 
     def push_back(self, token):
         self.token_push_back.append(token)
-
-    def SetInitialCondition(self, num):
-        self.cond = num
-        self.start, self.table, self.cactions, self.mapping = self.starts[num], self.tables[num], self.actionmap[num], self.mappings[num]
 
     def lexAll(self):
         tokens = []
@@ -3204,11 +3199,14 @@ class Lexer(object):
             """ + linesCount + r"""
             name = faction(text)
 
+            if self.nextCond[-1] == 2:
+                self.nextCond[-1] = 0
+
             if self.nextCond[-1] == 0 and text and text[-1] == '\n':
                 self.nextCond[-1] = 1
             elif self.nextCond[-1] == 1 and text and text[-1] != '\n':
                 self.nextCond[-1] = 0
-            self.SetInitialCondition(self.nextCond[-1])
+
             self.root = pos
 
             if name is None:
