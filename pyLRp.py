@@ -712,11 +712,13 @@ class Parser(object):
     (%debug\(\s*"(?P<debug>[^\"]*)"\s*\)\s*,\s*)?
 
     ((?P<beginType>%begin|%push|%pop|%function)
-        \(\s*(?P<begin>([A-Za-z0-9]+|\$INITIAL|))\s*\)\s*,\s*)?
+        \(\s*(?P<begin>([A-Za-z0-9_]+|\$INITIAL|))\s*\)\s*,\s*)?
 
-    # allow up to two state stack operations
     ((?P<beginType2>%begin|%push|%pop|%function)
-        \(\s*(?P<begin2>([A-Za-z0-9]+|\$INITIAL|))\s*\)\s*,\s*)?
+        \(\s*(?P<begin2>([A-Za-z0-9_]+|\$INITIAL|))\s*\)\s*,\s*)?
+
+    ((?P<beginType3>%begin|%push|%pop|%function)
+        \(\s*(?P<begin3>([A-Za-z0-9_]+|\$INITIAL|))\s*\)\s*,\s*)?
 
     ((?P<token>[a-zA-Z_][a-zA-Z_0-9]*)
      |(?P<restart>%restart)
@@ -880,33 +882,29 @@ class Parser(object):
          if match.group('debug'):
              action.Append(Debug(match.group('debug')))
 
-         if match.group('beginType'):
-             if match.group('beginType') == '%begin':
-                 action.Append(Begin(self.syntax.InitialCondition(match.group('begin'))))
-             elif match.group('beginType') == '%push':
-                 action.Append(Push(self.syntax.InitialCondition(match.group('begin'))))
-             elif match.group('beginType') == '%pop':
-                 if match.group('begin'):
-                     self.logger.error("line {}: state argument for %pop".format(self.line))
-                 action.Append(Pop())
-             elif match.group('beginType') == '%function':
-                 action.Append(Function(match.group('begin')))
-             else:
-                 self.logger.error("line {}: invalid lexing action".format(self.line))
-                 return
+         def beginMatcher(head, args):
+             if match.group(head):
+                 if match.group(head) == '%begin':
+                     action.Append(Begin(self.syntax.InitialCondition(match.group(args))))
+                 elif match.group(head) == '%push':
+                     action.Append(Push(self.syntax.InitialCondition(match.group(args))))
+                 elif match.group(head) == '%pop':
+                     if match.group(args):
+                         self.logger.error("line {}: state argument for %pop".format(self.line))
+                     action.Append(Pop())
+                 elif match.group(head) == '%function':
+                     action.Append(Function(match.group(args)))
+                 else:
+                     self.logger.error("line {}: invalid lexing action".format(self.line))
+                     return True
+             return False
 
-         if match.group('beginType2'):
-             if match.group('beginType2') == '%begin':
-                 action.Append(Begin(self.syntax.InitialCondition(match.group('begin2'))))
-             elif match.group('beginType2') == '%push':
-                 action.Append(Push(self.syntax.InitialCondition(match.group('begin2'))))
-             elif match.group('beginType2') == '%pop':
-                 if match.group('begin2'):
-                     self.logger.error("line {}: state argument for %pop".format(self.line))
-                 action.Append(Pop())
-             else:
-                 self.logger.error("line {}: invalid lexing action".format(self.line))
-                 return
+         try:
+             if beginMatcher('beginType', 'begin'): return
+             if beginMatcher('beginType2', 'begin2'): return
+             if beginMatcher('beginType3', 'begin3'): return
+         except SyntaxNameError as e:
+             self.logger.error("line {}: error in lexaction: {}".format(self.line, e.args[0]))
 
          if match.group('restart'):
              action.Append(Restart())
