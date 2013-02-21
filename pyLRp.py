@@ -3297,6 +3297,8 @@ class SyntaxError(Exception):
         self.message = message
         self.position = position
 
+    def __str__(self):
+        return '{}:{}'.format(str(self.position), self.message)
 
 class Parser(object):
     # actions from the grammar

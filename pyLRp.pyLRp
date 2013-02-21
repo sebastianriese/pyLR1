@@ -2,6 +2,8 @@
 # this must be kept parsable with the limited bootstrap parser
 # it is the definite reference on the format
 
+import pyLRp
+
 %lexer
 
 %x INDENT
@@ -30,6 +32,7 @@
 %def
     space     [\ \t\v\f]
     regexchar [^\ \t\v\f\n]
+    regex     ({regexchar}|\\\ )+
     tonewline [^\n]*
     name      [a-zA-Z_][a-zA-Z0-9_]*
     comment   {space}*(\#{tonewline})?
@@ -73,6 +76,7 @@
 #######################################################
 <LEXER>%x %push(SYMBOLLIST), EXCLUSIVE
 <LEXER>%s %push(SYMBOLLIST), INCLUSIVE
+<LEXER>%nullmatch %push(SYMBOLLIST), NULLMATCH
 <LEXER>%def{comment}\n %push(DEF), %push(INDENT), DEF
 <LEXER>\< %push(CONDSPEC), LANGLE
 <LEXER>^  %push(LEXACTION), %push(REGEX), CARET
@@ -81,7 +85,7 @@
 <DEF>{name} SYMBOL
 # this is the space separating the name and the newline
 <DEF>{space}+ %begin(DEFNEWLINE), %push(REGEX), %restart
-<DEFNEWLINE>{comment}\n %begin(DEF), %push(INDENT), %restart
+<DEFNEWLINE>{comment}\n %begin(DEF), %push(DEF), %push(INDENT), NEWLINE
 
 
 <LEXER,SCOPE>%scope %push(SCOPEDEF), SCOPE
@@ -92,14 +96,17 @@
 <SCOPEDEF>-        MINUS
 <SCOPEDEF>\(       OPAREN
 <SCOPEDEF>\)       CPAREN
-<SCOPEDEF>{comment}\n %begin(SCOPE), %push(INDENT), %restart
+<SCOPEDEF>{comment}\n %begin(SCOPE), %push(SCOPE), %push(INDENT), %restart
+
+<SCOPE>({regexchar}|(\\\ ))* REGEX
+<SCOPE>{space}+ %push(SCOPE), %push(INDENT), %push(LEXACTION), %restart
 
 <CONDSPEC>{name}|$SOL|$SOF|$INITIAL SYMBOL
 <CONDSPEC>,        COMMA
 <CONDSPEC>{space}+ %restart
 <CONDSPEC>\>       %begin(LEXACTION), %push(REGEX), RANGLE
 
-<REGEX>({regexchar}|(\\\ ))+  %pop(), REGEX
+<REGEX>{regex}  %pop(), REGEX
 
 <LEXACTION>{space}+ %restart
 <LEXACTION>,        COMMA
@@ -109,6 +116,8 @@
 <LEXACTION>%continue CONTINUE
 <LEXACTION>%restart RESTART
 <LEXACTION>%debug   DEBUG
+<LEXACTION>"([^\"\n]|\\\")*" STRLIT
+<LEXACTION>%function FUNCTION
 <LEXACTION>{name}   SYMBOL
 <LEXACTION>\(       OPAREN
 <LEXACTION>\)       CPAREN
@@ -125,20 +134,20 @@
 <PARSER>%nonassoc %begin(FIXITYSPEC), NONASSOC
 <PARSERMETA>:{comment} %begin(PARSER), %push(PARSERULE), %push(INDENT), COLON
 
-<PARSERULE>{name}          SYMBOL
-<PARSERULE>{stoken}        STOKEN
-<PARSERULE>%empty          EMPTY
-<PARSERULE>%prec           PREC
-<PARSERULE>\(              OPAREN
-<PARSERULE>\)              CPAREN
-<PARSERULE>{space}+     %restart
-<PARSERULE>\\\n            %restart
-<PARSERULE>\n              %push(INDENT), NEWLINE
-<PARSERULE>:               %push(PYINLINE), COLON
+<PARSERULE>{name}    SYMBOL
+<PARSERULE>{stoken}  STOKEN
+<PARSERULE>%empty    EMPTY
+<PARSERULE>%prec     PREC
+<PARSERULE>\(        OPAREN
+<PARSERULE>\)        CPAREN
+<PARSERULE>{space}+  %restart
+<PARSERULE>\\\n      %restart
+<PARSERULE>\n        %push(PARSERULE), %push(INDENT), NEWLINE
+<PARSERULE>:         %push(PYINLINE), COLON
 
 <PYINLINE>{space}+ %restart
 <PYINLINE>{comment}\n %begin(PYBLOB), %push(INDENT), %restart
-<PYINLINE>[^\#\n]{tonewline}\n %pop(), PYSINGLE
+<PYINLINE>[^\#\n]{tonewline}\n %push(INDENT), PYSINGLE
 
 #######################################################
 # multiline python actions
@@ -149,7 +158,7 @@
 <PYBLOB,PYBLOBNOSPC>[bu]?r?\"\"\" %push(MLSTRD), PYBLOB
 <PYBLOB,PYBLOBNOSPC>[bu]?r?"([^\"\n]|\"|\\\n)*" PYBLOB
 <PYBLOB,PYBLOBNOSPC>[bu]?r?\'\'\' %push(MLSTRS), PYBLOB
-<PYBLOB,PYBLOBNOSPC>[bu]?r?'([^\']|\'|\\\n)*' PYBLOB
+<PYBLOB,PYBLOBNOSPC>[bu]?r?'([^\']|\\\'|\\\n)*' PYBLOB
 
 <MLSTRD>(\"|\"\"|[^\"\\]*)(\\\"|\\[^\"])? PYBLOB
 <MLSTRD>\"\"\" %pop(), PYBLOB
@@ -164,6 +173,7 @@
 <PYBLOB,PYBLOBNOSPC>[a-zA-Z_][a-zA-Z0-9_]* PYBLOB
 <PYBLOB,PYBLOBNOSPC>0x[0-9a-fA-F]+|0o[0-7]+|[0-9]+ PYBLOB
 <PYBLOB,PYBLOBNOSPC>[=+\-*/\\.:,@<>%&|=^]+ PYBLOB
+<PYBLOB,PYBLOBNOSPC>$[0-9]+|$$ STACKVAR
 
 # explicit line continuations
 <PYBLOB,PYBLOBNOSPC>\\\n PYBLOB
@@ -174,41 +184,104 @@
 <PYBLOB>{space}+ PYBLOB
 
 # discern indentation
-<PYBLOB>\n %push(INDENT), %restart
+<PYBLOB>\n %push(PYBLOB), %push(INDENT), %restart
 
 %parser
 
 file:
-    init header lexer parser footer
-    init header lexer footer
-    init header parser footer
+    init header lexer parser optfooter
+    init header lexer optfooter
+    init header parser optfooter
 
 init:
     %empty:
         self.syntax = pyLRp.Syntax()
         self.assocDefs = {}
+        self.assocPower = 0
+        self.productionNumber = 0
+
+        self.undef = {}
+        self.defined = set()
 
 symbollist:
     symbollist_ NEWLINE
 
 symbollist_:
-    SYMBOL:                  $$.sem = [$1.sem]
-    symbollist_ COMMA SYMBOL: $$.sem = $1.sem + $3.sem
-    symbollist_ SYMBOL:       $$.sem = $1.sem + $2.sem
+    SYMBOL:                   $$.sem = [$1.sem]
+    symbollist_ COMMA SYMBOL: $$.sem = $1.sem + [$3.sem]
+    symbollist_ SYMBOL:       $$.sem = $1.sem + [$2.sem]
 
 pyblob:
     PYSINGLE
-    INDENT PYBLOB
+    PYBLOB
+    STACKVAR
     INDENT pyblob DEDENT
     pyblob PYBLOB
+    pyblob STACKVAR
+    pyblob INDENT pyblob DEDENT
 
 header:
     %empty
-    header PYVERB
+    header PYVERB: self.syntax.AddHeader($2.sem)
 
 lexer:
-    LEXER
-    lexer "a"
+    LEXER lexdecs lexrules
+
+lexdecs:
+    %empty
+    lexdecs lexdec
+
+lexdec:
+    EXCLUSIVE symbollist
+    INCLUSIVE symbollist
+    NULLMATCH symbollist
+    DEF INDENT lexdefs DEDENT
+
+lexdefs:
+    SYMBOL REGEX NEWLINE
+    lexdefs SYMBOL REGEX NEWLINE
+
+lexrules:
+    %empty
+    lexrules lexrule
+
+lexrule:
+    lexscope DEDENT
+    REGEX lexaction
+    LANGLE condspec RANGLE REGEX lexaction
+
+lexscope:
+    SCOPE OPAREN scopespec CPAREN INDENT
+    lexscope DEDENT
+    REGEX lexaction
+
+scopespec:
+    SYMBOL
+    MINUS SYMBOL
+    PLUS SYMBOL
+    scopespec COMMA SYMBOL
+    scopespec COMMA MINUS SYMBOL
+    scopespec COMMA PLUS SYMBOL
+
+condspec:
+    SYMBOL
+    condspec COMMA SYMBOL
+
+lexaction:
+    stackactions final NEWLINE
+
+stackactions:
+    %empty
+    stackactions PUSH OPAREN SYMBOL CPAREN COMMA
+    stackactions POP OPAREN CPAREN COMMA
+    stackactions BEGIN OPAREN SYMBOL CPAREN COMMA
+    stackactions FUNCTION OPAREN SYMBOL CPAREN COMMA
+    stackactions DEBUG OPAREN STRLIT CPAREN COMMA
+
+final:
+    RESTART
+    CONTINUE
+    SYMBOL
 
 parser:
     PARSER assocdefs
@@ -219,7 +292,7 @@ assocdefs:
     assocdefs assocdef
 
 assocdef:
-    LEFT symbollist: self.assocDefs.append()
+    LEFT symbollist
     RIGHT symbollist
     NONASSOC symbollist
 
@@ -240,9 +313,13 @@ production:
     production EMPTY
     production STOKEN
 
+optfooter:
+    %empty
+    footer
+
 footer:
     FOOTER
-    footer PYVERB
+    footer PYVERB: self.syntax.AddFooter($2.sem)
 
 %footer
 
@@ -255,6 +332,9 @@ def indent(lexer, text, position):
         lexer.nextCond.pop()
         lexer.push_back((lexer.TOKEN_NUMBERS['INDENT'], text, position))
         return
+
+    # pop the state pushed on INDENT
+    lexer.nextCond.pop()
 
     cnt = 0
     try:
@@ -274,9 +354,17 @@ def indent(lexer, text, position):
 
 if __name__ == '__main__':
     import sys
-    l = Lexer(open(sys.argv[1], 'r'))
+    l = Lexer(open(sys.argv[2], 'r'))
 
-    token_type = -1
-    while token_type != Lexer.TOKEN_NUMBERS['$EOF']:
-        token_type, lexeme, position = l.lex()
-        print(Lexer.TOKEN_NAMES[token_type], '"""{}"""'.format(lexeme), l.nextCond)
+    if sys.argv[1] == '-l':
+        token_type = -1
+        while token_type != Lexer.TOKEN_NUMBERS['$EOF']:
+            token_type, lexeme, position = l.lex()
+            print(Lexer.TOKEN_NAMES[token_type], '"""{}"""'.format(lexeme), l.nextCond)
+    elif sys.argv[1] == '-p':
+        p = Parser(l)
+        try:
+            p.Parse()
+        except SyntaxError as e:
+            print(str(e))
+
