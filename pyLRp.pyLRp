@@ -78,9 +78,10 @@ import pyLRp
 <LEXER>%s %push(SYMBOLLIST), INCLUSIVE
 <LEXER>%nullmatch %push(SYMBOLLIST), NULLMATCH
 <LEXER>%def{comment}\n %push(DEF), %push(INDENT), DEF
+<LEXER,SCOPE>%scope %push(SCOPEDEF), SCOPE
 <LEXER>\< %push(CONDSPEC), LANGLE
 <LEXER>^  %push(LEXACTION), %push(REGEX), CARET
-<LEXER>[^\^\<\n]({regexchar}|(\\\ ))* %push(LEXACTION), REGEX
+<LEXER>[^\^\<\%\s]({regexchar}|(\\\ ))* %push(LEXACTION), REGEX
 
 <DEF>{name} SYMBOL
 # this is the space separating the name and the newline
@@ -88,7 +89,6 @@ import pyLRp
 <DEFNEWLINE>{comment}\n %begin(DEF), %push(DEF), %push(INDENT), NEWLINE
 
 
-<LEXER,SCOPE>%scope %push(SCOPEDEF), SCOPE
 <SCOPEDEF>{space}+ %restart
 <SCOPEDEF>,        COMMA
 <SCOPEDEF>{name}|$SOL|$SOF|$INITIAL SYMBOL
@@ -96,9 +96,9 @@ import pyLRp
 <SCOPEDEF>-        MINUS
 <SCOPEDEF>\(       OPAREN
 <SCOPEDEF>\)       CPAREN
-<SCOPEDEF>{comment}\n %begin(SCOPE), %push(SCOPE), %push(INDENT), %restart
+<SCOPEDEF>{comment}\n %begin(SCOPE), %push(INDENT), %restart
 
-<SCOPE>({regexchar}|(\\\ ))* REGEX
+<SCOPE>[^\%\n\s]({regexchar}|(\\\ ))* REGEX
 <SCOPE>{space}+ %push(SCOPE), %push(INDENT), %push(LEXACTION), %restart
 
 <CONDSPEC>{name}|$SOL|$SOF|$INITIAL SYMBOL
@@ -246,14 +246,12 @@ lexrules:
     lexrules lexrule
 
 lexrule:
-    lexscope DEDENT
+    lexscope
     REGEX lexaction
     LANGLE condspec RANGLE REGEX lexaction
 
 lexscope:
-    SCOPE OPAREN scopespec CPAREN INDENT
-    lexscope DEDENT
-    REGEX lexaction
+    SCOPE OPAREN scopespec CPAREN INDENT lexscope_ DEDENT
 
 scopespec:
     SYMBOL
@@ -262,6 +260,12 @@ scopespec:
     scopespec COMMA SYMBOL
     scopespec COMMA MINUS SYMBOL
     scopespec COMMA PLUS SYMBOL
+
+lexscope_:
+    lexscope
+    REGEX lexaction
+    lexscope_ lexscope
+    lexscope_ REGEX lexaction
 
 condspec:
     SYMBOL
