@@ -3227,7 +3227,7 @@ class Lexer(object):
             text = self.buffer[self.root:pos]""" + extract + r"""
 
             """ + linesCount + r"""
-            name = faction(text)
+            name = faction(text, position)
 
             if self.nextCond[-1] == 2:
                 self.nextCond[-1] = 0
@@ -3249,7 +3249,7 @@ class Lexer(object):
 
         for action, number in action_table.items():
             self.parser_file.write("""
-    def action%d(self, text):
+    def action%d(self, text, position):
 """ % (number,))
 
             code = lexActionGen.Visit(action).split('\n')
@@ -3257,7 +3257,7 @@ class Lexer(object):
                 self.parser_file.write("        " + line + "\n")
 
         self.parser_file.write(r"""
-    def error_action(self, text):
+    def error_action(self, text, position):
         return """ + "{}".format(symtable["$ERROR"].Number()) + r"""
 """)
 
