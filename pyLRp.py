@@ -1286,7 +1286,7 @@ class Syntax(object):
         if name in self.initialConditions:
             raise SyntaxNameError("Initial condition name {} already in use".format(name))
 
-        self.initialConditions[name] = InclusiveInitialCondition(name, len(self.initialConditions))
+        self.initialConditions[name] = InclusiveInitialCondition(name, len(self.initialConditions), self.InitialCondition('$INITIAL'))
 
     def AddExclusiveInitialCondition(self, name):
         if name in self.initialConditions:
