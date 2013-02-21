@@ -9,7 +9,7 @@ import pyLRp
 %x INDENT
 
 # states used for correct inline python handling
-%x PYBLOB, PYBLOBNOSPC, MLSTRD, MLSTRS, PYINLINE
+%x PYBLOB, PYBLOBNOSPC, MLSTRD, MLSTRS, PYINLINE, PYBLOBSINGLE
 
 # states used by the autoaction spec
 %x AST
@@ -27,7 +27,7 @@ import pyLRp
 %x SYMBOLLIST
 
 # match the empty string as empty indentation
-%nullmatch INDENT
+%nullmatch INDENT, PYINLINE
 
 %def
     space     [\ \t\v\f]
@@ -147,7 +147,7 @@ import pyLRp
 
 <PYINLINE>{space}+ %restart
 <PYINLINE>{comment}\n %begin(PYBLOB), %push(INDENT), %restart
-<PYINLINE>[^\#\n]{tonewline}\n %push(INDENT), PYSINGLE
+<PYINLINE>() %begin(PYBLOBSINGLE), %restart
 
 #######################################################
 # multiline python actions
@@ -155,10 +155,10 @@ import pyLRp
 
 # python strings, we must not alter their contents
 # and must ignore leading whitespace and stuff within
-<PYBLOB,PYBLOBNOSPC>[bu]?r?\"\"\" %push(MLSTRD), PYBLOB
-<PYBLOB,PYBLOBNOSPC>[bu]?r?"([^\"\n]|\"|\\\n)*" PYBLOB
-<PYBLOB,PYBLOBNOSPC>[bu]?r?\'\'\' %push(MLSTRS), PYBLOB
-<PYBLOB,PYBLOBNOSPC>[bu]?r?'([^\']|\\\'|\\\n)*' PYBLOB
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[bu]?r?\"\"\" %push(MLSTRD), PYBLOB
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[bu]?r?"([^\"\n]|\"|\\\n)*" PYBLOB
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[bu]?r?\'\'\' %push(MLSTRS), PYBLOB
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[bu]?r?'([^\']|\\\'|\\\n)*' PYBLOB
 
 <MLSTRD>(\"|\"\"|[^\"\\]*)(\\\"|\\[^\"])? PYBLOB
 <MLSTRD>\"\"\" %pop(), PYBLOB
@@ -167,24 +167,25 @@ import pyLRp
 
 # this idea comes directly from the CPython lexer
 # count grouping operators to tell whether the linebreak counts
-<PYBLOB,PYBLOBNOSPC>[\(\[\{] %push(PYBLOBNOSPC), PYBLOB
-<PYBLOB,PYBLOBNOSPC>[\)\]\}] %pop(), PYBLOB
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[\(\[\{] %push(PYBLOBNOSPC), PYBLOB
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[\)\]\}] %pop(), PYBLOB
 
-<PYBLOB,PYBLOBNOSPC>[a-zA-Z_][a-zA-Z0-9_]* PYBLOB
-<PYBLOB,PYBLOBNOSPC>0x[0-9a-fA-F]+|0o[0-7]+|[0-9]+ PYBLOB
-<PYBLOB,PYBLOBNOSPC>[=+\-*/\\.:,@<>%&|=^]+ PYBLOB
-<PYBLOB,PYBLOBNOSPC>$[0-9]+|$$ STACKVAR
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[a-zA-Z_][a-zA-Z0-9_]* PYBLOB
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>0x[0-9a-fA-F]+|0o[0-7]+|[0-9]+ PYBLOB
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[=+\-*/\\.:,@<>%&|=^;]+ PYBLOB
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>$[0-9]+|$$ STACKVAR
 
 # explicit line continuations
-<PYBLOB,PYBLOBNOSPC>\\\n PYBLOB
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>\\\n PYBLOB
 
 # preserve insignificant space
 <PYBLOBNOSPC>\s+ PYBLOB
-<PYBLOBNOSPC,PYBLOB>{comment} PYBLOB
-<PYBLOB>{space}+ PYBLOB
+<PYBLOBNOSPC,PYBLOB,PYBLOBSINGLE>{comment} PYBLOB
+<PYBLOB,PYBLOBSINGLE>{space}+ PYBLOB
 
 # discern indentation, track newlines
 <PYBLOB>\n %push(PYBLOB), %push(INDENT), NEWLINE
+<PYBLOBSINGLE>\n %push(INDENT), NEWLINE
 
 %parser
 
@@ -214,14 +215,23 @@ symbollist_:
     symbollist_ SYMBOL:       $$.sem = $1.sem + [$2.sem]
 
 pyblob:
-    PYSINGLE
-    PYBLOB
-    STACKVAR
-    INDENT pyblob DEDENT
-    pyblob PYBLOB
-    pyblob STACKVAR
-    pyblob INDENT pyblob DEDENT
-    pyblob NEWLINE
+    pysingle NEWLINE: $$.sem = $1.sem
+    INDENT pyblob_ DEDENT: $$.sem = $2.sem
+
+pysingle:
+    PYBLOB: $$.sem = PyBlob(); $$.sem.text($1.sem)
+    STACKVAR: $$.sem = PyBlob(); $$.sem.stackvar($1.sem)
+    pysingle PYBLOB: $$.sem = $1.sem; $$.sem.text($2.sem)
+    pysingle STACKVAR: $$.sem = $1.sem; $$.sem.stackvar($2.sem)
+
+pyblob_:
+    PYBLOB: $$.sem = PyBlob(); $$.sem.text($1.sem)
+    STACKVAR: $$.sem = PyBlob(); $$.sem.stackvar($1.sem)
+    INDENT pyblob_ DEDENT: $$.sem = PyBlob(); $$.sem.blob($2.sem)
+    pyblob_ PYBLOB: $$.sem = $1.sem; $$.sem.text($2.sem)
+    pyblob_ STACKVAR: $$.sem = $1.sem; $$.sem.stackvar($2.sem)
+    pyblob_ INDENT pyblob_ DEDENT: $$.sem = $1.sem; $$.sem.blob($3.sem)
+    pyblob_ NEWLINE: $$.sem = $1.sem; $$.sem.newline()
 
 header:
     %empty
@@ -251,7 +261,6 @@ lexdec:
 
 lexdefs:
     SYMBOL REGEX NEWLINE:
-        print($1.sem)
         self.syntax.AddNamedPattern(
             $1.sem,
             pyLRp.Regex($2.sem, bindings=self.syntax.NamedPatterns()).ast
@@ -273,15 +282,15 @@ lexrule:
         regex = pyLRp.Regex($1.sem, bindings=self.syntax.NamedPatterns())
         self.syntax.AddLexingRule(pyLRp.LexingRule(set(), regex, $2.sem))
     CARET REGEX lexaction:
-        regex = pyLRp.Regex($1.sem, bindings=self.syntax.NamedPatterns())
-        self.syntax.AddLexingRule(pyLRp.LexingRule(set([self.syntax.InitialCondition("$SOL")]), regex, $2.sem))
+        regex = pyLRp.Regex($2.sem, bindings=self.syntax.NamedPatterns())
+        self.syntax.AddLexingRule(pyLRp.LexingRule(set([self.syntax.InitialCondition("$SOL")]), regex, $3.sem))
 
     LANGLE condspec RANGLE REGEX lexaction:
-        regex = pyLRp.Regex($1.sem, bindings=self.syntax.NamedPatterns())
+        regex = pyLRp.Regex($4.sem, bindings=self.syntax.NamedPatterns())
         state = set()
         for symb in $2.sem:
             state.add(self.syntax.InitialCondition(symb))
-        self.syntax.AddLexingRule(pyLRp.LexingRule(state, regex, $2.sem))
+        self.syntax.AddLexingRule(pyLRp.LexingRule(state, regex, $5.sem))
 
 lexscope:
     lexscopedecl INDENT lexscope_ DEDENT: self.lexscopes.pop()
@@ -379,7 +388,7 @@ ruleset:
 parserule:
     production COLON pyblob:
         $$.sem = $1.sem
-        # $$.sem.SetAction(pyblob.write_down())
+        $$.sem.SetAction($3.sem.flatten())
     production NEWLINE: $$.sem = $1.sem
 
 production:
@@ -403,7 +412,7 @@ production:
 
     production SYMBOL:
         $$.sem = $1.sem
-        add_meta_symbol(self, $$.sem, $1.sem, $1.pos)
+        add_meta_symbol(self, $$.sem, $2.sem, $2.pos)
 
     production EMPTY: $$.sem = $1.sem
     production STOKEN:
@@ -473,6 +482,38 @@ def add_stoken(self, prod, stoken, pos):
     prod.SetAssoc(self.assocDefs.get(sym.Name(), prod.GetAssoc()))
     prod.AddSym(sym)
 
+class PyBlob(object):
+
+    def __str__(self):
+        return '\n'.join(self.flatten())
+
+    def __init__(self):
+        self.code = ['']
+
+    def newline(self):
+        self.code.append('')
+
+    def text(self, text):
+        self.code[-1] += text
+
+    def stackvar(self, sv):
+        self.code[-1] += sv
+
+    def blob(self, blob):
+        self.code.append(blob)
+        self.code.append('')
+
+    def flatten(self):
+        lines = []
+        for line in self.code:
+            if isinstance(line, PyBlob):
+                for blobline in line.flatten():
+                    lines.append('    ' + blobline)
+            else:
+                lines.append(line)
+        return lines
+
+# for debugging purposes
 if __name__ == '__main__':
     import sys
     l = Lexer(open(sys.argv[2], 'r'))

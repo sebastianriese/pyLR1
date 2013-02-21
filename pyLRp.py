@@ -3375,21 +3375,44 @@ class Parser(object):
         redNum = 0
         for red in parseTable.Rules():
             text = red.GetAction()
-            if not text: text = "pass"
-            text = text.replace("$$", "result")
-            for i in range(1, len(red) + 1):
-                text = text.replace("$%d" % i, "self.stack[-%d]" % (len(red) - i + 1))
 
             self.parser_file.write("""
     def action%d(self, result):""" % (redNum,))
 
-            for char in text:
-                self.parser_file.write(char)
-                if char == '\n':
-                    # indent two levels: Parser class, current function
-                    self.parser_file.write("        ")
+            if isinstance(text, list):
+                text = list(filter(lambda x: bool(x.strip()), text))
+                if not text: text = ["pass"]
+                if len(text) == 1:
+                    indent = False
+                else:
+                    indent = True
+                    self.parser_file.write("\n")
+                for line in text:
 
-            self.parser_file.write("\n")
+                    line = line.replace("$$", "result")
+                    for i in reversed(range(1, len(red) + 1)):
+                        line = line.replace("$%d" % i, "self.stack[-%d]" % (len(red) - i + 1))
+
+                    if indent:
+                        self.parser_file.write("        ")
+                    else:
+                        self.parser_file.write(" ")
+                    self.parser_file.write(line)
+                    self.parser_file.write("\n")
+            else:
+                if not text: text = "pass"
+                text = text.replace("$$", "result")
+                for i in reversed(range(1, len(red) + 1)):
+                    text = text.replace("$%d" % i, "self.stack[-%d]" % (len(red) - i + 1))
+
+
+                for char in text:
+                    self.parser_file.write(char)
+                    if char == '\n':
+                        # indent two levels: Parser class, current function
+                        self.parser_file.write("        ")
+
+                self.parser_file.write("\n")
             redNum += 1
 
 
@@ -3516,6 +3539,8 @@ if __name__ == '__main__':
                             default=False,
                             help="Generate a parser that prints out a trace of its state")
 
+    arg_parser.add_argument("--self-hosting", action='store_true', default=False)
+
     py_version = arg_parser.add_mutually_exclusive_group()
 
     py_version.add_argument("-3", "--python3",
@@ -3558,9 +3583,15 @@ if __name__ == '__main__':
         print(str(e), file=sys.stderr)
         sys.exit(1)
 
-    p = Parser(infile, logger)
-    syn = p.Parse()
-    del p
+    if args.self_hosting:
+        import pyLRparser
+        p = pyLRparser.Parser(pyLRparser.Lexer(infile, filename=args.infile))
+        p.Parse()
+        syn = p.syntax
+    else:
+        p = Parser(infile, logger)
+        syn = p.Parse()
+        del p
     infile.close()
 
     if logger.loggedErrors():
