@@ -1,0 +1,531 @@
+# pyLRp grammar file for pyLRp
+# this must be kept parsable with the limited bootstrap parser
+# it is the definite reference on the format
+
+import pyLRp
+
+%lexer
+
+%x INDENT
+
+# states used for correct inline python handling
+%x PYBLOB, PYBLOBNOSPC, MLSTRD, MLSTRS, PYINLINE, PYBLOBSINGLE
+
+# states used by the autoaction spec
+%x AST
+
+# states used by the lexer spec
+%x LEXER, CONDSPEC, REGEX, DEF, DEFINDENT, LEXACTION, SCOPE, SCOPEDEF, DEFNEWLINE
+
+# states used by the parser spec
+%x PARSER, FIXITYSPEC, PARSERMETA, PARSERULE, PARSERINDENT
+
+# states used by the footer
+%x FOOTER
+
+# symbol list states
+%x SYMBOLLIST
+
+# match the empty string as empty indentation
+%nullmatch INDENT, PYINLINE
+
+%def
+    space     [\ \t\v\f]
+    regexchar [^\ \t\v\f\n]
+    regex     ({regexchar}|\\\ )+
+    tonewline [^\n]*
+    name      [a-zA-Z_][a-zA-Z0-9_]*
+    comment   {space}*(\#{tonewline})?
+    stoken    "([^\"]|\\\")+"|'([^\']|\\\')+'
+
+#######################################################
+# section switching and uniform empty line ignorance
+#######################################################
+<$SOL,LEXER>%ast{comment}\n    %begin(AST), AST
+<$SOL,AST>%lexer{comment}\n    %begin(LEXER), LEXER
+<$SOL,LEXER,AST>%parser{comment}\n %begin(PARSER), PARSER
+<LEXER,AST,PARSER>%footer{comment}\n %begin(FOOTER), FOOTER
+
+<LEXER,PARSER,AST,INDENT>{comment}\n  %restart
+<INDENT>[\ \t]* %function(indent), %restart
+
+# two never matching rules to define terminal symbols
+# generated programatically (by the indent function in %footer)
+[] INDENT
+[] DEDENT
+
+#######################################################
+# header and footer: PYVERB
+#######################################################
+<FOOTER,$INITIAL>[^\n]*\n PYVERB
+
+#######################################################
+# commonly used syntactic contructs
+#######################################################
+<SYMBOLLIST,FIXITYSPEC>{space}+    %restart
+<SYMBOLLIST,FIXITYSPEC>{comment}\n %pop(), NEWLINE
+<SYMBOLLIST,FIXITYSPEC>\\\n        %restart
+<SYMBOLLIST,FIXITYSPEC>,           COMMA
+<SYMBOLLIST,FIXITYSPEC>{name}      SYMBOL
+
+# fixityspecs allow stokens to appear in the list
+<FIXITYSPEC>{stoken}               SYMBOL
+
+#######################################################
+# the lexer spec
+#######################################################
+<LEXER>%x %push(SYMBOLLIST), EXCLUSIVE
+<LEXER>%s %push(SYMBOLLIST), INCLUSIVE
+<LEXER>%nullmatch %push(SYMBOLLIST), NULLMATCH
+<LEXER>%def{comment}\n %push(DEF), %push(INDENT), DEF
+<LEXER,SCOPE>%scope %push(SCOPEDEF), SCOPE
+<LEXER>\< %push(CONDSPEC), LANGLE
+<LEXER>^  %push(LEXACTION), %push(REGEX), CARET
+<LEXER>[^\^\<\%\s]({regexchar}|(\\\ ))* %push(LEXACTION), REGEX
+
+<DEF>{name} SYMBOL
+# this is the space separating the name and the newline
+<DEF>{space}+ %begin(DEFNEWLINE), %push(REGEX), %restart
+<DEFNEWLINE>{comment}\n %begin(DEF), %push(DEF), %push(INDENT), NEWLINE
+
+
+<SCOPEDEF>{space}+ %restart
+<SCOPEDEF>,        COMMA
+<SCOPEDEF>{name}|$SOL|$SOF|$INITIAL SYMBOL
+<SCOPEDEF>\+        PLUS
+<SCOPEDEF>-        MINUS
+<SCOPEDEF>\(       OPAREN
+<SCOPEDEF>\)       CPAREN
+<SCOPEDEF>{comment}\n %begin(SCOPE), %push(INDENT), %restart
+
+<SCOPE>[^\%\n\s]({regexchar}|(\\\ ))* REGEX
+<SCOPE>{space}+ %push(SCOPE), %push(INDENT), %push(LEXACTION), %restart
+
+<CONDSPEC>{name}|$SOL|$SOF|$INITIAL SYMBOL
+<CONDSPEC>,        COMMA
+<CONDSPEC>{space}+ %restart
+<CONDSPEC>\>       %begin(LEXACTION), %push(REGEX), RANGLE
+
+<REGEX>{regex}  %pop(), REGEX
+
+<LEXACTION>{space}+ %restart
+<LEXACTION>,        COMMA
+<LEXACTION>%push    PUSH
+<LEXACTION>%pop     POP
+<LEXACTION>%begin   BEGIN
+<LEXACTION>%continue CONTINUE
+<LEXACTION>%restart RESTART
+<LEXACTION>%debug   DEBUG
+<LEXACTION>"([^\"\n]|\\\")*" STRLIT
+<LEXACTION>%function FUNCTION
+<LEXACTION>{name}   SYMBOL
+<LEXACTION>\(       OPAREN
+<LEXACTION>\)       CPAREN
+<LEXACTION>{comment}\n %pop(), NEWLINE
+<LEXACTION>\\\n     %restart
+
+
+#######################################################
+# the grammar spec
+#######################################################
+<PARSER>{name}    %begin(PARSERMETA), SYMBOL
+<PARSER>%left     %push(FIXITYSPEC),  LEFT
+<PARSER>%right    %begin(FIXITYSPEC), RIGHT
+<PARSER>%nonassoc %begin(FIXITYSPEC), NONASSOC
+<PARSERMETA>:{comment} %begin(PARSER), %push(PARSERULE), %push(INDENT), COLON
+
+<PARSERULE>{name}    SYMBOL
+<PARSERULE>{stoken}  STOKEN
+<PARSERULE>%empty    EMPTY
+<PARSERULE>%prec     PREC
+<PARSERULE>\(        OPAREN
+<PARSERULE>\)        CPAREN
+<PARSERULE>{space}+  %restart
+<PARSERULE>\\\n      %restart
+<PARSERULE>\n        %push(PARSERULE), %push(INDENT), NEWLINE
+<PARSERULE>:         %push(PYINLINE), COLON
+
+<PYINLINE>{space}+ %restart
+<PYINLINE>{comment}\n %begin(PYBLOB), %push(INDENT), %restart
+<PYINLINE>() %begin(PYBLOBSINGLE), %restart
+
+#######################################################
+# multiline python actions
+#######################################################
+
+# python strings, we must not alter their contents
+# and must ignore leading whitespace and stuff within
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[bu]?r?\"\"\" %push(MLSTRD), PYBLOB
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[bu]?r?"([^\"\n]|\"|\\\n)*" PYBLOB
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[bu]?r?\'\'\' %push(MLSTRS), PYBLOB
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[bu]?r?'([^\']|\\\'|\\\n)*' PYBLOB
+
+<MLSTRD>(\"|\"\"|[^\"\\]*)(\\\"|\\[^\"])? PYBLOB
+<MLSTRD>\"\"\" %pop(), PYBLOB
+<MLSTRD>(\'|\'\'|[^\'\\]*)(\\\'|\\[^\'])? PYBLOB
+<MLSTRS>\'\'\' %pop(), PYBLOB
+
+# this idea comes directly from the CPython lexer
+# count grouping operators to tell whether the linebreak counts
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[\(\[\{] %push(PYBLOBNOSPC), PYBLOB
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[\)\]\}] %pop(), PYBLOB
+
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[a-zA-Z_][a-zA-Z0-9_]* PYBLOB
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>0x[0-9a-fA-F]+|0o[0-7]+|[0-9]+ PYBLOB
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[=+\-*/\\.:,@<>%&|=^;]+ PYBLOB
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>$[0-9]+|$$ STACKVAR
+
+# explicit line continuations
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>\\\n PYBLOB
+
+# preserve insignificant space
+<PYBLOBNOSPC>\s+ PYBLOB
+<PYBLOBNOSPC,PYBLOB,PYBLOBSINGLE>{comment} PYBLOB
+<PYBLOB,PYBLOBSINGLE>{space}+ PYBLOB
+
+# discern indentation, track newlines
+<PYBLOB>\n %push(PYBLOB), %push(INDENT), NEWLINE
+<PYBLOBSINGLE>\n %push(INDENT), NEWLINE
+
+%parser
+
+file:
+    init header lexer parser optfooter
+    init header lexer optfooter
+    init header parser optfooter
+
+init:
+    %empty:
+        self.syntax = pyLRp.Syntax()
+        self.assocDefs = {}
+        self.assocPower = 0
+        self.productionNumber = 0
+
+        self.undef = {}
+        self.defined = set()
+
+        self.lexscopes = [set()]
+
+symbollist:
+    symbollist_ NEWLINE: $$.sem = $1.sem
+
+symbollist_:
+    SYMBOL:                   $$.sem = [$1.sem]
+    symbollist_ COMMA SYMBOL: $$.sem = $1.sem + [$3.sem]
+    symbollist_ SYMBOL:       $$.sem = $1.sem + [$2.sem]
+
+pyblob:
+    pysingle NEWLINE: $$.sem = $1.sem
+    INDENT pyblob_ DEDENT: $$.sem = $2.sem
+
+pysingle:
+    PYBLOB: $$.sem = PyBlob(); $$.sem.text($1.sem)
+    STACKVAR: $$.sem = PyBlob(); $$.sem.stackvar($1.sem)
+    pysingle PYBLOB: $$.sem = $1.sem; $$.sem.text($2.sem)
+    pysingle STACKVAR: $$.sem = $1.sem; $$.sem.stackvar($2.sem)
+
+pyblob_:
+    PYBLOB: $$.sem = PyBlob(); $$.sem.text($1.sem)
+    STACKVAR: $$.sem = PyBlob(); $$.sem.stackvar($1.sem)
+    INDENT pyblob_ DEDENT: $$.sem = PyBlob(); $$.sem.blob($2.sem)
+    pyblob_ PYBLOB: $$.sem = $1.sem; $$.sem.text($2.sem)
+    pyblob_ STACKVAR: $$.sem = $1.sem; $$.sem.stackvar($2.sem)
+    pyblob_ INDENT pyblob_ DEDENT: $$.sem = $1.sem; $$.sem.blob($3.sem)
+    pyblob_ NEWLINE: $$.sem = $1.sem; $$.sem.newline()
+
+header:
+    %empty
+    header PYVERB: self.syntax.AddHeader($2.sem)
+
+lexer:
+    LEXER lexdecs lexrules
+
+lexdecs:
+    %empty
+    lexdecs lexdec
+
+lexdec:
+    EXCLUSIVE symbollist:
+        for symb in $2.sem:
+            self.syntax.AddExclusiveInitialCondition(symb)
+
+    INCLUSIVE symbollist:
+        for symb in $2.sem:
+            self.syntax.AddInclusiveInitialCondition(symb)
+
+    NULLMATCH symbollist:
+        for symb in $2.sem:
+            self.syntax.InitialCondition(symb).DeclareNullmatch()
+
+    DEF INDENT lexdefs DEDENT
+
+lexdefs:
+    SYMBOL REGEX NEWLINE:
+        self.syntax.AddNamedPattern(
+            $1.sem,
+            pyLRp.Regex($2.sem, bindings=self.syntax.NamedPatterns()).ast
+        )
+
+    lexdefs SYMBOL REGEX NEWLINE:
+        self.syntax.AddNamedPattern(
+            $2.sem,
+            pyLRp.Regex($3.sem, bindings=self.syntax.NamedPatterns()).ast
+        )
+
+lexrules:
+    %empty
+    lexrules lexrule
+
+lexrule:
+    lexscope
+    REGEX lexaction:
+        regex = pyLRp.Regex($1.sem, bindings=self.syntax.NamedPatterns())
+        self.syntax.AddLexingRule(pyLRp.LexingRule(set(), regex, $2.sem))
+    CARET REGEX lexaction:
+        regex = pyLRp.Regex($2.sem, bindings=self.syntax.NamedPatterns())
+        self.syntax.AddLexingRule(pyLRp.LexingRule(set([self.syntax.InitialCondition("$SOL")]), regex, $3.sem))
+
+    LANGLE condspec RANGLE REGEX lexaction:
+        regex = pyLRp.Regex($4.sem, bindings=self.syntax.NamedPatterns())
+        state = set()
+        for symb in $2.sem:
+            state.add(self.syntax.InitialCondition(symb))
+        self.syntax.AddLexingRule(pyLRp.LexingRule(state, regex, $5.sem))
+
+lexscope:
+    lexscopedecl INDENT lexscope_ DEDENT: self.lexscopes.pop()
+
+lexscopedecl:
+    SCOPE OPAREN scopespec CPAREN:
+        state = set(self.lexscopes[-1])
+        for op, cond in $3.sem:
+            cond = self.syntax.InitialCondition(cond)
+            if op == '+':
+                state.add(cond)
+            elif op == '-':
+                state.discard(cond)
+        self.lexscopes.append(state)
+
+scopespec:
+    SYMBOL: $$.sem = [('+', $1.sem)]
+    MINUS SYMBOL: $$.sem = [('-', $2.sem)]
+    PLUS SYMBOL: $$.sem = [('+', $2.sem)]
+    scopespec COMMA SYMBOL: $$.sem = $1.sem + [('+', $3.sem)]
+    scopespec COMMA MINUS SYMBOL: $$.sem = $1.sem + [('-', $3.sem)]
+    scopespec COMMA PLUS SYMBOL: $$.sem = $1.sem + [('+', $3.sem)]
+
+lexscope_:
+    lexscope
+    REGEX lexaction:
+       regex = pyLRp.Regex($1.sem, bindings=self.syntax.NamedPatterns())
+       self.syntax.AddLexingRule(pyLRp.LexingRule(self.lexscopes[-1], regex, $2.sem))
+    lexscope_ lexscope
+    lexscope_ REGEX lexaction:
+       regex = pyLRp.Regex($2.sem, bindings=self.syntax.NamedPatterns())
+       self.syntax.AddLexingRule(pyLRp.LexingRule(self.lexscopes[-1], regex, $3.sem))
+
+condspec:
+    SYMBOL: $$.sem = [$1.sem]
+    condspec COMMA SYMBOL: $$.sem = $1.sem + [$3.sem]
+
+lexaction:
+    stackactions final NEWLINE: $$.sem = $1.sem; $$.sem.Append($2.sem)
+
+stackactions:
+    %empty: $$.sem = pyLRp.List()
+    stackactions PUSH OPAREN SYMBOL CPAREN COMMA:
+        $$.sem = $1.sem
+        $$.sem.Append(pyLRp.Push(self.syntax.InitialCondition($4.sem)))
+    stackactions POP OPAREN CPAREN COMMA:
+        $$.sem = $1.sem
+        $$.sem.Append(pyLRp.Pop())
+    stackactions BEGIN OPAREN SYMBOL CPAREN COMMA:
+        $$.sem = $1.sem
+        $$.sem.Append(pyLRp.Begin(self.syntax.InitialCondition($4.sem)))
+    stackactions FUNCTION OPAREN SYMBOL CPAREN COMMA:
+        $$.sem = $1.sem
+        $$.sem.Append(pyLRp.Function($4.sem))
+    stackactions DEBUG OPAREN STRLIT CPAREN COMMA:
+        $$.sem = $1.sem
+        $$.sem.Append(pyLRp.Debug($4.sem))
+
+final:
+    RESTART: $$.sem = pyLRp.Restart()
+    CONTINUE: $$.sem = pyLRp.Continue()
+    SYMBOL:
+        self.syntax.RequireTerminal($1.sem)
+        $$.sem = pyLRp.Token($1.sem)
+
+parser:
+    PARSER assocdefs
+    parser ruleset DEDENT
+
+assocdefs:
+    %empty
+    assocdefs assocdef
+
+assocdef:
+    LEFT symbollist: set_assoc(self, pyLRp.Production.LEFT, $2.sem)
+    RIGHT symbollist: set_assoc(self, pyLRp.Production.RIGHT, $2.sem)
+    NONASSOC symbollist: set_assoc(self, pyLRp.Production.NONASSOC, $2.sem)
+
+ruleset:
+    SYMBOL COLON INDENT:
+        symbol = self.syntax.RequireMeta($1.sem)
+
+        if symbol in self.undef:
+            del self.undef[symbol]
+        self.defined.add(symbol)
+
+        if self.syntax.Start() is None:
+            self.syntax.SetStart(symbol)
+
+        $$.sem = symbol
+    ruleset parserule:
+        $$.sem = $1.sem
+        $$.sem.AddProd($2.sem)
+
+parserule:
+    production COLON pyblob:
+        $$.sem = $1.sem
+        $$.sem.SetAction($3.sem.flatten())
+    production NEWLINE: $$.sem = $1.sem
+
+production:
+    SYMBOL:
+        $$.sem = pyLRp.Production(None, [], self.productionNumber)
+        self.productionNumber += 1
+        add_meta_symbol(self, $$.sem, $1.sem, $1.pos)
+
+    EMPTY:
+        $$.sem = pyLRp.Production(None, [], self.productionNumber)
+        self.productionNumber += 1
+
+    STOKEN:
+        $$.sem = pyLRp.Production(None, [], self.productionNumber)
+        self.productionNumber += 1
+        add_stoken(self, $$.sem, $1.sem, $1.pos)
+
+    production PREC OPAREN SYMBOL CPAREN:
+        $$.sem = $1.sem
+        $$.sem.SetAssoc(self.assocDefs[$4.sem])
+
+    production SYMBOL:
+        $$.sem = $1.sem
+        add_meta_symbol(self, $$.sem, $2.sem, $2.pos)
+
+    production EMPTY: $$.sem = $1.sem
+    production STOKEN:
+        $$.sem = $1.sem
+        add_stoken(self, $$.sem, $2.sem, $2.pos)
+
+
+optfooter:
+    %empty
+    footer
+
+footer:
+    FOOTER
+    footer PYVERB: self.syntax.AddFooter($2.sem)
+
+%footer
+
+def indent(lexer, text, position):
+    if not hasattr(lexer, 'indent_stack'):
+        lexer.indent_stack = [0]
+
+    if len(text) > lexer.indent_stack[-1]:
+        lexer.indent_stack.append(len(text))
+        lexer.nextCond.pop()
+        lexer.push_back((lexer.TOKEN_NUMBERS['INDENT'], text, position))
+        return
+
+    # pop the state pushed on INDENT
+    lexer.nextCond.pop()
+
+    cnt = 0
+    try:
+        while lexer.indent_stack.pop() != len(text):
+            cnt += 1
+    except IndexError:
+        return (lexer.TOKEN_NUMBERS['$ERROR'], text, position)
+
+    lexer.indent_stack.append(len(text))
+
+    for i in range(cnt):
+        # pop one further state per DEDENT
+        lexer.nextCond.pop()
+        lexer.push_back((lexer.TOKEN_NUMBERS['DEDENT'], text, position))
+
+    lexer.nextCond.pop()
+
+def set_assoc(parser, assoctype, symbols):
+    assoc = assoctype, parser.assocPower
+    for symb in symbols:
+        parser.assocDefs[symb] = assoc
+    parser.assocPower += 1
+
+def add_meta_symbol(self, prod, symbol, pos):
+    sym = self.syntax.RequireMeta(symbol)
+    if self.syntax.SymTable()[sym.Name()].SymType() == pyLRp.Syntax.META \
+            and sym not in self.defined:
+        self.undef.setdefault(sym, []).append(pos)
+
+    prod.SetAssoc(self.assocDefs.get(sym.Name(), prod.GetAssoc()))
+    prod.AddSym(sym)
+
+def add_stoken(self, prod, stoken, pos):
+    sym = self.syntax.RequireTerminal(stoken, stoken=True)
+    # XXX: maybe we should do this by hand
+    self.syntax.AddInlineLexingRule(bytes(stoken[1:-1], "utf-8").decode('unicode-escape'))
+
+    prod.SetAssoc(self.assocDefs.get(sym.Name(), prod.GetAssoc()))
+    prod.AddSym(sym)
+
+class PyBlob(object):
+
+    def __str__(self):
+        return '\n'.join(self.flatten())
+
+    def __init__(self):
+        self.code = ['']
+
+    def newline(self):
+        self.code.append('')
+
+    def text(self, text):
+        self.code[-1] += text
+
+    def stackvar(self, sv):
+        self.code[-1] += sv
+
+    def blob(self, blob):
+        self.code.append(blob)
+        self.code.append('')
+
+    def flatten(self):
+        lines = []
+        for line in self.code:
+            if isinstance(line, PyBlob):
+                for blobline in line.flatten():
+                    lines.append('    ' + blobline)
+            else:
+                lines.append(line)
+        return lines
+
+# for debugging purposes
+if __name__ == '__main__':
+    import sys
+    l = Lexer(open(sys.argv[2], 'r'))
+
+    if sys.argv[1] == '-l':
+        token_type = -1
+        while token_type != Lexer.TOKEN_NUMBERS['$EOF']:
+            token_type, lexeme, position = l.lex()
+            print(Lexer.TOKEN_NAMES[token_type], '"""{}"""'.format(lexeme), l.nextCond)
+    elif sys.argv[1] == '-p':
+        p = Parser(l)
+        try:
+            p.Parse()
+        except SyntaxError as e:
+            print(str(e))
