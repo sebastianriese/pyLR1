@@ -990,7 +990,8 @@ class Parser(object):
                 while True:
                     if match:
                         elem = self.syntax.RequireTerminal(match.group(0), stoken=True)
-                        self.syntax.AddInlineLexingRule(match.group(1))
+                        # XXX: maybe we should do this by hand
+                        self.syntax.AddInlineLexingRule(bytes(match.group(1), "utf-8").decode('unicode-escape'))
                         break
 
                     match = self.syntax_symbol_re.match(line)
