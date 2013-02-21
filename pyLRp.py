@@ -131,6 +131,9 @@ class Production(object):
 
         return result
 
+    def SetLeft(self, left):
+        self.left = left
+
     def Left(self):
         return self.left
 
@@ -425,6 +428,7 @@ class Meta(Symbol):
         return iter(self.prod)
 
     def AddProd(self, prod):
+        prod.SetLeft(self)
         self.prod.append(prod)
 
     def Productions(self):

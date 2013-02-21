@@ -183,8 +183,8 @@ import pyLRp
 <PYBLOBNOSPC,PYBLOB>{comment} PYBLOB
 <PYBLOB>{space}+ PYBLOB
 
-# discern indentation
-<PYBLOB>\n %push(PYBLOB), %push(INDENT), %restart
+# discern indentation, track newlines
+<PYBLOB>\n %push(PYBLOB), %push(INDENT), NEWLINE
 
 %parser
 
@@ -203,8 +203,10 @@ init:
         self.undef = {}
         self.defined = set()
 
+        self.lexscopes = [set()]
+
 symbollist:
-    symbollist_ NEWLINE
+    symbollist_ NEWLINE: $$.sem = $1.sem
 
 symbollist_:
     SYMBOL:                   $$.sem = [$1.sem]
@@ -219,6 +221,7 @@ pyblob:
     pyblob PYBLOB
     pyblob STACKVAR
     pyblob INDENT pyblob DEDENT
+    pyblob NEWLINE
 
 header:
     %empty
@@ -232,14 +235,33 @@ lexdecs:
     lexdecs lexdec
 
 lexdec:
-    EXCLUSIVE symbollist
-    INCLUSIVE symbollist
-    NULLMATCH symbollist
+    EXCLUSIVE symbollist:
+        for symb in $2.sem:
+            self.syntax.AddExclusiveInitialCondition(symb)
+
+    INCLUSIVE symbollist:
+        for symb in $2.sem:
+            self.syntax.AddInclusiveInitialCondition(symb)
+
+    NULLMATCH symbollist:
+        for symb in $2.sem:
+            self.syntax.InitialCondition(symb).DeclareNullmatch()
+
     DEF INDENT lexdefs DEDENT
 
 lexdefs:
-    SYMBOL REGEX NEWLINE
-    lexdefs SYMBOL REGEX NEWLINE
+    SYMBOL REGEX NEWLINE:
+        print($1.sem)
+        self.syntax.AddNamedPattern(
+            $1.sem,
+            pyLRp.Regex($2.sem, bindings=self.syntax.NamedPatterns()).ast
+        )
+
+    lexdefs SYMBOL REGEX NEWLINE:
+        self.syntax.AddNamedPattern(
+            $2.sem,
+            pyLRp.Regex($3.sem, bindings=self.syntax.NamedPatterns()).ast
+        )
 
 lexrules:
     %empty
@@ -247,45 +269,83 @@ lexrules:
 
 lexrule:
     lexscope
-    REGEX lexaction
-    LANGLE condspec RANGLE REGEX lexaction
+    REGEX lexaction:
+        regex = pyLRp.Regex($1.sem, bindings=self.syntax.NamedPatterns())
+        self.syntax.AddLexingRule(pyLRp.LexingRule(set(), regex, $2.sem))
+    CARET REGEX lexaction:
+        regex = pyLRp.Regex($1.sem, bindings=self.syntax.NamedPatterns())
+        self.syntax.AddLexingRule(pyLRp.LexingRule(set([self.syntax.InitialCondition("$SOL")]), regex, $2.sem))
+
+    LANGLE condspec RANGLE REGEX lexaction:
+        regex = pyLRp.Regex($1.sem, bindings=self.syntax.NamedPatterns())
+        state = set()
+        for symb in $2.sem:
+            state.add(self.syntax.InitialCondition(symb))
+        self.syntax.AddLexingRule(pyLRp.LexingRule(state, regex, $2.sem))
 
 lexscope:
-    SCOPE OPAREN scopespec CPAREN INDENT lexscope_ DEDENT
+    lexscopedecl INDENT lexscope_ DEDENT: self.lexscopes.pop()
+
+lexscopedecl:
+    SCOPE OPAREN scopespec CPAREN:
+        state = set(self.lexscopes[-1])
+        for op, cond in $3.sem:
+            cond = self.syntax.InitialCondition(cond)
+            if op == '+':
+                state.add(cond)
+            elif op == '-':
+                state.discard(cond)
+        self.lexscopes.append(state)
 
 scopespec:
-    SYMBOL
-    MINUS SYMBOL
-    PLUS SYMBOL
-    scopespec COMMA SYMBOL
-    scopespec COMMA MINUS SYMBOL
-    scopespec COMMA PLUS SYMBOL
+    SYMBOL: $$.sem = [('+', $1.sem)]
+    MINUS SYMBOL: $$.sem = [('-', $2.sem)]
+    PLUS SYMBOL: $$.sem = [('+', $2.sem)]
+    scopespec COMMA SYMBOL: $$.sem = $1.sem + [('+', $3.sem)]
+    scopespec COMMA MINUS SYMBOL: $$.sem = $1.sem + [('-', $3.sem)]
+    scopespec COMMA PLUS SYMBOL: $$.sem = $1.sem + [('+', $3.sem)]
 
 lexscope_:
     lexscope
-    REGEX lexaction
+    REGEX lexaction:
+       regex = pyLRp.Regex($1.sem, bindings=self.syntax.NamedPatterns())
+       self.syntax.AddLexingRule(pyLRp.LexingRule(self.lexscopes[-1], regex, $2.sem))
     lexscope_ lexscope
-    lexscope_ REGEX lexaction
+    lexscope_ REGEX lexaction:
+       regex = pyLRp.Regex($2.sem, bindings=self.syntax.NamedPatterns())
+       self.syntax.AddLexingRule(pyLRp.LexingRule(self.lexscopes[-1], regex, $3.sem))
 
 condspec:
-    SYMBOL
-    condspec COMMA SYMBOL
+    SYMBOL: $$.sem = [$1.sem]
+    condspec COMMA SYMBOL: $$.sem = $1.sem + [$3.sem]
 
 lexaction:
-    stackactions final NEWLINE
+    stackactions final NEWLINE: $$.sem = $1.sem; $$.sem.Append($2.sem)
 
 stackactions:
-    %empty
-    stackactions PUSH OPAREN SYMBOL CPAREN COMMA
-    stackactions POP OPAREN CPAREN COMMA
-    stackactions BEGIN OPAREN SYMBOL CPAREN COMMA
-    stackactions FUNCTION OPAREN SYMBOL CPAREN COMMA
-    stackactions DEBUG OPAREN STRLIT CPAREN COMMA
+    %empty: $$.sem = pyLRp.List()
+    stackactions PUSH OPAREN SYMBOL CPAREN COMMA:
+        $$.sem = $1.sem
+        $$.sem.Append(pyLRp.Push(self.syntax.InitialCondition($4.sem)))
+    stackactions POP OPAREN CPAREN COMMA:
+        $$.sem = $1.sem
+        $$.sem.Append(pyLRp.Pop())
+    stackactions BEGIN OPAREN SYMBOL CPAREN COMMA:
+        $$.sem = $1.sem
+        $$.sem.Append(pyLRp.Begin(self.syntax.InitialCondition($4.sem)))
+    stackactions FUNCTION OPAREN SYMBOL CPAREN COMMA:
+        $$.sem = $1.sem
+        $$.sem.Append(pyLRp.Function($4.sem))
+    stackactions DEBUG OPAREN STRLIT CPAREN COMMA:
+        $$.sem = $1.sem
+        $$.sem.Append(pyLRp.Debug($4.sem))
 
 final:
-    RESTART
-    CONTINUE
-    SYMBOL
+    RESTART: $$.sem = pyLRp.Restart()
+    CONTINUE: $$.sem = pyLRp.Continue()
+    SYMBOL:
+        self.syntax.RequireTerminal($1.sem)
+        $$.sem = pyLRp.Token($1.sem)
 
 parser:
     PARSER assocdefs
@@ -296,26 +356,60 @@ assocdefs:
     assocdefs assocdef
 
 assocdef:
-    LEFT symbollist
-    RIGHT symbollist
-    NONASSOC symbollist
+    LEFT symbollist: set_assoc(self, pyLRp.Production.LEFT, $2.sem)
+    RIGHT symbollist: set_assoc(self, pyLRp.Production.RIGHT, $2.sem)
+    NONASSOC symbollist: set_assoc(self, pyLRp.Production.NONASSOC, $2.sem)
 
 ruleset:
-    SYMBOL COLON INDENT
-    ruleset parserule
+    SYMBOL COLON INDENT:
+        symbol = self.syntax.RequireMeta($1.sem)
+
+        if symbol in self.undef:
+            del self.undef[symbol]
+        self.defined.add(symbol)
+
+        if self.syntax.Start() is None:
+            self.syntax.SetStart(symbol)
+
+        $$.sem = symbol
+    ruleset parserule:
+        $$.sem = $1.sem
+        $$.sem.AddProd($2.sem)
 
 parserule:
-    production COLON pyblob
-    production NEWLINE
+    production COLON pyblob:
+        $$.sem = $1.sem
+        # $$.sem.SetAction(pyblob.write_down())
+    production NEWLINE: $$.sem = $1.sem
 
 production:
-    SYMBOL
-    EMPTY
-    STOKEN
-    production PREC OPAREN SYMBOL CPAREN
-    production SYMBOL
-    production EMPTY
-    production STOKEN
+    SYMBOL:
+        $$.sem = pyLRp.Production(None, [], self.productionNumber)
+        self.productionNumber += 1
+        add_meta_symbol(self, $$.sem, $1.sem, $1.pos)
+
+    EMPTY:
+        $$.sem = pyLRp.Production(None, [], self.productionNumber)
+        self.productionNumber += 1
+
+    STOKEN:
+        $$.sem = pyLRp.Production(None, [], self.productionNumber)
+        self.productionNumber += 1
+        add_stoken(self, $$.sem, $1.sem, $1.pos)
+
+    production PREC OPAREN SYMBOL CPAREN:
+        $$.sem = $1.sem
+        $$.sem.SetAssoc(self.assocDefs[$4.sem])
+
+    production SYMBOL:
+        $$.sem = $1.sem
+        add_meta_symbol(self, $$.sem, $1.sem, $1.pos)
+
+    production EMPTY: $$.sem = $1.sem
+    production STOKEN:
+        $$.sem = $1.sem
+        add_stoken(self, $$.sem, $2.sem, $2.pos)
+
 
 optfooter:
     %empty
@@ -356,6 +450,29 @@ def indent(lexer, text, position):
 
     lexer.nextCond.pop()
 
+def set_assoc(parser, assoctype, symbols):
+    assoc = assoctype, parser.assocPower
+    for symb in symbols:
+        parser.assocDefs[symb] = assoc
+    parser.assocPower += 1
+
+def add_meta_symbol(self, prod, symbol, pos):
+    sym = self.syntax.RequireMeta(symbol)
+    if self.syntax.SymTable()[sym.Name()].SymType() == pyLRp.Syntax.META \
+            and sym not in self.defined:
+        self.undef.setdefault(sym, []).append(pos)
+
+    prod.SetAssoc(self.assocDefs.get(sym.Name(), prod.GetAssoc()))
+    prod.AddSym(sym)
+
+def add_stoken(self, prod, stoken, pos):
+    sym = self.syntax.RequireTerminal(stoken, stoken=True)
+    # XXX: maybe we should do this by hand
+    self.syntax.AddInlineLexingRule(bytes(stoken[1:-1], "utf-8").decode('unicode-escape'))
+
+    prod.SetAssoc(self.assocDefs.get(sym.Name(), prod.GetAssoc()))
+    prod.AddSym(sym)
+
 if __name__ == '__main__':
     import sys
     l = Lexer(open(sys.argv[2], 'r'))
@@ -371,4 +488,3 @@ if __name__ == '__main__':
             p.Parse()
         except SyntaxError as e:
             print(str(e))
-
