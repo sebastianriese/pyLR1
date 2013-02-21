@@ -970,7 +970,7 @@ class Parser(object):
                 del self.undef[symbol]
             self.defined.add(symbol)
 
-            if self.current is None:
+            if self.syntax.Start() is None:
                 self.syntax.SetStart(symbol)
 
             self.current = symbol
