@@ -196,6 +196,15 @@ import pyLRp
 
 %parser
 
+# XXX which configurations do we really want
+# XXX we definitely want an inlining mode along the lines
+# XXX of %lexer "relpath" to separate the components
+# facts:
+# * lexer only is definitely useful
+# * parser only is only useful if we define available tokens
+#   and write a custom lexer
+# * ast only is useful only when inlined
+
 file:
     # full file
     init header ast lexer parser optfooter
