@@ -60,6 +60,12 @@ import pyLRp
 <FOOTER,$INITIAL>[^\n]*\n PYVERB
 
 #######################################################
+# AST directives
+#######################################################
+<AST>%list %push(SYMBOLLIST), LIST
+<AST>%visitor %push(SYMBOLLIST), VISITOR
+
+#######################################################
 # commonly used syntactic contructs
 #######################################################
 <SYMBOLLIST,FIXITYSPEC>{space}+    %restart
@@ -138,6 +144,7 @@ import pyLRp
 <PARSERULE>{stoken}  STOKEN
 <PARSERULE>%empty    EMPTY
 <PARSERULE>%prec     PREC
+<PARSERULE>%AST      ASTACTION
 <PARSERULE>\(        OPAREN
 <PARSERULE>\)        CPAREN
 <PARSERULE>{space}+  %restart
@@ -190,9 +197,19 @@ import pyLRp
 %parser
 
 file:
+    # full file
+    init header ast lexer parser optfooter
+    init header lexer ast parser optfooter
+    # lexer and parser
     init header lexer parser optfooter
+    # ast and parser
+    # init header ast parser optfooter
+    # parser only
+    # init header parser optfooter
+    # ast only
+    # init header ast optfooter
+    # lexer only
     init header lexer optfooter
-    init header parser optfooter
 
 init:
     %empty:
@@ -236,6 +253,19 @@ pyblob_:
 header:
     %empty
     header PYVERB: self.syntax.AddHeader($2.sem)
+
+ast:
+    AST: self.syntax.ASTInfo().Used()
+    ast LIST symbollist:
+        for name in $3.sem:
+            self.syntax.ASTInfo().List(name)
+
+    ast VISITOR symbollist:
+       try:
+           self.syntax.ASTInfo().visitor, = $3.sem
+       except ValueError:
+           # XXX signal error!
+           pass
 
 lexer:
     LEXER lexdecs lexrules
@@ -390,6 +420,9 @@ parserule:
         $$.sem = $1.sem
         $$.sem.SetAction($3.sem.flatten())
     production NEWLINE: $$.sem = $1.sem
+    production ASTACTION OPAREN SYMBOL CPAREN NEWLINE:
+        $$.sem = $1.sem
+        self.syntax.ASTInfo().Bind($$.sem, $4.sem)
 
 production:
     SYMBOL:
