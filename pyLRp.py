@@ -3160,7 +3160,7 @@ class Lexer(object):
 
     starts = """ + startstr + r"""
     mappings = """ + (mappingstr if lexer.Mapping() else "()") + r"""
-""" + lextablehelper + r"""
+""" + (lextablehelper if self.deduplicate else "") + r"""
     tables  = """ + lextablestr + lexerDebugData + r"""
     actionmap = """ + actionmapstr + """
 
@@ -3230,7 +3230,8 @@ class Lexer(object):
 
         cond = self.nextCond[-1]
         state = self.starts[cond]
-        size, table, cactions, mapping, buffer = self.size, self.tables[cond], self.actionmap[cond], self.mappings[cond], self.buffer
+        """ + (r"size, table, cactions, mapping, buffer = self.size, self.tables[cond], self.actionmap[cond], self.mappings[cond], self.buffer" if lexer.Mapping() else
+        r"size, table, cactions, buffer = self.size, self.tables[cond], self.actionmap[cond], self.buffer") + r"""
         actionvec = self.actions
         cur_pos = self.root
         if cactions[state] is not None:
