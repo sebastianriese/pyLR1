@@ -2632,7 +2632,9 @@ class OptimizerPartition(object):
         self.groups[group].append(state)
 
     def GeneratePartitionTransitionTable(self, state):
-        return tuple(self.GroupOfState(target) for target in state)
+        # efficiency hack for:
+        # return tuple(self.GroupOfState(target) for target in state)
+        return tuple(map(self.forward.__getitem__, state))
 
     def Partition(self):
         partition = OptimizerPartition()
