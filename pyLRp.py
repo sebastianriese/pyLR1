@@ -30,6 +30,7 @@ import os
 import logging
 import argparse
 from functools import reduce
+from collections import deque
 import operator
 import tempfile
 import shutil
@@ -1982,6 +1983,7 @@ class LexingAutomatonState(metaclass=abc.ABCMeta):
         self.transitions = {}
         self.action = None
         self.priority = None
+        self.number = None
 
     @abc.abstractmethod
     def Move(self, chr):
@@ -2587,7 +2589,7 @@ class LexingNFA(object):
 
                 dfaStates[cur].AddTransition(char, dfaStates[newState])
 
-        return LexingDFA(dfaStates, si)
+        return LexingDFA(dfaStates[si], dfaStates.values())
 
 
 class OptimizerPartition(object):
@@ -2631,42 +2633,33 @@ class OptimizerPartition(object):
             return partition.Partition()
 
     def Reconstruct(self, start):
-        states = []
-        newstates= {}
+        newstates = []
         newstart = None
 
         # create the new states
-        for i in range(0, len(self.groups)):
-            states.append(DFAState())
-            newstates[states[-1]] = i
+        for group in self.groups:
+            newstates.append(DFAState())
 
-            if start in self.groups[i]:
-                newstart = states[i]
+            if start in group:
+                newstart = newstates[-1]
 
         # link the new states
-        for i in range(0, len(self.groups)):
+        for newstate, group in zip(newstates, self.groups):
 
-            representative = self.groups[i][0]
+            representative = group[0]
 
-            states[i].SetAction(None, representative.GetAction())
+            newstate.SetAction(None, representative.GetAction())
 
             for char in range(256):
-                states[i].AddTransition(chr(char), states[self.GroupOfState(representative.Move(chr(char)))])
+                newstate.AddTransition(chr(char), newstates[self.GroupOfState(representative.Move(chr(char)))])
 
         return newstart, newstates
 
 class LexingDFA(object):
 
-    def __init__(self, states, start):
-        self.states = dict()
-
-        # remove the unnecassary NFA state information
-        i = 0
-        for state in states.values():
-            self.states[state] = i
-            i += 1
-
-        self.start = states[start]
+    def __init__(self, start, states):
+        self.start = start
+        self.states = list(states)
 
     def Optimize(self):
         # construct the initial partition
@@ -2686,18 +2679,37 @@ class LexingDFA(object):
         self.start, self.states = partition.Reconstruct(self.start)
 
     def CreateLexTable(self):
-        lextable = [tuple([] for i in range(0,256)) for i in range(len(self.states))]
-        actions = [None for i in range(len(self.states))]
-        for state in self.states:
+        """
+        Create a numeric table representation of the DFA.
+        """
+        lextable = []
+        actions = []
 
-            actions[self.states[state]] = state.GetAction()
+        queue = deque([self.start])
+        self.start.number = 0
+        cnt = 1
 
-            mylist = lextable[self.states[state]]
+        while queue:
+            cur = queue.pop()
+            assert cur.number == len(lextable)
+            newline = []
+            # XXX: replace DFAState internal transition representation
+            # by list this is more space efficient than a dict and
+            # much faster and here we could simply iterate over the
+            # list.  With this change DFAState and NFAState drift
+            # apart even further, should they still support a common
+            # interface then?
+            for i in range(256):
+                target = cur.Move(chr(i))
+                if target.number is None:
+                    queue.appendleft(target)
+                    target.number = cnt
+                    cnt += 1
+                newline.append(target.number)
+            actions.append(cur.GetAction())
+            lextable.append(newline)
 
-            for char, nstate in state.Transitions():
-                mylist[ord(char)].append(self.states[nstate])
-
-        return Lextable(lextable, self.states[self.start], actions)
+        return Lextable(lextable, self.start.number, actions)
 
 class Lextable(object):
 
@@ -2721,7 +2733,7 @@ class Lextable(object):
             for cls in classes:
                 newclasses = dict()
                 for char in cls:
-                    state = line[char][0]
+                    state = line[char]
                     if state not in newclasses:
                         newclasses[state] = []
 
@@ -2779,7 +2791,7 @@ class Lextable(object):
         for state in self.table:
             print(str(i).center(2), "-", end=' ')
             for a in printRange:
-                print(str(state[a][0]).center(2), end=' ')
+                print(str(state[a]).center(2), end=' ')
             print("")
             i+=1
 
@@ -3025,7 +3037,7 @@ class %s(AST):
 
             lextablehelper, lextablestr = \
                 self.TableStrings("ltd%d" % cond.Number(),
-                  tuple(tuple(a[0] for a in state)for state in table))
+                  tuple(tuple(state) for state in table))
 
             # create the string representing the actions
             action_vector = []
