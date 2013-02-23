@@ -1671,7 +1671,7 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
         rules = []
 
         # populate the rules vector
-        for meta in metas:
+        for meta in sorted(metas, key=lambda meta: metas[meta]):
             for rule in meta.Productions():
                 rule.SetNumber(len(rules))
                 rules.append(rule)
@@ -1887,9 +1887,11 @@ class LR1StateTransitionGraphElement(object):
         """
         Determine the substates of this state and add them to the
         transition graph.
+
+        Sort the elements by order in file for predictable results.
         """
 
-        for elem in self.elements:
+        for elem in sorted(self.elements, key=lambda elem: elem.Prod().NumberInFile()):
 
             if elem.AfterDot():
                 goto = set()
