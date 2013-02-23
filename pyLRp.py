@@ -2457,9 +2457,13 @@ class LexerConstructor(object):
     def __init__(self, lexerSpec, logger):
         self.logger = logger
 
-        self.nfas = {}
-        self.dfas = {}
-        self.lextables = {}
+        # sort initial conditions by number to create a reference
+        # order for the other item lists
+        self.initial_conditions = list(sorted(lexerSpec.InitialConditions(),
+                                              key=lambda x: x.Number()))
+        self.nfas = []
+        self.dfas = []
+        self.lextables = []
 
         # construct the automaton for matching the inline tokens
         inlineTokens = NFAState()
@@ -2476,12 +2480,16 @@ class LexerConstructor(object):
             previous.SetAction(0, Token('"' + token + '"'))
 
         # construct the NFAs for the initial conditions
-        for condition in lexerSpec.InitialConditions():
-            self.nfas[condition] = LexingNFA(lexerSpec.Lexer(), condition, inlineTokens, logger)
+        for condition in self.initial_conditions:
+            self.nfas.append(LexingNFA(lexerSpec.Lexer(),
+                                       condition,
+                                       inlineTokens,
+                                       logger))
 
     def ConstructDFAs(self):
-        for condition, nfa in self.nfas.items():
-            self.dfas[condition] = nfa.CreateDFA()
+        self.dfas = []
+        for nfa in self.nfas:
+            self.dfas.append(nfa.CreateDFA())
 
     def DropNFA(self):
         """
@@ -2491,12 +2499,13 @@ class LexerConstructor(object):
 
 
     def Optimize(self):
-        for dfa in self.dfas.values():
+        for dfa in self.dfas:
             dfa.Optimize()
 
     def CreateLexTables(self):
-        for cond, dfa in self.dfas.items():
-            self.lextables[cond] = dfa.CreateLexTable()
+        self.lextables = []
+        for dfa in self.dfas:
+            self.lextables.append(dfa.CreateLexTable())
 
     def DropDFA(self):
         """
@@ -2505,11 +2514,11 @@ class LexerConstructor(object):
         self.dfas = None
 
     def ConstructEquivalenceClasses(self):
-        for lextable in self.lextables.values():
+        for lextable in self.lextables:
             lextable.ConstructEquivalenceClasses()
 
     def Get(self):
-        for cond, lextable in self.lextables.items():
+        for cond, lextable in zip(self.initial_conditions, self.lextables):
             yield tuple([cond] + list(lextable.Get()))
 
     def PrintTables(self):
@@ -3019,7 +3028,6 @@ class %s(AST):
             extract = ''
             baccess = "ord(buffer[cur_pos])"
 
-
         data = []
         action_table = {}
 
@@ -3049,7 +3057,6 @@ class %s(AST):
                 mappingstr = '({})'.format(','.join(map(str, mapping)))
 
             data.append((cond, start, actionmapstr, mappingstr, lextablehelper, lextablestr))
-        data.sort(key=lambda x: x[0].Number())
 
         actionstr = ','.join('self.action{:d}'.format(i) for i in range(len(action_table)))
         actionstr = ('({},)' if len(action_table) == 1 else '({})').format(actionstr)
@@ -3254,7 +3261,7 @@ class Lexer(object):
 
         lexActionGen = LexActionToCode(symtable)
 
-        for action, number in action_table.items():
+        for action, number in sorted(action_table.items(), key=lambda x: x[1]):
             self.parser_file.write("""
     def action%d(self, text, position):
 """ % (number,))
