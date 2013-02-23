@@ -1977,44 +1977,15 @@ class LALR1StateTransitionGraphElement(LR1StateTransitionGraphElement):
 
         return propagated
 
-class LexingAutomatonState(metaclass=abc.ABCMeta):
+class NFAState(object):
 
     def __init__(self):
         self.transitions = {}
         self.action = None
         self.priority = None
-        self.number = None
 
-    @abc.abstractmethod
-    def Move(self, chr):
-        """
-        Get the states reached.
-        """
-        pass
-
-    @abc.abstractmethod
-    def AddTransition(self, chr, state):
-        pass
-
-    def AddTransitions(self, chrs, state):
-        for chr in chrs:
-            self.AddTransition(chr, state)
-
-    def Transitions(self):
-        return self.transitions.items()
-
-    def SetAction(self, priority, action):
-        self.action = action
-        self.priority = priority
-
-    def GetAction(self):
-        return self.action
-
-    def Priority(self):
-        return self.priority
-
-class NFAState(LexingAutomatonState):
-
+    def __iter__(self):
+        return iter(self.transitions.items())
 
     def Move(self, char):
         """
@@ -2039,25 +2010,54 @@ class NFAState(LexingAutomatonState):
 
         return closure | nc
 
+    def AddTransitions(self, chrs, state):
+        for chr in chrs:
+            self.AddTransition(chr, state)
+
     def AddTransition(self, char, state):
         if char not in self.transitions:
             self.transitions[char] = set()
 
         self.transitions[char].add(state)
 
-class DFAState(LexingAutomatonState):
+    def SetAction(self, priority, action):
+        self.action = action
+        self.priority = priority
+
+    def GetAction(self):
+        return self.action
+
+    def Priority(self):
+        return self.priority
+
+
+class DFAState(object):
+
+    def __init__(self):
+        self.transitions = []
+        self.action = None
+        self.number = None
+
+    def __iter__(self):
+        return iter(self.transitions)
 
     def Move(self, chr):
         """
         Get the transition on character for a DFA.
         """
-        return self.transitions[chr]
+        return self.transitions[ord(chr)]
 
-    def AddTransition(self, char, state):
-        if char in self.transitions:
-            raise CantHappen()
+    def MoveNumeric(self, num):
+        return self.transitions[num]
 
-        self.transitions[char] = state
+    def AddTransition(self, state):
+        self.transitions.append(state)
+
+    def SetAction(self, action):
+        self.action = action
+
+    def GetAction(self):
+        return self.action
 
 class RegexAST(object):
     """An AST representing a regular expression."""
@@ -2561,7 +2561,7 @@ class LexingNFA(object):
         # XXX: add feature to warn when there are nullmatches
         # but they are ignored
         if self.nullmatch:
-            dfaStates[si].SetAction(None, SelectAction(si))
+            dfaStates[si].SetAction(SelectAction(si))
 
         while todo:
             cur = todo.pop()
@@ -2579,15 +2579,15 @@ class LexingNFA(object):
 
                     todo.append(newState)
                     dfaStates[newState] = DFAState()
-                    dfaStates[newState].SetAction(None, SelectAction(newState))
+                    dfaStates[newState].SetAction(SelectAction(newState))
 
                     if len(newState) == 0:
                         # this is the error state (empty set of NFA states)
                         # if we get here nothing can match anymore, therefore
                         # we can retrieve our longest match
-                        dfaStates[newState].SetAction(None, GetMatch())
+                        dfaStates[newState].SetAction(GetMatch())
 
-                dfaStates[cur].AddTransition(char, dfaStates[newState])
+                dfaStates[cur].AddTransition(dfaStates[newState])
 
         return LexingDFA(dfaStates[si], dfaStates.values())
 
@@ -2613,7 +2613,7 @@ class OptimizerPartition(object):
         self.groups[group].append(state)
 
     def GeneratePartitionTransitionTable(self, state):
-        return tuple(self.GroupOfState(state.Move(chr(char))) for char in range(0,256))
+        return tuple(self.GroupOfState(target) for target in state)
 
     def Partition(self):
         partition = OptimizerPartition()
@@ -2648,10 +2648,10 @@ class OptimizerPartition(object):
 
             representative = group[0]
 
-            newstate.SetAction(None, representative.GetAction())
+            newstate.SetAction(representative.GetAction())
 
             for char in range(256):
-                newstate.AddTransition(chr(char), newstates[self.GroupOfState(representative.Move(chr(char)))])
+                newstate.AddTransition(newstates[self.GroupOfState(representative.MoveNumeric(char))])
 
         return newstart, newstates
 
@@ -2693,14 +2693,7 @@ class LexingDFA(object):
             cur = queue.pop()
             assert cur.number == len(lextable)
             newline = []
-            # XXX: replace DFAState internal transition representation
-            # by list this is more space efficient than a dict and
-            # much faster and here we could simply iterate over the
-            # list.  With this change DFAState and NFAState drift
-            # apart even further, should they still support a common
-            # interface then?
-            for i in range(256):
-                target = cur.Move(chr(i))
+            for target in cur:
                 if target.number is None:
                     queue.appendleft(target)
                     target.number = cnt
