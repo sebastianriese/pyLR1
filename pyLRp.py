@@ -1985,6 +1985,7 @@ class NFAState(object):
         self.transitions = {}
         self.action = None
         self.priority = None
+        self.closure = None
 
     def __iter__(self):
         return iter(self.transitions.items())
@@ -1996,6 +1997,10 @@ class NFAState(object):
         return self.transitions.get(char, set())
 
     def EpsilonClosure(self, visited=None):
+
+        if self.closure is not None:
+            return self.closure
+
         closure = set([self])
 
         if visited is None:
@@ -2006,11 +2011,14 @@ class NFAState(object):
 
         closure |= self.transitions.get('', set())
 
-        nc = set()
+        nc = set(closure)
         for elem in closure:
             nc |= elem.EpsilonClosure(visited | frozenset([self]))
 
-        return closure | nc
+        if visited == frozenset():
+            self.closure = frozenset(nc)
+
+        return nc
 
     def AddTransitions(self, chrs, state):
         for chr in chrs:
