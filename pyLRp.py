@@ -2474,6 +2474,7 @@ class LexerConstructor(object):
         self.nfas = []
         self.dfas = []
         self.lextables = []
+        self.mapping = False
 
         # construct the automaton for matching the inline tokens
         inlineTokens = NFAState()
@@ -2524,8 +2525,12 @@ class LexerConstructor(object):
         self.dfas = None
 
     def ConstructEquivalenceClasses(self):
+        self.mapping = True
         for lextable in self.lextables:
             lextable.ConstructEquivalenceClasses()
+
+    def Mapping(self):
+        return self.mapping
 
     def Get(self):
         for cond, lextable in zip(self.initial_conditions, self.lextables):
@@ -3043,6 +3048,10 @@ class %s(AST):
         data = []
         action_table = {}
 
+        lookup = baccess
+        if lexer.Mapping():
+            lookup = "mapping[" + baccess + "]"
+
         for cond, table, start, actions, mapping in lexer.Get():
 
             lextablehelper, lextablestr = \
@@ -3063,9 +3072,8 @@ class %s(AST):
             actionmapstr = "({})".format(','.join(action_vector))
 
             mappingstr = ""
-            if mapping:
+            if lexer.Mapping():
                 # create the string mapping
-                lookup = "mapping[" + baccess + "]"
                 mappingstr = '({})'.format(','.join(map(str, mapping)))
 
             data.append((cond, start, actionmapstr, mappingstr, lextablehelper, lextablestr))
@@ -3151,7 +3159,7 @@ class %s(AST):
 class Lexer(object):
 
     starts = """ + startstr + r"""
-    mappings = """ + mappingstr + r"""
+    mappings = """ + (mappingstr if lexer.Mapping() else "()") + r"""
 """ + lextablehelper + r"""
     tables  = """ + lextablestr + lexerDebugData + r"""
     actionmap = """ + actionmapstr + """
