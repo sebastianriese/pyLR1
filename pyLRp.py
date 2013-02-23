@@ -2645,13 +2645,10 @@ class OptimizerPartition(object):
 
         # link the new states
         for newstate, group in zip(newstates, self.groups):
-
             representative = group[0]
-
             newstate.SetAction(representative.GetAction())
-
-            for char in range(256):
-                newstate.AddTransition(newstates[self.GroupOfState(representative.MoveNumeric(char))])
+            for target in representative:
+                newstate.AddTransition(newstates[self.GroupOfState(target)])
 
         return newstart, newstates
 
