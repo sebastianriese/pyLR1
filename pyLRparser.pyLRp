@@ -143,6 +143,7 @@ import pyLRp
 <PARSERULE>{name}    SYMBOL
 <PARSERULE>{stoken}  STOKEN
 <PARSERULE>%empty    EMPTY
+<PARSERULE>%error    ERROR
 <PARSERULE>%prec     PREC
 <PARSERULE>%AST      ASTACTION
 <PARSERULE>\(        OPAREN
@@ -435,17 +436,17 @@ parserule:
 
 production:
     SYMBOL:
-        $$.sem = pyLRp.Production(None, [], self.productionNumber)
-        self.productionNumber += 1
+        $$.sem = setup_production(self)
         add_meta_symbol(self, $$.sem, $1.sem, $1.pos)
 
-    EMPTY:
-        $$.sem = pyLRp.Production(None, [], self.productionNumber)
-        self.productionNumber += 1
+    EMPTY: $$.sem = setup_production(self)
+
+    ERROR:
+        $$.sem = setup_production(self)
+        add_error(self, $$.sem,  $1.pos)
 
     STOKEN:
-        $$.sem = pyLRp.Production(None, [], self.productionNumber)
-        self.productionNumber += 1
+        $$.sem = setup_production(self)
         add_stoken(self, $$.sem, $1.sem, $1.pos)
 
     production PREC OPAREN SYMBOL CPAREN:
@@ -457,6 +458,11 @@ production:
         add_meta_symbol(self, $$.sem, $2.sem, $2.pos)
 
     production EMPTY: $$.sem = $1.sem
+
+    production ERROR:
+        $$.sem = $1.sem
+        add_error(self, $$.sem,  $1.pos)
+
     production STOKEN:
         $$.sem = $1.sem
         add_stoken(self, $$.sem, $2.sem, $2.pos)
@@ -501,6 +507,11 @@ def indent(lexer, text, position):
 
     lexer.nextCond.pop()
 
+def setup_production(self):
+    res = pyLRp.Production(None, [], self.productionNumber)
+    self.productionNumber += 1
+    return res
+
 def set_assoc(parser, assoctype, symbols):
     assoc = assoctype, parser.assocPower
     for symb in symbols:
@@ -522,6 +533,10 @@ def add_stoken(self, prod, stoken, pos):
     self.syntax.AddInlineLexingRule(bytes(stoken[1:-1], "utf-8").decode('unicode-escape'))
 
     prod.SetAssoc(self.assocDefs.get(sym.Name(), prod.GetAssoc()))
+    prod.AddSym(sym)
+
+def add_error(self, prod, pos):
+    sym = self.syntax.RequireTerminal("$RECOVER")
     prod.AddSym(sym)
 
 class PyBlob(object):

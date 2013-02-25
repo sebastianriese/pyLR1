@@ -746,6 +746,7 @@ class Parser(object):
     syntax_action_re = re.compile(r'\:')
     syntax_stoken_re = re.compile(r'\"((.|\\\")+?)\"')
     syntax_empty_re = re.compile(r'%empty')
+    syntax_error_re = re.compile(r'%error')
     syntax_prec_re = re.compile(r'%prec\s*\(\s*([a-zA-Z_][a-zA-Z_0-9]*)\s*\)')
     syntax_AST_re = re.compile(r'%AST\s*\(\s*([a-zA-Z_][a-zA-Z_0-9]*)\s*\)')
     syntax_binding_re = re.compile(r'%left|%right|%nonassoc')
@@ -1015,6 +1016,11 @@ class Parser(object):
 
                     if match:
                         break
+
+                    match = self.syntax_error_re.match(line)
+
+                    if match:
+                        elem = self.syntax.RequireTerminal("$RECOVER")
 
                     match = self.syntax_prec_re.match(line)
                     if match:
@@ -1496,6 +1502,10 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
         self.conflicts = 0
 
         self.start = None
+
+        # require the $RECOVER terminal symbol used during
+        # error recovery of the parser
+        self.grammar.RequireTerminal("$RECOVER")
 
     def ReportNumOfConflicts(self):
         if self.conflicts:
@@ -3373,6 +3383,7 @@ class Parser(object):
         stack = self.stack
         reductions = self.reductions
         stack.append(StackObject(self.start))
+        recovering = False
         """ + linesNullPos + """
 
         try:
@@ -3381,6 +3392,7 @@ class Parser(object):
                 t, d = atable[stack[-1].state][token]
                 """ + state_trace + """
                 while t == 1:
+                    recovering = False
                     size, sym, action = reductions[d]
                     state = gtable[stack[-size-1].state][sym]
                     new = StackObject(state)
@@ -3398,8 +3410,32 @@ class Parser(object):
                     stack.append(new)
                     # action, e.g. a lexcal tie-in
 
-                else:
-                    raise SyntaxError(position=stack[-1].pos)
+                else: # t == 2
+                    if recovering:
+                        # just skip unfit tokens during recovery
+                        pass
+                    else:
+                        # setup error recovery by shifting the $RECOVER token
+                        recovering = True
+                        rec = """ + str(symtable["$RECOVER"].Number()) + r"""
+
+                        # pop tokens until error can be shifted
+                        t, d = atable[stack[-1].state][rec]
+                        while t != 0:
+                            if not stack:
+                                raise SyntaxError(position=stack[-1].pos)
+                            stack.pop()
+                            t, d = atable[stack[-1].state][rec]
+                        new = StackObject(d)
+                        new.sem = lexeme
+                        new.pos = pos
+                        stack.append(new)
+                        # TODO: emit error message ... or should this
+                        # be done on reduction of the error rule? what
+                        # error sink should we use?  perhaps do some
+                        # inspection to get a list of acceptable
+                        # tokens
+
         except Accept:
             return stack[-1].sem
 """)
