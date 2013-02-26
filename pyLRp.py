@@ -1021,6 +1021,7 @@ class Parser(object):
 
                     if match:
                         elem = self.syntax.RequireTerminal("$RECOVER")
+                        break
 
                     match = self.syntax_prec_re.match(line)
                     if match:
@@ -3422,9 +3423,9 @@ class Parser(object):
                         # pop tokens until error can be shifted
                         t, d = atable[stack[-1].state][rec]
                         while t != 0:
+                            stack.pop()
                             if not stack:
                                 raise SyntaxError(position=stack[-1].pos)
-                            stack.pop()
                             t, d = atable[stack[-1].state][rec]
                         new = StackObject(d)
                         new.sem = lexeme
