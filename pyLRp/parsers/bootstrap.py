@@ -139,111 +139,111 @@ class Parser(object):
 
 
     def Lexer(self, line, eof=False):
-         if eof:
-             return
+        if eof:
+            return
 
-         match = self.lexing_statedef_re.match(line)
-         if match:
-             statenames = [name.strip() for name in match.group('names').split(',')]
-             statenames = sum([name.split() for name in statenames], [])
-             try:
-                 if match.group('type') == '%x':
-                     for name in statenames:
-                         self.syntax.AddExclusiveInitialCondition(name)
-                 elif match.group('type') == '%s':
-                     for name in statenames:
-                         self.syntax.AddInclusiveInitialCondition(name)
-                 elif match.group('type') == '%nullmatch':
-                     for name in statenames:
-                         self.syntax.InitialCondition(name).DeclareNullmatch()
-                 else:
-                     raise CantHappen()
-             except SyntaxNameError as e:
-                 self.logger.error("line {}: {}".format(self.line, str(e)))
-             return
+        match = self.lexing_statedef_re.match(line)
+        if match:
+            statenames = [name.strip() for name in match.group('names').split(',')]
+            statenames = sum([name.split() for name in statenames], [])
+            try:
+                if match.group('type') == '%x':
+                    for name in statenames:
+                        self.syntax.AddExclusiveInitialCondition(name)
+                elif match.group('type') == '%s':
+                    for name in statenames:
+                        self.syntax.AddInclusiveInitialCondition(name)
+                elif match.group('type') == '%nullmatch':
+                    for name in statenames:
+                        self.syntax.InitialCondition(name).DeclareNullmatch()
+                else:
+                    raise CantHappen()
+            except SyntaxNameError as e:
+                self.logger.error("line {}: {}".format(self.line, str(e)))
+            return
 
-         match = self.lexing_named_pattern_def_re.match(line)
-         if match:
-             if match.group('one'):
-                 try:
-                     self.syntax.AddNamedPattern(match.group('name'),
-                                                 Regex(match.group('regex'),
-                                                       bindings=self.syntax.NamedPatterns()).ast)
-                 except (RegexSyntaxError, SyntaxNameError) as e:
-                     self.logger.error("line {}: syntax error in regex def: {}".format(self.line, e.args[0]))
-             else:
-                 self.state = self.LexerDefs
-                 return
+        match = self.lexing_named_pattern_def_re.match(line)
+        if match:
+            if match.group('one'):
+                try:
+                    self.syntax.AddNamedPattern(match.group('name'),
+                                                Regex(match.group('regex'),
+                                                      bindings=self.syntax.NamedPatterns()).ast)
+                except (RegexSyntaxError, SyntaxNameError) as e:
+                    self.logger.error("line {}: syntax error in regex def: {}".format(self.line, e.args[0]))
+            else:
+                self.state = self.LexerDefs
+                return
 
 
-         match = self.lexing_rule_re.match(line)
-         state = set()
+        match = self.lexing_rule_re.match(line)
+        state = set()
 
-         if not match:
-             self.logger.error("line {}: invalid token spec".format(self.line))
-             return
+        if not match:
+            self.logger.error("line {}: invalid token spec".format(self.line))
+            return
 
-         # determine the inital condtions
-         if match.group('sol'):
-             state.add(self.syntax.InitialCondition("$SOL"))
+        # determine the inital condtions
+        if match.group('sol'):
+            state.add(self.syntax.InitialCondition("$SOL"))
 
-         if match.group('initialNames'):
-             names = [name.strip() for name in match.group('initialNames').split(',')]
-             for name in names:
-                 try:
-                     state.add(self.syntax.InitialCondition(name))
-                 except  SyntaxNameError as e:
-                     self.logger.error("line {}: error in start condition list: {}".format(self.line, e.args[0]))
+        if match.group('initialNames'):
+            names = [name.strip() for name in match.group('initialNames').split(',')]
+            for name in names:
+                try:
+                    state.add(self.syntax.InitialCondition(name))
+                except  SyntaxNameError as e:
+                    self.logger.error("line {}: error in start condition list: {}".format(self.line, e.args[0]))
 
-         # print('SOL match:', match.group('sol'), 'inital names match:', match.group('initialNames'))
+        # print('SOL match:', match.group('sol'), 'inital names match:', match.group('initialNames'))
 
-         # collect actions
-         action = List()
+        # collect actions
+        action = List()
 
-         if match.group('debug'):
-             action.Append(Debug(match.group('debug')))
+        if match.group('debug'):
+            action.Append(Debug(match.group('debug')))
 
-         def beginMatcher(head, args):
-             if match.group(head):
-                 if match.group(head) == '%begin':
-                     action.Append(Begin(self.syntax.InitialCondition(match.group(args))))
-                 elif match.group(head) == '%push':
-                     action.Append(Push(self.syntax.InitialCondition(match.group(args))))
-                 elif match.group(head) == '%pop':
-                     if match.group(args):
-                         self.logger.error("line {}: state argument for %pop".format(self.line))
-                     action.Append(Pop())
-                 elif match.group(head) == '%function':
-                     action.Append(Function(match.group(args)))
-                 else:
-                     self.logger.error("line {}: invalid lexing action".format(self.line))
-                     return True
-             return False
+        def beginMatcher(head, args):
+            if match.group(head):
+                if match.group(head) == '%begin':
+                    action.Append(Begin(self.syntax.InitialCondition(match.group(args))))
+                elif match.group(head) == '%push':
+                    action.Append(Push(self.syntax.InitialCondition(match.group(args))))
+                elif match.group(head) == '%pop':
+                    if match.group(args):
+                        self.logger.error("line {}: state argument for %pop".format(self.line))
+                    action.Append(Pop())
+                elif match.group(head) == '%function':
+                    action.Append(Function(match.group(args)))
+                else:
+                    self.logger.error("line {}: invalid lexing action".format(self.line))
+                    return True
+            return False
 
-         try:
-             if beginMatcher('beginType', 'begin'): return
-             if beginMatcher('beginType2', 'begin2'): return
-             if beginMatcher('beginType3', 'begin3'): return
-         except SyntaxNameError as e:
-             self.logger.error("line {}: error in lexaction: {}".format(self.line, e.args[0]))
+        try:
+            if beginMatcher('beginType', 'begin'): return
+            if beginMatcher('beginType2', 'begin2'): return
+            if beginMatcher('beginType3', 'begin3'): return
+        except SyntaxNameError as e:
+            self.logger.error("line {}: error in lexaction: {}".format(self.line, e.args[0]))
 
-         if match.group('restart'):
-             action.Append(Restart())
+        if match.group('restart'):
+            action.Append(Restart())
 
-         elif match.group('token'):
-             self.syntax.RequireTerminal(match.group('token'))
-             action.Append(Token(match.group('token')))
+        elif match.group('token'):
+            self.syntax.RequireTerminal(match.group('token'))
+            action.Append(Token(match.group('token')))
 
-         elif match.group('continue'):
-             action.Append(Continue())
+        elif match.group('continue'):
+            action.Append(Continue())
 
-         # put it all together, add a lexing rule
-         try:
-             regex = Regex(match.group('regex'), bindings=self.syntax.NamedPatterns())
-         except RegexSyntaxError as e:
-             self.logger.error("line {}: syntax error in regex: {}".format(self.line, e.args[0]))
-         else:
-             self.syntax.AddLexingRule(LexingRule(state, regex, action))
+        # put it all together, add a lexing rule
+        try:
+            regex = Regex(match.group('regex'), bindings=self.syntax.NamedPatterns())
+        except RegexSyntaxError as e:
+            self.logger.error("line {}: syntax error in regex: {}".format(self.line, e.args[0]))
+        else:
+            self.syntax.AddLexingRule(LexingRule(state, regex, action))
 
     def Parser(self, line, eof=False):
         if eof:
