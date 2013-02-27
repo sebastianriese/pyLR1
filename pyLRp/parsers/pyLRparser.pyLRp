@@ -1,8 +1,17 @@
+# -*- python -*-
 # pyLRp grammar file for pyLRp
 # this must be kept parsable with the limited bootstrap parser
 # it is the definite reference on the format
 
 import pyLRp
+import logging
+
+from ..syntax import Syntax, SyntaxNameError
+from ..regex import Regex, RegexSyntaxError
+from ..lexactions import List, Debug, Push, Pop, Function, Token, Begin, Restart
+from ..lexer import LexingRule
+from ..lr import Production
+from ..pyblob import PyBlobStackVarMapVisitor, PySuite, PyText, PyNewline, PyStackvar
 
 %lexer
 
@@ -31,7 +40,7 @@ import pyLRp
 
 %def
     space     [\ \t\v\f]
-    regexchar [^\ \t\v\f\n]
+    regexchar [^\ \t\v\f\n\r]
     regex     ({regexchar}|\\\ )+
     tonewline [^\n]*
     name      [a-zA-Z_][a-zA-Z0-9_]*
@@ -148,6 +157,8 @@ import pyLRp
 <PARSERULE>%AST      ASTACTION
 <PARSERULE>\(        OPAREN
 <PARSERULE>\)        CPAREN
+<PARSERULE>\[        OBRACKET
+<PARSERULE>\]        CBRACKET
 <PARSERULE>{space}+  %restart
 <PARSERULE>\\\n      %restart
 <PARSERULE>\n        %push(PARSERULE), %push(INDENT), NEWLINE
@@ -158,7 +169,7 @@ import pyLRp
 <PYINLINE>() %begin(PYBLOBSINGLE), %restart
 
 #######################################################
-# multiline python actions
+# python actions
 #######################################################
 
 # python strings, we must not alter their contents
@@ -170,7 +181,7 @@ import pyLRp
 
 <MLSTRD>(\"|\"\"|[^\"\\]*)(\\\"|\\[^\"])? PYBLOB
 <MLSTRD>\"\"\" %pop(), PYBLOB
-<MLSTRD>(\'|\'\'|[^\'\\]*)(\\\'|\\[^\'])? PYBLOB
+<MLSTRS>(\'|\'\'|[^\'\\]*)(\\\'|\\[^\'])? PYBLOB
 <MLSTRS>\'\'\' %pop(), PYBLOB
 
 # this idea comes directly from the CPython lexer
@@ -182,16 +193,17 @@ import pyLRp
 <PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>0x[0-9a-fA-F]+|0o[0-7]+|[0-9]+ PYBLOB
 <PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[=+\-*/\\.:,@<>%&|=^;]+ PYBLOB
 <PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>$[0-9]+|$$ STACKVAR
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>${name} STACKVAR
 
 # explicit line continuations
 <PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>\\\n PYBLOB
 
-# preserve insignificant space
+# preserve insignificant space and comments
 <PYBLOBNOSPC>\s+ PYBLOB
 <PYBLOBNOSPC,PYBLOB,PYBLOBSINGLE>{comment} PYBLOB
 <PYBLOB,PYBLOBSINGLE>{space}+ PYBLOB
 
-# discern indentation, track newlines
+# discern indentation, track newlines where appropriate
 <PYBLOB>\n %push(PYBLOB), %push(INDENT), NEWLINE
 <PYBLOBSINGLE>\n %push(INDENT), NEWLINE
 
@@ -223,7 +235,7 @@ file:
 
 init:
     %empty:
-        self.syntax = pyLRp.Syntax()
+        self.syntax = Syntax()
         self.assocDefs = {}
         self.assocPower = 0
         self.productionNumber = 0
@@ -240,24 +252,25 @@ symbollist_:
     SYMBOL:                   $$.sem = [$1.sem]
     symbollist_ COMMA SYMBOL: $$.sem = $1.sem + [$3.sem]
     symbollist_ SYMBOL:       $$.sem = $1.sem + [$2.sem]
+    symbollist_ %error COMMA: $$.sem = $1.sem
 
 pyblob:
-    pysingle NEWLINE: $$.sem = $1.sem
-    INDENT pyblob_ DEDENT: $$.sem = $2.sem
+    pysingle NEWLINE: $$.sem = $1.sem.get()
+    INDENT pyblob_ DEDENT: $$.sem = $2.sem.get()
 
 pysingle:
-    PYBLOB: $$.sem = PyBlob(); $$.sem.text($1.sem)
-    STACKVAR: $$.sem = PyBlob(); $$.sem.stackvar($1.sem)
+    PYBLOB: $$.sem = PyBlobBuilder(); $$.sem.text($1.sem)
+    STACKVAR: $$.sem = PyBlobBuilder(); $$.sem.stackvar($1.sem)
     pysingle PYBLOB: $$.sem = $1.sem; $$.sem.text($2.sem)
     pysingle STACKVAR: $$.sem = $1.sem; $$.sem.stackvar($2.sem)
 
 pyblob_:
-    PYBLOB: $$.sem = PyBlob(); $$.sem.text($1.sem)
-    STACKVAR: $$.sem = PyBlob(); $$.sem.stackvar($1.sem)
-    INDENT pyblob_ DEDENT: $$.sem = PyBlob(); $$.sem.blob($2.sem)
+    PYBLOB: $$.sem = PyBlobBuilder(); $$.sem.text($1.sem)
+    STACKVAR: $$.sem = PyBlobBuilder(); $$.sem.stackvar($1.sem)
+    INDENT pyblob_ DEDENT: $$.sem = PyBlobBuilder(); $$.sem.suite($2.sem.get())
     pyblob_ PYBLOB: $$.sem = $1.sem; $$.sem.text($2.sem)
     pyblob_ STACKVAR: $$.sem = $1.sem; $$.sem.stackvar($2.sem)
-    pyblob_ INDENT pyblob_ DEDENT: $$.sem = $1.sem; $$.sem.blob($3.sem)
+    pyblob_ INDENT pyblob_ DEDENT: $$.sem = $1.sem; $$.sem.suite($3.sem.get())
     pyblob_ NEWLINE: $$.sem = $1.sem; $$.sem.newline()
 
 header:
@@ -303,13 +316,13 @@ lexdefs:
     SYMBOL REGEX NEWLINE:
         self.syntax.AddNamedPattern(
             $1.sem,
-            pyLRp.Regex($2.sem, bindings=self.syntax.NamedPatterns()).ast
+            Regex($2.sem, bindings=self.syntax.NamedPatterns()).ast
         )
 
     lexdefs SYMBOL REGEX NEWLINE:
         self.syntax.AddNamedPattern(
             $2.sem,
-            pyLRp.Regex($3.sem, bindings=self.syntax.NamedPatterns()).ast
+            Regex($3.sem, bindings=self.syntax.NamedPatterns()).ast
         )
 
 lexrules:
@@ -319,18 +332,18 @@ lexrules:
 lexrule:
     lexscope
     REGEX lexaction:
-        regex = pyLRp.Regex($1.sem, bindings=self.syntax.NamedPatterns())
-        self.syntax.AddLexingRule(pyLRp.LexingRule(set(), regex, $2.sem))
+        regex = Regex($1.sem, bindings=self.syntax.NamedPatterns())
+        self.syntax.AddLexingRule(LexingRule(set(), regex, $2.sem))
     CARET REGEX lexaction:
-        regex = pyLRp.Regex($2.sem, bindings=self.syntax.NamedPatterns())
-        self.syntax.AddLexingRule(pyLRp.LexingRule(set([self.syntax.InitialCondition("$SOL")]), regex, $3.sem))
+        regex = Regex($2.sem, bindings=self.syntax.NamedPatterns())
+        self.syntax.AddLexingRule(LexingRule(set([self.syntax.InitialCondition("$SOL")]), regex, $3.sem))
 
     LANGLE condspec RANGLE REGEX lexaction:
-        regex = pyLRp.Regex($4.sem, bindings=self.syntax.NamedPatterns())
+        regex = Regex($4.sem, bindings=self.syntax.NamedPatterns())
         state = set()
         for symb in $2.sem:
             state.add(self.syntax.InitialCondition(symb))
-        self.syntax.AddLexingRule(pyLRp.LexingRule(state, regex, $5.sem))
+        self.syntax.AddLexingRule(LexingRule(state, regex, $5.sem))
 
 lexscope:
     lexscopedecl INDENT lexscope_ DEDENT: self.lexscopes.pop()
@@ -357,12 +370,12 @@ scopespec:
 lexscope_:
     lexscope
     REGEX lexaction:
-       regex = pyLRp.Regex($1.sem, bindings=self.syntax.NamedPatterns())
-       self.syntax.AddLexingRule(pyLRp.LexingRule(self.lexscopes[-1], regex, $2.sem))
+       regex = Regex($1.sem, bindings=self.syntax.NamedPatterns())
+       self.syntax.AddLexingRule(LexingRule(self.lexscopes[-1], regex, $2.sem))
     lexscope_ lexscope
     lexscope_ REGEX lexaction:
-       regex = pyLRp.Regex($2.sem, bindings=self.syntax.NamedPatterns())
-       self.syntax.AddLexingRule(pyLRp.LexingRule(self.lexscopes[-1], regex, $3.sem))
+       regex = Regex($2.sem, bindings=self.syntax.NamedPatterns())
+       self.syntax.AddLexingRule(LexingRule(self.lexscopes[-1], regex, $3.sem))
 
 condspec:
     SYMBOL: $$.sem = [$1.sem]
@@ -372,29 +385,29 @@ lexaction:
     stackactions final NEWLINE: $$.sem = $1.sem; $$.sem.Append($2.sem)
 
 stackactions:
-    %empty: $$.sem = pyLRp.List()
+    %empty: $$.sem = List()
     stackactions PUSH OPAREN SYMBOL CPAREN COMMA:
         $$.sem = $1.sem
-        $$.sem.Append(pyLRp.Push(self.syntax.InitialCondition($4.sem)))
+        $$.sem.Append(Push(self.syntax.InitialCondition($4.sem)))
     stackactions POP OPAREN CPAREN COMMA:
         $$.sem = $1.sem
-        $$.sem.Append(pyLRp.Pop())
+        $$.sem.Append(Pop())
     stackactions BEGIN OPAREN SYMBOL CPAREN COMMA:
         $$.sem = $1.sem
-        $$.sem.Append(pyLRp.Begin(self.syntax.InitialCondition($4.sem)))
+        $$.sem.Append(Begin(self.syntax.InitialCondition($4.sem)))
     stackactions FUNCTION OPAREN SYMBOL CPAREN COMMA:
         $$.sem = $1.sem
-        $$.sem.Append(pyLRp.Function($4.sem))
+        $$.sem.Append(Function($4.sem))
     stackactions DEBUG OPAREN STRLIT CPAREN COMMA:
         $$.sem = $1.sem
-        $$.sem.Append(pyLRp.Debug($4.sem))
+        $$.sem.Append(Debug($4.sem))
 
 final:
-    RESTART: $$.sem = pyLRp.Restart()
-    CONTINUE: $$.sem = pyLRp.Continue()
+    RESTART: $$.sem = Restart()
+    CONTINUE: $$.sem = Continue()
     SYMBOL:
         self.syntax.RequireTerminal($1.sem)
-        $$.sem = pyLRp.Token($1.sem)
+        $$.sem = Token($1.sem)
 
 parser:
     PARSER assocdefs
@@ -405,9 +418,9 @@ assocdefs:
     assocdefs assocdef
 
 assocdef:
-    LEFT symbollist: set_assoc(self, pyLRp.Production.LEFT, $2.sem)
-    RIGHT symbollist: set_assoc(self, pyLRp.Production.RIGHT, $2.sem)
-    NONASSOC symbollist: set_assoc(self, pyLRp.Production.NONASSOC, $2.sem)
+    LEFT symbollist: set_assoc(self, Production.LEFT, $2.sem)
+    RIGHT symbollist: set_assoc(self, Production.RIGHT, $2.sem)
+    NONASSOC symbollist: set_assoc(self, Production.NONASSOC, $2.sem)
 
 ruleset:
     SYMBOL COLON INDENT:
@@ -427,11 +440,14 @@ ruleset:
 
 parserule:
     production COLON pyblob:
-        $$.sem = $1.sem
-        $$.sem.SetAction($3.sem.flatten())
-    production NEWLINE: $$.sem = $1.sem
+        # map the stack vars to numbers
+        varmapper = PyBlobStackVarMapVisitor($1.sem.varmap)
+        varmapper.Visit($3.sem)
+        $$.sem = $1.sem.production
+        $$.sem.SetAction($3.sem)
+    production NEWLINE: $$.sem = $1.sem.production
     production ASTACTION OPAREN SYMBOL CPAREN NEWLINE:
-        $$.sem = $1.sem
+        $$.sem = $1.sem.production
         self.syntax.ASTInfo().Bind($$.sem, $4.sem)
 
 production:
@@ -456,6 +472,11 @@ production:
     production SYMBOL:
         $$.sem = $1.sem
         add_meta_symbol(self, $$.sem, $2.sem, $2.pos)
+
+    production SYMBOL OBRACKET SYMBOL CBRACKET:
+        $$.sem = $1.sem
+
+        add_meta_symbol(self, $$.sem, $2.sem, $2.pos, altname=$4.sem)
 
     production EMPTY: $$.sem = $1.sem
 
@@ -507,10 +528,58 @@ def indent(lexer, text, position):
 
     lexer.nextCond.pop()
 
+class AnnotatedProduction(object):
+
+    def __init__(self, production):
+        """
+        A `Production` annotated with names for the single elements.
+        """
+        self.production = production
+        self.names = {}
+        self.ambiguous = set()
+
+    def varmap(self, var):
+        """
+        A varmap function for the PyBlobMapStackVarVisitor
+        """
+        text = var[1:]
+
+        if text == '$':
+            return None
+
+        try:
+            num = int(text)
+        except ValueError:
+            try:
+                if text in self.ambiguous:
+                    logging.getLogger('pyLR1').error("Ambiguous stack var")
+
+                num = self.names[text]
+            except KeyError:
+                logging.getLogger('pyLR1').error("Undefined stack var")
+                return ''
+
+        return num
+
+
+    def name_last(self, name, explicit=False):
+        # TODO: handle ambiguity (with warnings/errors)
+        # TODO: do we want the $$ renaming feature of bison
+        # I personally feel, that $$ does not lead to the
+        # kind of unreadability and to the difficulties of
+        # $N
+        if name in self.names:
+            if explicit:
+                logging.getLogger('pyLR1').error("Explicitely redefined symbol name")
+            else:
+                self.ambiguous.add(name)
+
+        self.names[name] = len(self.production) - 1
+
 def setup_production(self):
-    res = pyLRp.Production(None, [], self.productionNumber)
+    prod = Production(None, [], self.productionNumber)
     self.productionNumber += 1
-    return res
+    return AnnotatedProduction(prod)
 
 def set_assoc(parser, assoctype, symbols):
     assoc = assoctype, parser.assocPower
@@ -518,57 +587,50 @@ def set_assoc(parser, assoctype, symbols):
         parser.assocDefs[symb] = assoc
     parser.assocPower += 1
 
-def add_meta_symbol(self, prod, symbol, pos):
+def add_meta_symbol(self, prod, symbol, pos, altname=None):
     sym = self.syntax.RequireMeta(symbol)
-    if self.syntax.SymTable()[sym.Name()].SymType() == pyLRp.Syntax.META \
+    if self.syntax.SymTable()[sym.Name()].SymType() == Syntax.META \
             and sym not in self.defined:
         self.undef.setdefault(sym, []).append(pos)
 
-    prod.SetAssoc(self.assocDefs.get(sym.Name(), prod.GetAssoc()))
-    prod.AddSym(sym)
+    prod.production.SetAssoc(self.assocDefs.get(sym.Name(), prod.production.GetAssoc()))
+    prod.production.AddSym(sym)
+
+    prod.name_last(symbol)
+    if altname is not None:
+        prod.name_last(altname, explicit=True)
 
 def add_stoken(self, prod, stoken, pos):
     sym = self.syntax.RequireTerminal(stoken, stoken=True)
     # XXX: maybe we should do this by hand
     self.syntax.AddInlineLexingRule(bytes(stoken[1:-1], "utf-8").decode('unicode-escape'))
 
-    prod.SetAssoc(self.assocDefs.get(sym.Name(), prod.GetAssoc()))
-    prod.AddSym(sym)
+    prod.production.SetAssoc(self.assocDefs.get(sym.Name(), prod.production.GetAssoc()))
+    prod.production.AddSym(sym)
 
 def add_error(self, prod, pos):
     sym = self.syntax.RequireTerminal("$RECOVER")
-    prod.AddSym(sym)
+    prod.production.AddSym(sym)
 
-class PyBlob(object):
-
-    def __str__(self):
-        return '\n'.join(self.flatten())
-
+class PyBlobBuilder(object):
     def __init__(self):
-        self.code = ['']
+        self.blob = PySuite()
+
+    def get(self):
+        return self.blob
 
     def newline(self):
-        self.code.append('')
+        self.blob.add(PyNewline())
 
     def text(self, text):
-        self.code[-1] += text
+        self.blob.add(PyText(text))
 
     def stackvar(self, sv):
-        self.code[-1] += sv
+        self.blob.add(PyStackvar(text=sv))
 
-    def blob(self, blob):
-        self.code.append(blob)
-        self.code.append('')
+    def suite(self, suite):
+        self.blob.add(suite)
 
-    def flatten(self):
-        lines = []
-        for line in self.code:
-            if isinstance(line, PyBlob):
-                for blobline in line.flatten():
-                    lines.append('    ' + blobline)
-            else:
-                lines.append(line)
-        return lines
 
 # for debugging purposes
 if __name__ == '__main__':
