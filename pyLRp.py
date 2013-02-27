@@ -298,9 +298,8 @@ class Symbol(object):
     """Base class for all types symbols in the system (terminal, meta,
     undef and empty)."""
 
-    def __init__(self, name, syntax):
+    def __init__(self, name):
         self.name = name
-        self.syntax = syntax
 
     def __str__(self):
         return self.Name()
@@ -310,9 +309,6 @@ class Symbol(object):
 
     def IsSToken(self):
         return False
-
-    def Syntax(self):
-        return self.syntax
 
     def Productions(self):
         """Return an iterator over the list of productions"""
@@ -340,7 +336,7 @@ class EOF(Symbol):
     """
 
     def __init__(self):
-        super(EOF, self).__init__("$EOF", None)
+        super(EOF, self).__init__("$EOF")
 
     def First(self, visited=None):
         return set([self])
@@ -352,7 +348,7 @@ class Error(Symbol):
     """
 
     def __init__(self):
-        super(Error, self).__init__("$ERROR", None)
+        super(Error, self).__init__("$ERROR")
 
     def First(self, visited=None):
         return set([self])
@@ -364,7 +360,7 @@ class Undef(Symbol):
     """
 
     def __init__(self):
-        super(Undef, self).__init__("$UNDEF", None)
+        super(Undef, self).__init__("$UNDEF")
 
     def First(self, visited=None):
         return set([self])
@@ -381,7 +377,7 @@ class Empty(Symbol):
     instance = None
 
     def __init__(self):
-        super(Empty, self).__init__("$Empty", None)
+        super(Empty, self).__init__("$Empty")
 
     @classmethod
     def Instance(clazz):
@@ -404,8 +400,8 @@ class Empty(Symbol):
 class Terminal(Symbol):
     """The Terminal symbol class."""
 
-    def __init__(self, name, syntax, stoken):
-        super(Terminal, self).__init__(name, syntax)
+    def __init__(self, name, stoken):
+        super(Terminal, self).__init__(name)
         self.stoken = stoken
 
     def First(self, visited=None):
@@ -419,8 +415,8 @@ class Meta(Symbol):
     The Metasymbol class. This stores the grammar for the symbol.
     """
 
-    def __init__(self, name, syntax):
-        super(Meta, self).__init__(name, syntax)
+    def __init__(self, name):
+        super(Meta, self).__init__(name)
         self.prod = []
         self.first = None
         self.reduces_to_empty = None
@@ -1329,14 +1325,14 @@ class Syntax(object):
 
     def RequireTerminal(self, name, stoken=False):
         if name not in self.symbols:
-            self.symbols[name] = Syntax.SymbolTableEntry(Terminal(name, self, stoken), self.termcounter, self.TERMINAL)
+            self.symbols[name] = Syntax.SymbolTableEntry(Terminal(name, stoken), self.termcounter, self.TERMINAL)
             self.termcounter += 1
 
         return self.symbols[name].Symbol()
 
     def RequireMeta(self, name):
         if name not in self.symbols:
-            self.symbols[name] = Syntax.SymbolTableEntry(Meta(name, self), self.metacounter, self.META)
+            self.symbols[name] = Syntax.SymbolTableEntry(Meta(name), self.metacounter, self.META)
             self.metacounter += 1
 
         return self.symbols[name].Symbol()
