@@ -1,5 +1,6 @@
 
 from .nfa import *
+from .lexactions import Token
 
 class LexingRule(object):
 

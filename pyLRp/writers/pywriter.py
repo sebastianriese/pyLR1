@@ -3,6 +3,7 @@ from .. import pyblob
 from .. import lexactions
 from .. import parsetable
 from ..syntax import Syntax
+from ..pyblob import PyBlobStackVarMapVisitor, PySuite, PyText, PyNewline, PyStackvar
 
 class PyBlobToLines(pyblob.PyBlobVisitor):
     def __init__(self, stacklen, toplevel=True):
@@ -212,7 +213,7 @@ import mmap
                             action.add(PyStackvar(result=True))
                             action.add(PyText('.sem.append('))
                             action.add(PyStackvar(num=tail))
-                            action.add(PyText(')'))
+                            action.add(PyText('.sem)'))
                         else:
                             self.logger.error("Erroneous %list target: more items than can be enlisted")
                             raise Exception()
