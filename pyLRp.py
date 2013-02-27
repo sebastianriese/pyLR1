@@ -2188,6 +2188,7 @@ class Regex(object):
         't' : '\t',
         'f' : '\f',
         'v' : '\v',
+        'r' : '\r',
         's' : ' \n\t\v\r\f',
         'd' : '0123456789',
         'w' : 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ013456789_'
