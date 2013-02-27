@@ -3048,7 +3048,7 @@ class %s(AST):
         return visitor.Visit%s(self)
 """ % (name,))
 
-    def WriteLexer(self, lexer, symtable):
+    def WriteLexer(self, lexer, symtable, initial_conditions):
 
         if self.python3:
             extract = '.decode("UTF-8")'
@@ -3122,15 +3122,24 @@ class %s(AST):
             symtypes = frozenset([Syntax.TERMINAL, Syntax.EOF, Syntax.ERROR])
             for key, value in symtable.items():
                 if value.SymType() in symtypes:
-                    token_names.append("{token}: {key}".format(key=repr(key),
-                                                               token=value.Number()))
-                    token_numbers.append("{key}: {token}".format(key=repr(key),
-                                                                 token=value.Number()))
+                    token_spec = dict(key=repr(key), token=value.Number())
+                    token_names.append("{token}: {key}".format(**token_spec))
+                    token_numbers.append("{key}: {token}".format(**token_spec))
+
+            condition_names = []
+            condition_numbers = []
+            for name, cond in initial_conditions.items():
+                condition_spec = dict(name=repr(name), num=cond.Number())
+                condition_names.append("{num}: {name}".format(**condition_spec))
+                condition_numbers.append("{name}: {num}".format(**condition_spec))
 
             lexerDebugData = r"""
     TOKEN_NAMES = {{{}}}
     TOKEN_NUMBERS = {{{}}}
-""".format(','.join(token_names), ','.join(token_numbers))
+    CONDITION_NAMES = {{{}}}
+    CONDITION_NUMBERS = {{{}}}
+""".format(','.join(token_names), ','.join(token_numbers),
+           ','.join(condition_names), ','.join(condition_numbers))
 
         if self.lines:
             linesPositionClass = """class Position(object):
@@ -3219,7 +3228,7 @@ class Lexer(object):
                 self.size = len(self.buffer)
 
         self.root = 0
-        self.nextCond = [2]
+        self.nextCond = [""" + repr(initial_conditions["$SOF"].Number()) + r"""]
         self.token_push_back = []
         self.line = 1
         self.start_of_line = 0
@@ -3276,14 +3285,21 @@ class Lexer(object):
             """ + linesCount + r"""
             name = faction(text, position)
 
-            if self.nextCond[-1] == 2:
-                self.nextCond[-1] = 0
+            if self.nextCond[-1] == """ + repr(initial_conditions["$SOF"].Number()) + r""":
+                self.nextCond[-1] = """ + repr(initial_conditions["$INITIAL"].Number()) + r"""
 
-            if self.nextCond[-1] == 0 and text and text[-1] == '\n':
-                self.nextCond[-1] = 1
-            elif self.nextCond[-1] == 1 and text and text[-1] != '\n':
-                self.nextCond[-1] = 0
-
+            if self.nextCond[-1] == """
+                        + repr(initial_conditions["$INITIAL"].Number()) +
+                               r""" and text and text[-1] == '\n':
+                self.nextCond[-1] = """
+                               + repr(initial_conditions["$SOL"].Number()) +
+                               r"""
+            elif self.nextCond[-1] == """
+                               + repr(initial_conditions["$SOL"].Number()) +
+                               r""" and text and text[-1] != '\n':
+                self.nextCond[-1] = """
+                               + repr(initial_conditions["$INITIAL"].Number()) +
+                               r"""
             self.root = pos
 
             if name is None:
@@ -3502,7 +3518,7 @@ class Parser(object):
 
         self.WriteAST(syntax.ASTInfo(), syntax.SymTable())
 
-        self.WriteLexer(lextable, syntax.SymTable())
+        self.WriteLexer(lextable, syntax.SymTable(), syntax.initialConditions)
 
         self.WriteParser(parsetable, syntax.SymTable())
 
