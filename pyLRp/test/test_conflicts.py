@@ -3,8 +3,7 @@ import unittest
 import sys
 import logging
 
-import pyLRp
-import test.utils as utils
+from . import utils
 
 class CompilationMessagesTestCase(utils.ParseResultTestCase):
 

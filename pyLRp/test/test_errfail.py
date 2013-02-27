@@ -6,8 +6,7 @@ import sys
 import io
 import logging
 
-import pyLRp
-import test.utils as utils
+from . import utils
 
 class TestGeneratedLexerErrors(utils.FailOnLogTestCase):
     """
@@ -115,6 +114,8 @@ doc:
 "This should be a comment, but the lexer spec is
 faulty, so that the comment rule matches greedily everything
 between the first and last quotation mark"
+abc abc abc
+"the abc's above ought to be ignored"
 abc abc abc
 abc abc abc
 """

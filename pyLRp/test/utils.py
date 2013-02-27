@@ -4,7 +4,12 @@ import sys
 import logging
 import unittest
 
-import pyLRp
+from ..lr import LALR1StateTransitionGraph, LR1StateTransitionGraph
+from ..syntax import Syntax
+from ..lexer import *
+from ..writers.pywriter import Writer
+from ..parsers.bootstrap import Parser
+from ..parsers import pyLRparser
 
 # perhaps I should just use logging.shutdown
 # and reinitialize afterwards, I am afraid
@@ -111,23 +116,23 @@ def compile(logger, source, listing=None, trace=False):
     """
     codelines = source.split('\n')
 
-    parser = pyLRp.Parser(codelines, logger)
+    parser = Parser(codelines, logger)
     syn = parser.Parse()
     del parser
 
     syn.RequireError()
     parseTable = None
     if syn.Start() is not None:
-        graph = pyLRp.LALR1StateTransitionGraph(syn, logger)
+        graph = LALR1StateTransitionGraph(syn, logger)
         graph.Construct()
 
-        termsyms = frozenset([pyLRp.Syntax.TERMINAL,
-                              pyLRp.Syntax.EOF,
-                              pyLRp.Syntax.ERROR])
+        termsyms = frozenset([Syntax.TERMINAL,
+                              Syntax.EOF,
+                              Syntax.ERROR])
         parseTable = graph.CreateParseTable(
             syn.SymTableMap(filt=lambda x: x.SymType() in termsyms,
                             value=lambda x: x.Number()),
-            syn.SymTableMap(filt=lambda x: x.SymType() == pyLRp.Syntax.META,
+            syn.SymTableMap(filt=lambda x: x.SymType() == Syntax.META,
                             value=lambda x: x.Number())
             )
         graph.ReportNumOfConflicts()
@@ -137,7 +142,7 @@ def compile(logger, source, listing=None, trace=False):
     else:
         syn.RequireEOF()
 
-    lexer = pyLRp.LexerConstructor(syn, logger)
+    lexer = LexerConstructor(syn, logger)
     lexer.ConstructDFAs()
     lexer.DropNFA()
     lexer.Optimize()
@@ -146,7 +151,7 @@ def compile(logger, source, listing=None, trace=False):
     lexer.ConstructEquivalenceClasses()
 
     code = io.StringIO()
-    w = pyLRp.Writer(code, logger,
+    w = Writer(code, logger,
                      lines=False, trace=trace, debug=trace,
                      deduplicate=True, python3=True)
     w.Write(syn, parseTable, lexer)

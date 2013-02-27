@@ -3,8 +3,7 @@ import unittest
 import sys
 import logging
 
-import test.utils as utils
-import pyLRp
+from . import utils
 
 class DefaultConditionsTestCase(utils.FailOnLogTestCase,
                                 utils.ParseResultTestCase):
