@@ -790,7 +790,7 @@ class Parser(object):
 
         self.WriteAST(syntax.ASTInfo(), syntax.SymTable())
 
-        self.WriteLexer(lextable, syntax.SymTable(), syntax.initialConditions)
+        self.WriteLexer(lextable, syntax.SymTable(), syntax.initial_conditions)
 
         self.WriteParser(parsetable, syntax.SymTable())
 
