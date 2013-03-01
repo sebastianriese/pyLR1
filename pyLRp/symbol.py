@@ -132,7 +132,7 @@ class Meta(Symbol):
         return iter(self.prod)
 
     def AddProd(self, prod):
-        prod.SetLeft(self)
+        prod.left = self
         self.prod.append(prod)
 
     def Productions(self):
@@ -148,7 +148,7 @@ class Meta(Symbol):
         if visited is None: visited = frozenset()
 
         for prod in self.prod:
-            result |= prod.First(visited | set([self]))
+            result |= prod.first(visited | set([self]))
 
         # if len(visited) == 0:
         #     self.first = result

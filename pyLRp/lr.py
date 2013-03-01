@@ -7,8 +7,19 @@ from .parsetable import *
 
 class Production(object):
     """A production in a grammar. Productions with left set to None
-    may be used as arbitrary symbol strings."""
+    may be used as arbitrary symbol strings.
 
+    Public attributes:
+    * ``left`` the symbol which is derived, only write this if
+               you are a parser or ``Meta``
+    * ``assoc`` the associativity assigned to this rule
+    * ``number`` the number of this production in the reduction vector
+    * ``action`` the semantic action associated with the reduction
+    * ``number_in_file`` readonly, the number of the production
+                         in the source file
+    """
+
+    # these constants define the possible types of associativity
     NONE = 0
     LEFT = 1
     RIGHT = 2
@@ -16,17 +27,18 @@ class Production(object):
 
     def __init__(self, left, syms, number = -1):
         self.left = left
-        self.syms = list(syms)
-        self.numberInFile = number
+        self._syms = list(syms)
+        self._number_in_file = number
         self.assoc = Production.NONE, 0
-        self.text = ""
+        self.action = None
+        self.number = None
 
         # number in the reduction rules vector
         self.number = None
         # self.first = None
 
     def __iter__(self):
-        return iter(self.syms)
+        return iter(self._syms)
 
     def __str__(self):
         text =  str(self.left) + " <- "
@@ -37,38 +49,20 @@ class Production(object):
         return text
 
     def __len__(self):
-        return len(self.syms)
+        return len(self._syms)
 
     # important note: this number is completely independent of the
     # number used to represent  the production in the parse table!
     # This one is  used  exclusivley to resolve  conflicts in the
     # parse  tables  (earlier  declaration  ->  higer  precedence)
-    def NumberInFile(self):
-        return self.numberInFile
+    @property
+    def number_in_file(self):
+        return self._number_in_file
 
-    def GetAssoc(self):
-        return self.assoc
+    def add_sym(self, sym):
+        self._syms.append(sym)
 
-    def SetAssoc(self, assoc):
-        self.assoc = assoc
-
-    def AddSym(self, sym):
-        self.syms.append(sym)
-
-    def SetAction(self, action):
-        self.text = action
-
-    def GetAction(self):
-        return self.text
-
-    # this is the number used in the production rule
-    def SetNumber(self, num):
-        self.number = num
-
-    def GetNumber(self):
-        return self.number
-
-    def First(self, visited=None):
+    def first(self, visited=None):
         # if self.first is not None:
         #     return self.first
 
@@ -77,7 +71,7 @@ class Production(object):
 
         result = set()
 
-        for sub in self.syms:
+        for sub in self._syms:
             if sub  not in visited:
                 result |= sub.First(visited | set([self])) - set([Empty.Instance()])
 
@@ -92,29 +86,13 @@ class Production(object):
 
         return result
 
-    def SetLeft(self, left):
-        self.left = left
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return Production(None, self._syms[index])
+        else:
+            return self._syms[index]
 
-    def Left(self):
-        return self.left
-
-    def AtOrNone(self, index):
-        """Return the Symbol in the Production at position index ort
-        None if index is out of range."""
-        try:
-            return self.syms[index]
-        except IndexError:
-            return None
-
-    def SubProduction(self, index0 = 0, index1 = None):
-        """
-        Return a production with left=None and
-        syms=self.syms[index0:index1]. The main use of this is to
-        evaluate the FIRST set of the subproductions.
-        """
-        return Production(None, self.syms[index0:index1])
-
-    def Concat(self, elem):
+    def concat(self, elem):
         """
         Return a new Production with left=None and
         syms=self.syms+[elem].  The main use of this is to evaluate
@@ -124,7 +102,7 @@ class Production(object):
         if elem.IsEmpty():
             return Production(None, self)
 
-        return Production(None, self.syms + [elem])
+        return Production(None, self._syms + [elem])
 
 
 class LR1Item(object):
@@ -178,10 +156,13 @@ class LR1Item(object):
         return self.pos != 0 or (self.prod.left.Name() == "$START")
 
     def AfterDot(self):
-        return self.prod.AtOrNone(self.pos)
+        try:
+            return self.prod[self.pos]
+        except IndexError:
+            return None
 
     def IsReduce(self):
-        return self.prod.AtOrNone(self.pos) is None
+        return self.AfterDot() is None
 
     def Prod(self):
         return self.prod
@@ -228,8 +209,8 @@ class LR1Item(object):
             laset = set()
 
             for la in self.la:
-                firstconcat = self.prod.SubProduction(self.pos+1, None).Concat(la)
-                laset |= firstconcat.First()
+                firstconcat = self.prod[self.pos+1:].concat(la)
+                laset |= firstconcat.first()
 
             for prod in afterDot.Productions():
 
@@ -475,7 +456,7 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
         # populate the rules vector
         for meta in sorted(metas, key=lambda meta: metas[meta]):
             for rule in meta.Productions():
-                rule.SetNumber(len(rules))
+                rule.number = len(rules)
                 rules.append(rule)
 
         for state in self.states:
@@ -508,10 +489,10 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
                     # where does it matter (obviously it does not
                     # matter in most cases)
                     for item in prods:
-                        nprec = item.Prod().NumberInFile()
+                        nprec = item.Prod().number_in_file
                         if nprec > prec:
                             prec = nprec
-                            assoc = item.Prod().GetAssoc()
+                            assoc = item.Prod().assoc
 
                     acur[terminals[symb]] = Shift(tstate.Number(),
                                                   assoc, prec)
@@ -523,9 +504,9 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
             # write reductions to the action table
             for item in state.Reductions():
                 prod = item.Prod()
-                reduceAction = Reduce(prod.GetNumber(),
-                                      prod.GetAssoc(),
-                                      prod.NumberInFile())
+                reduceAction = Reduce(prod.number,
+                                      prod.assoc,
+                                      prod.number_in_file)
 
                 for la in item.Lookahead():
                     acur[terminals[la]] = \
@@ -589,7 +570,7 @@ class LALR1StateTransitionGraph(StateTransitionGraph):
         prod = Production(self.grammar.RequireMeta("$START"),
                           [self.grammar.Start()], -1)
 
-        prod.SetAction(PyText("raise Accept()"))
+        prod.action = PyText("raise Accept()")
 
         self.grammar.RequireMeta("$START").AddProd(prod)
 
@@ -614,7 +595,7 @@ class LR1StateTransitionGraph(StateTransitionGraph):
 
         prod = Production(self.grammar.RequireMeta("$START"),
                           [self.grammar.Start()], -1)
-        prod.SetAction(PyText("raise Accept()"))
+        prod.action = PyText("raise Accept()")
 
         self.grammar.RequireMeta("$START").AddProd(prod)
 
@@ -702,7 +683,8 @@ class LR1StateTransitionGraphElement(object):
         Sort the elements by order in file for predictable results.
         """
 
-        for elem in sorted(self.elements, key=lambda elem: elem.Prod().NumberInFile()):
+        for elem in sorted(self.elements,
+                           key=lambda elem: elem.Prod().number_in_file):
 
             if elem.AfterDot():
                 goto = set()

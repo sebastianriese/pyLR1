@@ -182,7 +182,7 @@ import mmap
                     # trivial list creation ... could be more intelligent
                     # at guessing how to do this
                     for prod in symbol.Symbol().Productions():
-                        if prod.GetAction():
+                        if prod.action is not None:
                             continue
                         positions = []
                         i = 0
@@ -217,7 +217,7 @@ import mmap
                         else:
                             self.logger.error("Erroneous %list target: more items than can be enlisted")
                             raise Exception()
-                        prod.SetAction(action)
+                        prod.action = action
                 else:
                     for prod in symbol.Symbol().Productions():
                         if prod in ast.bindings:
@@ -244,7 +244,7 @@ import mmap
                                         args.append(symb.Name())
                             action.add(PyText(')'))
                             classes[ast.bindings[prod]] = args
-                            prod.SetAction(action)
+                            prod.action = action
 
         self.parser_file.write("""
 class AST(object):
@@ -631,7 +631,7 @@ class Parser(object):
         reductionStr = "("
         i = 0
         for red in parseTable.Rules():
-            reductionStr += "(%d,%d,self.action%d),\n" % (len(red), symtable[red.Left().Name()].Number(), i)
+            reductionStr += "(%d,%d,self.action%d),\n" % (len(red), symtable[red.left.Name()].Number(), i)
             i += 1
         reductionStr += ")"
 
@@ -714,7 +714,7 @@ class Parser(object):
 """)
         redNum = 0
         for red in parseTable.Rules():
-            text = red.GetAction()
+            text = red.action
 
             self.parser_file.write("""
     def action%d(self, result):""" % (redNum,))

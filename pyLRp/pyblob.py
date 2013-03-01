@@ -19,7 +19,8 @@ class PyText(PyBlob):
         self.text = text
 
 class PyStackvar(PyBlob):
-    def __init__(self, text=None, num=None, result=None):
+
+    def __init__(self, text=None, num=None, result=False):
         self.text = text
         self.num = num
         self.result = result

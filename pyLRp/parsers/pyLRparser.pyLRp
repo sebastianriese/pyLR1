@@ -444,7 +444,7 @@ parserule:
         varmapper = PyBlobStackVarMapVisitor($1.sem.varmap)
         varmapper.Visit($3.sem)
         $$.sem = $1.sem.production
-        $$.sem.SetAction($3.sem)
+        $$.sem.action = $3.sem
     production NEWLINE: $$.sem = $1.sem.production
     production ASTACTION OPAREN SYMBOL CPAREN NEWLINE:
         $$.sem = $1.sem.production
@@ -467,7 +467,7 @@ production:
 
     production PREC OPAREN SYMBOL CPAREN:
         $$.sem = $1.sem
-        $$.sem.SetAssoc(self.assocDefs[$4.sem])
+        $$.sem.production.assoc = self.assocDefs[$4.sem]
 
     production SYMBOL:
         $$.sem = $1.sem
@@ -593,8 +593,9 @@ def add_meta_symbol(self, prod, symbol, pos, altname=None):
             and sym not in self.defined:
         self.undef.setdefault(sym, []).append(pos)
 
-    prod.production.SetAssoc(self.assocDefs.get(sym.Name(), prod.production.GetAssoc()))
-    prod.production.AddSym(sym)
+    prod.production.assoc = self.assocDefs.get(sym.Name(),
+                                               prod.production.assoc)
+    prod.production.add_sym(sym)
 
     prod.name_last(symbol)
     if altname is not None:
@@ -605,12 +606,13 @@ def add_stoken(self, prod, stoken, pos):
     # XXX: maybe we should do this by hand
     self.syntax.AddInlineLexingRule(bytes(stoken[1:-1], "utf-8").decode('unicode-escape'))
 
-    prod.production.SetAssoc(self.assocDefs.get(sym.Name(), prod.production.GetAssoc()))
-    prod.production.AddSym(sym)
+    prod.production.assoc = self.assocDefs.get(sym.Name(),
+                                               prod.production.assoc)
+    prod.production.add_sym(sym)
 
 def add_error(self, prod, pos):
     sym = self.syntax.RequireTerminal("$RECOVER")
-    prod.production.AddSym(sym)
+    prod.production.add_sym(sym)
 
 class PyBlobBuilder(object):
     def __init__(self):

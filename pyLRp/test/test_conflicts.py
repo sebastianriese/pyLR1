@@ -121,6 +121,12 @@ expr:
         self.verify_syntax_error(module, b"and == +")
         self.verify_syntax_error(module, b"(((==)))")
 
+        # check the %prec() declaration
+        self.verify_parse_result(module, b"-3*5",
+                                 ["*", ["-", 3], 5])
+        self.verify_parse_result(module, b"--3*5",
+                                 ["*", ["-", ["-", 3]], 5])
+
         # verify associativity for all operators within one class
         self.verify_parse_result(module, b"1*2*3/4/5",
                                  ["/",["/",["*",["*",1,2],3],4],5])

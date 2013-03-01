@@ -335,7 +335,7 @@ class Parser(object):
                     match = self.syntax_prec_re.match(line)
                     if match:
                         try:
-                            prod.SetAssoc(self.assocDefs[match.group(1)])
+                            prod.assoc = self.assocDefs[match.group(1)]
                         except KeyError:
                             self.logger.warning("%d: Erroneous precedence declaration" % self.line)
 
@@ -353,7 +353,7 @@ class Parser(object):
                         line = line.strip()
 
                         if line:
-                            prod.SetAction(line)
+                            prod.action = line
                             self.current.AddProd(prod)
                         else:
                             self.state = self.Action
@@ -368,8 +368,8 @@ class Parser(object):
                 line = line.strip()
 
                 if elem:
-                    prod.SetAssoc(self.assocDefs.get(elem.Name(), prod.GetAssoc()))
-                    prod.AddSym(elem)
+                    prod.assoc = self.assocDefs.get(elem.Name(), prod.assoc)
+                    prod.add_sym(elem)
 
             self.current.AddProd(prod)
 
@@ -390,7 +390,7 @@ class Parser(object):
 
     def Action(self, line, eof=False):
         if eof:
-            self.current.Left().AddProd(self.current)
+            self.current.left.AddProd(self.current)
             return
 
         indent = self.Indention(line)
@@ -399,8 +399,8 @@ class Parser(object):
 
         if indent < self.indent:
             self.state = self.Parser
-            self.current.Left().AddProd(self.current)
-            self.current = self.current.Left()
+            self.current.left.AddProd(self.current)
+            self.current = self.current.left
             self.indent = None
             return self.state(line)
 
@@ -410,7 +410,10 @@ class Parser(object):
 
             return " " * (ind - self.indent) + line
 
-        self.current.SetAction(self.current.GetAction() + "\n" + Unindent(line))
+        if self.current.action is None:
+            self.current.action = ""
+
+        self.current.action = self.current.action + "\n" + Unindent(line)
 
     def Parse(self):
         self.line = 0
