@@ -234,7 +234,7 @@ import mmap
                                 i += 1
                                 if not symb.IsSToken():
                                     action.add(PyStackvar(num=i))
-                                    action.add('.sem, ')
+                                    action.add(PyText('.sem, '))
                                     if symb.Name() in args:
                                         args.append('{name:s}{count:d}'.format(
                                                 name=symb.Name(),
