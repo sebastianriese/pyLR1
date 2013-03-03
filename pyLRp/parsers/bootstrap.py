@@ -103,7 +103,7 @@ class Parser(object):
 
         match = self.ast_list_re.match(line)
         if match:
-            self.syntax.ASTInfo().List(match.group(1))
+            self.syntax.ASTInfo().list(match.group(1))
             return
 
         match = self.ast_visitor_re.match(line)
@@ -343,7 +343,7 @@ class Parser(object):
 
                     match = self.syntax_AST_re.match(line)
                     if match:
-                        self.syntax.ASTInfo().Bind(prod, match.group(1))
+                        self.syntax.ASTInfo().bind(prod, match.group(1))
                         break
 
                     match = self.syntax_action_re.match(line)
@@ -425,7 +425,7 @@ class Parser(object):
                 pass
             elif self.ast_re.match(line):
                 self.state = self.AST
-                self.syntax.ASTInfo().Used()
+                self.syntax.ASTInfo().set_used()
             elif self.parser_re.match(line):
                 self.state = self.Parser
             elif self.lexer_re.match(line):

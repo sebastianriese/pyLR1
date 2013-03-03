@@ -278,10 +278,10 @@ header:
     header PYVERB: self.syntax.AddHeader($2.sem)
 
 ast:
-    AST: self.syntax.ASTInfo().Used()
+    AST: self.syntax.ASTInfo().set_used()
     ast LIST symbollist:
         for name in $3.sem:
-            self.syntax.ASTInfo().List(name)
+            self.syntax.ASTInfo().list(name)
 
     ast VISITOR symbollist:
        try:
@@ -448,7 +448,7 @@ parserule:
     production NEWLINE: $$.sem = $1.sem.production
     production ASTACTION OPAREN SYMBOL CPAREN NEWLINE:
         $$.sem = $1.sem.production
-        self.syntax.ASTInfo().Bind($$.sem, $4.sem)
+        self.syntax.ASTInfo().bind($$.sem, $4.sem)
 
 production:
     SYMBOL:
