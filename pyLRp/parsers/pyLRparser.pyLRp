@@ -12,7 +12,8 @@ from ..lexactions import (List, Debug, Push, Pop, Function, Token,
                           Begin, Restart, Continue)
 from ..lexer import LexingRule
 from ..lr import Production
-from ..pyblob import PyBlobStackVarMapVisitor, PySuite, PyText, PyNewline, PyStackvar
+from ..pyblob import (PyBlobStackVarMapVisitor, PySuite, PyText,
+                      PyNewline, PyStackvar)
 
 %lexer
 
@@ -25,7 +26,8 @@ from ..pyblob import PyBlobStackVarMapVisitor, PySuite, PyText, PyNewline, PySta
 %x AST
 
 # states used by the lexer spec
-%x LEXER, CONDSPEC, REGEX, DEF, DEFINDENT, LEXACTION, SCOPE, SCOPEDEF, DEFNEWLINE
+%x LEXER, CONDSPEC, REGEX, DEF, DEFINDENT, LEXACTION
+%x SCOPE, SCOPEDEF, DEFNEWLINE
 
 # states used by the parser spec
 %x PARSER, FIXITYSPEC, PARSERMETA, PARSERULE, PARSERINDENT
@@ -334,17 +336,21 @@ lexrule:
     lexscope
     REGEX lexaction:
         regex = Regex($1.sem, bindings=self.syntax.named_patterns())
-        self.syntax.add_lexing_rule(LexingRule(set(), regex, $2.sem))
+        lex_rule = LexingRule(set(), regex, $2.sem)
+        self.syntax.add_lexing_rule(lex_rule)
     CARET REGEX lexaction:
         regex = Regex($2.sem, bindings=self.syntax.named_patterns())
-        self.syntax.add_lexing_rule(LexingRule(set([self.syntax.initial_condition("$SOL")]), regex, $3.sem))
+        lex_rule = LexingRule(set([self.syntax.initial_condition("$SOL")]),
+                              regex, $3.sem)
+        self.syntax.add_lexing_rule(lex_rule)
 
     LANGLE condspec RANGLE REGEX lexaction:
         regex = Regex($4.sem, bindings=self.syntax.named_patterns())
         state = set()
         for symb in $2.sem:
             state.add(self.syntax.initial_condition(symb))
-        self.syntax.add_lexing_rule(LexingRule(state, regex, $5.sem))
+        lex_rule = LexingRule(state, regex, $5.sem)
+        self.syntax.add_lexing_rule(lex_rule)
 
 lexscope:
     lexscopedecl INDENT lexscope_ DEDENT: self.lexscopes.pop()
@@ -372,11 +378,13 @@ lexscope_:
     lexscope
     REGEX lexaction:
        regex = Regex($1.sem, bindings=self.syntax.named_patterns())
-       self.syntax.add_lexing_rule(LexingRule(self.lexscopes[-1], regex, $2.sem))
+       lex_rule = LexingRule(self.lexscopes[-1], regex, $2.sem)
+       self.syntax.add_lexing_rule(lex_rule)
     lexscope_ lexscope
     lexscope_ REGEX lexaction:
        regex = Regex($2.sem, bindings=self.syntax.named_patterns())
-       self.syntax.add_lexing_rule(LexingRule(self.lexscopes[-1], regex, $3.sem))
+       lex_rule = LexingRule(self.lexscopes[-1], regex, $3.sem)
+       self.syntax.add_lexing_rule()
 
 condspec:
     SYMBOL: $$.sem = [$1.sem]
@@ -571,7 +579,8 @@ class AnnotatedProduction(object):
         # $N
         if name in self.names:
             if explicit:
-                logging.getLogger('pyLR1').error("Explicitely redefined symbol name")
+                log = logging.getLogger('pyLR1')
+                log.error("Explicitely redefined symbol name")
             else:
                 self.ambiguous.add(name)
 
@@ -605,7 +614,8 @@ def add_meta_symbol(self, prod, symbol, pos, altname=None):
 def add_stoken(self, prod, stoken, pos):
     sym = self.syntax.require_terminal(stoken, stoken=True)
     # XXX: maybe we should do this by hand
-    self.syntax.add_inline_lexing_rule(bytes(stoken[1:-1], "utf-8").decode('unicode-escape'))
+    text = bytes(stoken[1:-1], "utf-8").decode('unicode-escape')
+    self.syntax.add_inline_lexing_rule(text)
 
     prod.production.assoc = self.assocDefs.get(sym.name,
                                                prod.production.assoc)
@@ -644,7 +654,8 @@ if __name__ == '__main__':
         token_type = -1
         while token_type != Lexer.TOKEN_NUMBERS['$EOF']:
             token_type, lexeme, position = l.lex()
-            print(Lexer.TOKEN_NAMES[token_type], '"""{}"""'.format(lexeme), l.nextCond)
+            print(Lexer.TOKEN_NAMES[token_type],
+                  '"""{}"""'.format(lexeme), l.nextCond)
     elif sys.argv[1] == '-p':
         p = Parser(l)
         try:
