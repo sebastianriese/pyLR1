@@ -397,19 +397,19 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
         if old is None:
             return new
 
-        if old.IsReduce():
+        if old.is_reduce:
             self.logger.info(str(state))
             self.logger.warning("Default to the first reduce for "
                                 "reduce/reduce-conflict")
             self.conflicts += 1
-            if old.NumberInFile() > new.NumberInFile():
+            if old.number_in_file > new.number_in_file:
                 return new
             else:
                 return old
 
-        elif old.IsShift():
-            assoc, prec = old.GetAssoc()
-            associ, preci = new.GetAssoc()
+        elif old.is_shift:
+            assoc, prec = old.assoc
+            associ, preci = new.assoc
 
             # shift wins over reduce by default
             if assoc == Production.NONE:

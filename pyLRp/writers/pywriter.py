@@ -111,10 +111,10 @@ class LRActionToLRTableEntry(parsetable.LRActionVisitor):
         self.symtable = symtable
 
     def visit_Shift(self, shift):
-        return (0, shift.Next())
+        return (0, shift.next)
 
     def visit_Reduce(self, red):
-        return (1, red.Red())
+        return (1, red.red)
 
 
 class Writer(object):
@@ -629,20 +629,20 @@ class Parser(object):
 
         translator = LRActionToLRTableEntry(symtable)
 
-        actionTableHelper, actionTableStr = self.TableStrings("atd", tuple(tuple(translator.visit(a) if a is not None else (2,0) for a in state) for state in parseTable.Actiontable()))
+        actionTableHelper, actionTableStr = self.TableStrings("atd", tuple(tuple(translator.visit(a) if a is not None else (2,0) for a in state) for state in parseTable.actiontable()))
 
-        gotoTableHelper, gotoTableStr = self.TableStrings("gtd", tuple(tuple(a if a else 0 for a in state) for state in parseTable.Gototable()))
+        gotoTableHelper, gotoTableStr = self.TableStrings("gtd", tuple(tuple(a if a else 0 for a in state) for state in parseTable.gototable()))
 
         reductionStr = "("
         i = 0
-        for red in parseTable.Rules():
+        for red in parseTable.rules():
             reductionStr += "(%d,%d,self.action%d),\n" % (len(red), symtable[red.left.name].Number(), i)
             i += 1
         reductionStr += ")"
 
         self.parser_file.write("""
     # tables
-    start = %d""" % parseTable.Start() + """
+    start = %d""" % parseTable.start + """
     """ + actionTableHelper + """
     atable = """ + actionTableStr + """
     """ + gotoTableHelper + """
@@ -718,7 +718,7 @@ class Parser(object):
             return stack[-1].sem
 """)
         redNum = 0
-        for red in parseTable.Rules():
+        for red in parseTable.rules():
             text = red.action
 
             self.parser_file.write("""

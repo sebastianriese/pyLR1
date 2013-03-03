@@ -2,45 +2,62 @@
 from .core import AutoAccept
 
 class LRAction(metaclass=AutoAccept):
+    @property
+    def is_shift(self):
+        return False
 
-    def IsShift(self): return False
-    def IsReduce(self): return False
+    @property
+    def is_reduce(self):
+        return False
 
-    def __init__(self, prec, numInFile):
-        self.prec = prec
-        self.numInFile = numInFile
+    def __init__(self, prec, num_in_file):
+        self._prec = prec
+        self._num_in_file = num_in_file
 
-    def GetAssoc(self): return self.prec
-    def NumberInFile(self): return self.numInFile
+    @property
+    def assoc(self):
+        return self._prec
+
+    @property
+    def number_in_file(self):
+        return self._num_in_file
 
     def accept(self, visitor):
         raise NotImplementedError()
 
+
 class Shift(LRAction):
-    def IsShift(self): return True
+    @property
+    def is_shift(self):
+        return True
 
     def __init__(self, newstate, prec, n):
         super(Shift, self).__init__(prec, n)
-        self.newstate = newstate
+        self._newstate = newstate
 
     def __str__(self):
-        return "s%d" % self.newstate
+        return "s%d" % self._newstate
 
-    def Next(self):
-        return self.newstate
+    @property
+    def next(self):
+        return self._newstate
 
 class Reduce(LRAction):
-    def IsReduce(self): return True
+
+    @property
+    def is_reduce(self):
+        return True
 
     def __init__(self, reduction, prec, n):
         super(Reduce, self).__init__(prec, n)
-        self.reduction = reduction
+        self._reduction = reduction
 
     def __str__(self):
-        return "r%d" % self.reduction
+        return "r%d" % self._reduction
 
-    def Red(self):
-        return self.reduction
+    @property
+    def red(self):
+        return self._reduction
 
 LRActionVisitor = LRAction.base_visitor()
 
@@ -50,50 +67,32 @@ class ParseTable(object):
     """
 
     def __init__(self, actiontable, gototable, start, rules):
-        self.start = start
-        self.actiontable = actiontable
-        self.gototable = gototable
-        self.rules = rules
+        self._start = start
+        self._actiontable = actiontable
+        self._gototable = gototable
+        self._rules = rules
 
-    def Actiontable(self):
-        return self.actiontable
+    def rules(self):
+        return iter(self._rules)
 
-    def Gototable(self):
-        return self.gototable
+    def actiontable(self):
+        return iter(self._actiontable)
 
-    def Start(self):
-        return self.start
+    def gototable(self):
+        return iter(self._gototable)
 
-    def Rules(self):
-        return self.rules
+    @property
+    def start(self):
+        return self._start
 
-    def Print(self):
-
-        i = 0
-
-        for rule in self.rules:
+    def print(self):
+        for i, rule in enumerate(self._rules):
             print("(%d) %s" % (i, str(rule)))
-            i += 1
 
+        for aline, gline in zip(self._gototable, self._actiontable):
+            for entry in aline:
+                print(str(entry).center(5), end=' ')
 
-
-        giter = iter(self.gototable)
-        aiter = iter(self.actiontable)
-        try:
-            while True:
-                gline = next(giter)
-                aline = next(aiter)
-                for entry in aline:
-                    entrystr = ""
-                    first = True
-
-
-                    entrystr += str(entry)
-                    print(entrystr.center(5), end=' ')
-
-                for entry in gline:
-                    print(str(entry).center(5), end=' ')
-                print("")
-
-        except StopIteration:
-                pass
+            for entry in gline:
+                print(str(entry).center(5), end=' ')
+            print("")
