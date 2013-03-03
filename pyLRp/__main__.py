@@ -87,7 +87,7 @@ arg_parser.add_argument("-D", "--not-deduplicate",
                         dest="deduplicate",
                         action='store_false',
                         default=True,
-                        help="Compress tables by reusing identical lines")
+                        help="Disable the table compression of reusing identical lines")
 
 arg_parser.add_argument("-d", "--debug",
                         dest='debug',
@@ -99,7 +99,7 @@ arg_parser.add_argument("-f", "--fast",
                         dest="fast",
                         action='store_true',
                         default=False,
-                        help="Fast run: generates larger and possibly slower parsers, but takes less time")
+                        help="Fast run, omits some compression")
 
 arg_parser.add_argument("-q", "--quiet",
                         dest="quiet",
@@ -113,7 +113,11 @@ arg_parser.add_argument("-T", "--trace",
                         default=False,
                         help="Generate a parser that prints out a trace of its state")
 
-arg_parser.add_argument("--self-hosting", action='store_true', default=False)
+arg_parser.add_argument("--bootstrap",
+                        dest='self_hosting',
+                        action='store_false',
+                        default=True,
+                        help='Bootstrap the grammar parser with the hand written parser')
 
 py_version = arg_parser.add_mutually_exclusive_group()
 
