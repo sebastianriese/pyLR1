@@ -7,33 +7,35 @@ class RegexAST(object):
     def NFA(self):
         raise NotImplementedError()
 
+
 class CharacterRegex(RegexAST):
 
     def __init__(self, chars):
-        self.chars = frozenset(chars)
+        self._chars = frozenset(chars)
 
     def __str__(self):
-        return "CharacterRegex({})".format(list(self.chars))
+        return "CharacterRegex({})".format(list(self._chars))
 
     def NFA(self):
         start = NFAState()
         end = NFAState()
 
-        start.add_transitions(self.chars, end)
+        start.add_transitions(self._chars, end)
 
         return start, end
+
 
 class SequenceRegex(RegexAST):
 
     def __init__(self, regex1, regex2):
-        self.regex1, self.regex2 = regex1, regex2
+        self._regex1, self._regex2 = regex1, regex2
 
     def __str__(self):
-        return "SequenceRegex(%s, %s)" % (str(self.regex1), str(self.regex2))
+        return "SequenceRegex(%s, %s)" % (str(self._regex1), str(self._regex2))
 
     def NFA(self):
-        nfa1s, nfa1e = self.regex1.NFA()
-        nfa2s, nfa2e = self.regex2.NFA()
+        nfa1s, nfa1e = self._regex1.NFA()
+        nfa2s, nfa2e = self._regex2.NFA()
 
         # chain the end of the first automaton to the start of the
         # second one with an epsilon transition
@@ -41,33 +43,34 @@ class SequenceRegex(RegexAST):
 
         return nfa1s, nfa2e
 
+
 class OptionRegex(RegexAST):
 
     def __init__(self, regex):
-        self.regex = regex
+        self._regex = regex
 
     def __str__(self):
-        return "OptionRegex(%s)" % str(self.regex)
+        return "OptionRegex(%s)" % str(self._regex)
 
     def NFA(self):
-
-        nfas, nfae = self.regex.NFA()
+        nfas, nfae = self._regex.NFA()
 
         nfas.add_transition('', nfae)
 
         return nfas, nfae
 
+
 class RepeatorRegex(RegexAST):
 
     def __init__(self, regex):
-        self.regex = regex
+        self._regex = regex
 
     def __str__(self):
-        return "RepeatorRegex(%s)" % str(self.regex)
+        return "RepeatorRegex(%s)" % str(self._regex)
 
     def NFA(self):
         nfas, nfae = NFAState(), NFAState()
-        nfars, nfare = self.regex.NFA()
+        nfars, nfare = self._regex.NFA()
 
         nfas.add_transition('', nfae)
         nfas.add_transition('', nfars)
@@ -76,18 +79,18 @@ class RepeatorRegex(RegexAST):
 
         return nfas, nfae
 
+
 class OrRegex(RegexAST):
 
     def __init__(self, regex1, regex2):
-        self.regex1, self.regex2 = regex1, regex2
+        self._regex1, self._regex2 = regex1, regex2
 
     def __str__(self):
-        return "OrRegex(%s, %s)" % (str(self.regex1), str(self.regex2))
+        return "OrRegex(%s, %s)" % (str(self._regex1), str(self._regex2))
 
     def NFA(self):
-
-        nfa1s, nfa1e = self.regex1.NFA()
-        nfa2s, nfa2e = self.regex2.NFA()
+        nfa1s, nfa1e = self._regex1.NFA()
+        nfa2s, nfa2e = self._regex2.NFA()
         start, end = NFAState(), NFAState()
 
         start.add_transition('', nfa1s)
@@ -115,7 +118,7 @@ class Regex(object):
         'w' : 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ013456789_'
         }
 
-    def ParseEscape(self, iterator):
+    def parse_escape(self, iterator):
         char = next(iterator)
 
         if char == 'x':
@@ -126,7 +129,7 @@ class Regex(object):
 
         return set(self.ESCAPES.get(char, char))
 
-    def ParseChrClass(self, iterator):
+    def parse_char_class(self, iterator):
         try:
             first = True
             chars = set()
@@ -155,7 +158,7 @@ class Regex(object):
 
                 cset = set()
                 if char == '\\':
-                    cset |= self.ParseEscape(iterator)
+                    cset |= self.parse_escape(iterator)
                 else:
                     cset |= set(char)
 
@@ -170,10 +173,7 @@ class Regex(object):
                     # single values from the sets
                     c, = cset
                     p, = prev
-
-                    for char in range(ord(p) + 1, ord(c)):
-                        cset.add(chr(char))
-
+                    cset |= set(chr(char) for char in range(ord(p) + 1, ord(c)))
                     group = False
 
                 prev = cset
@@ -186,7 +186,7 @@ class Regex(object):
         except StopIteration:
             raise RegexSyntaxError("unclosed character class")
 
-    def ParseBrace(self, iterator):
+    def parse_brace(self, iterator):
         res = ['']
         # we rely on the fact, that (iter(iterator) is iterator)
         # which is specified in the python stdlib docs
@@ -213,14 +213,14 @@ class Regex(object):
         # tokens: CHR ([...], \...,.) - 0, OP (+ ? *) - 1, ( - 2, | - 3, ) - 4
         tokens = []
 
-        iterator = iter(self.regex)
+        iterator = iter(self._regex)
         try:
             while True:
                 char = next(iterator)
                 if char == '\\':
-                    tokens.append((0, self.ParseEscape(iterator)))
+                    tokens.append((0, self.parse_escape(iterator)))
                 elif char == '[':
-                    tokens.append((0, self.ParseChrClass(iterator)))
+                    tokens.append((0, self.parse_char_class(iterator)))
                 elif char == ']':
                     raise RegexSyntaxError("single closing bracket")
                 elif char in ('+', '?', '*'):
@@ -234,7 +234,7 @@ class Regex(object):
                 elif char == '.':
                     tokens.append((0, set(chr(i) for i in range(0,256)) - set('\n')))
                 elif char == '{':
-                    tokens.append(self.ParseBrace(iterator))
+                    tokens.append(self.parse_brace(iterator))
                 elif char == '}':
                     raise RegexSyntaxError("single closing brace")
                 else:
@@ -244,41 +244,41 @@ class Regex(object):
             tokens.append((5, ''))
             return tokens
 
-    def Parse(self, bindings):
+    def parse(self, bindings):
 
         tokens = iter(self.lex())
         current_token = next(tokens)
 
-        def ParseOr():
+        def parse_or():
             nonlocal current_token
 
-            first = ParseChain()
+            first = parse_chain()
             if first is None:
                 first = CharacterRegex([''])
 
             if current_token[0] == 3:
                 current_token = next(tokens)
-                second = ParseOr()
+                second = parse_or()
                 return OrRegex(first, second)
 
             return first
 
 
-        def ParseChain():
-            first = ParseOp()
+        def parse_chain():
+            first = parse_op()
             if first is None:
                 return None
             else:
-                second = ParseChain()
+                second = parse_chain()
                 if second is None:
                     return first
                 else:
                     return SequenceRegex(first, second)
 
-        def ParseOp():
+        def parse_op():
             nonlocal current_token
 
-            basic = ParseBasic()
+            basic = parse_basic()
             if basic is None:
                 return None
 
@@ -327,7 +327,8 @@ class Regex(object):
                             elif start == stop:
                                 res = res1
                             else:
-                                raise RegexSyntaxError("m greater than n in {m,n}-style repeator")
+                                raise RegexSyntaxError(
+                                    "m greater than n in {m,n}-style repeator")
 
                         else:
                             # more than {n, } times
@@ -335,16 +336,19 @@ class Regex(object):
                             for i in range(start):
                                 res = SequenceRegex(basic, res)
                     else:
-                        raise RegexSyntaxError("too many numbers in repetition operator")
+                        raise RegexSyntaxError(
+                            "too many numbers in repetition operator")
                 except ValueError:
-                    raise RegexSyntaxError("item in brace repitition operator not a positive integer")
+                    # XXX: this may mask bugs, repair this
+                    raise RegexSyntaxError("item in brace repitition operator "
+                                           "not a positive integer")
                 current_token = next(tokens)
             else:
                 res = basic
 
             return res
 
-        def ParseBasic():
+        def parse_basic():
             nonlocal current_token
             token, lexeme = current_token
 
@@ -355,7 +359,7 @@ class Regex(object):
 
             elif token == 2:
                 current_token = next(tokens)
-                res = ParseOr()
+                res = parse_or()
                 if current_token[0] != 4:
                     raise RegexSyntaxError("missing closing paren")
 
@@ -365,17 +369,19 @@ class Regex(object):
                 try:
                     res = bindings[lexeme]
                 except KeyError:
-                    raise RegexSyntaxError("unbound named pattern {{{}}}".format(lexeme))
+                    raise RegexSyntaxError(
+                        "unbound named pattern {{{}}}".format(lexeme))
                 current_token = next(tokens)
                 return res
             else:
                 return None
 
-        res = ParseOr()
+        res = parse_or()
 
         token, lexeme = current_token
         if token == 1:
-            raise RegexSyntaxError("missing argument for '{}' operator".format(lexeme))
+            raise RegexSyntaxError(
+                "missing argument for '{}' operator".format(lexeme))
         elif token == 4:
             raise RegexSyntaxError("superfluous closing paren")
         elif token == 5: # parsed up to EOF, we are happy
@@ -384,8 +390,12 @@ class Regex(object):
             raise CantHappen()
 
     def __init__(self, regex, bindings=None):
-        self.regex = regex
-        self.ast = self.Parse(bindings or {})
+        self._regex = regex
+        self._ast = self.parse(bindings or {})
+
+    @property
+    def ast(self):
+        return self._ast
 
     def NFA(self):
-        return self.ast.NFA()
+        return self._ast.NFA()
