@@ -25,7 +25,7 @@ class Production(object):
     RIGHT = 2
     NONASSOC = 3
 
-    def __init__(self, left, syms, number = -1):
+    def __init__(self, left, syms, number=-1):
         self.left = left
         self._syms = list(syms)
         self._number_in_file = number

@@ -22,12 +22,12 @@ class PyBlobToLines(pyblob.PyBlobVisitor):
             self.lines.append([])
         self.add = False
 
-    def VisitPySuite(self, suite):
+    def visit_PySuite(self, suite):
         self.multiline = True
         if suite.code:
             visitor = PyBlobToLines(self.stacklen, toplevel=False)
             for fragment in suite.code:
-                fragment.Accept(visitor)
+                fragment.accept(visitor)
             indent = ['    ']
             if self.toplevel: indent = []
             for line in visitor.get_lines():
@@ -36,16 +36,16 @@ class PyBlobToLines(pyblob.PyBlobVisitor):
             self.lines.append(['pass'])
         self.add = True
 
-    def VisitPyText(self, text):
+    def visit_PyText(self, text):
         self.ensure_list()
         self.lines[-1].append(text.text)
 
-    def VisitPyNewline(self, newline):
+    def visit_PyNewline(self, newline):
         self.ensure_list()
         self.multiline = True
         self.add = True
 
-    def VisitPyStackvar(self, stackvar):
+    def visit_PyStackvar(self, stackvar):
         self.ensure_list()
         if stackvar.result:
             self.lines[-1].append('result')
@@ -58,56 +58,62 @@ class LexActionToCode(lexactions.LexingActionVisitor):
 
     def __init__(self, symtable):
         super(LexActionToCode, self).__init__()
-        self.symtable = symtable
+        self._symtable = symtable
+        self._code = []
+        self._indent = 0
 
-    def VisitDebug(self, action):
-        return "print(%s, repr(text))" % repr(action.Text())
+    def _emit(self, code):
+        self._code.append('    ' * self._indent + code)
 
-    def VisitRestart(self, action):
-        return "return None"
+    def code(self):
+        return iter(self._code)
 
-    def VisitToken(self, action):
-        return "return {:d}".format(self.symtable[action.Name()].Number())
+    def visit_Debug(self, action):
+        self._emit("print(%s, repr(text))" % repr(action.text))
 
-    def VisitGetMatch(self, action):
+    def visit_Restart(self, action):
+        self._emit("return None")
+
+    def visit_Token(self, action):
+        self._emit("return {:d}".format(self._symtable[action.name].Number()))
+
+    def visit_GetMatch(self, action):
         # this is never actually called!
         assert False
-        return "pass"
+        self._emit("pass")
 
-    def VisitBegin(self, action):
-        return "self.nextCond[-1] = {:d}".format(action.State().Number())
+    def visit_Begin(self, action):
+        self._emit("self.nextCond[-1] = {:d}".format(action.state.Number()))
 
-    def VisitPush(self, action):
-        return "self.nextCond.append({:d})".format(action.State().Number())
+    def visit_Push(self, action):
+        self._emit("self.nextCond.append({:d})".format(action.state.Number()))
 
-    def VisitPop(self, action):
-        return "self.nextCond.pop()"
+    def visit_Pop(self, action):
+        self._emit("self.nextCond.pop()")
 
-    def VisitList(self, actionList):
-        if actionList.List():
-            res = ''
-            for action in actionList.List():
-                res += action.Accept(self)
-                res += '\n'
-            return res[:-1]
-        else:
-            return 'pass'
+    def visit_List(self, actionList):
+        added = False
+        for action in actionList:
+            action.accept(self)
+            added = True
+        if not added:
+            self._emit('pass')
 
-    def VisitContinue(self, action):
-        return 'self.state = self.start'
+    def visit_Continue(self, action):
+        self._emit('self.state = self.start')
 
-    def VisitFunction(self, action):
-        return '{}(self, text, position)'.format(action.name)
+    def visit_Function(self, action):
+        self._emit('{}(self, text, position)'.format(action.name))
 
 class LRActionToLRTableEntry(parsetable.LRActionVisitor):
 
     def __init__(self, symtable):
         self.symtable = symtable
 
-    def VisitShift(self, shift):
+    def visit_Shift(self, shift):
         return (0, shift.Next())
 
-    def VisitReduce(self, red):
+    def visit_Reduce(self, red):
         return (1, red.Red())
 
 
@@ -563,15 +569,14 @@ class Lexer(object):
                 return (name, text, position)
 """)
 
-        lexActionGen = LexActionToCode(symtable)
-
         for action, number in sorted(action_table.items(), key=lambda x: x[1]):
             self.parser_file.write("""
     def action%d(self, text, position):
 """ % (number,))
 
-            code = lexActionGen.Visit(action).split('\n')
-            for line in code:
+            lexActionGen = LexActionToCode(symtable)
+            lexActionGen.visit(action)
+            for line in lexActionGen.code():
                 self.parser_file.write("        " + line + "\n")
 
         self.parser_file.write(r"""
@@ -624,7 +629,7 @@ class Parser(object):
 
         translator = LRActionToLRTableEntry(symtable)
 
-        actionTableHelper, actionTableStr = self.TableStrings("atd", tuple(tuple(translator.Visit(a) if a is not None else (2,0) for a in state) for state in parseTable.Actiontable()))
+        actionTableHelper, actionTableStr = self.TableStrings("atd", tuple(tuple(translator.visit(a) if a is not None else (2,0) for a in state) for state in parseTable.Actiontable()))
 
         gotoTableHelper, gotoTableStr = self.TableStrings("gtd", tuple(tuple(a if a else 0 for a in state) for state in parseTable.Gototable()))
 
@@ -721,7 +726,7 @@ class Parser(object):
 
             if isinstance(text, pyblob.PyBlob):
                 visitor = PyBlobToLines(len(red))
-                visitor.Visit(text)
+                visitor.visit(text)
                 if visitor.multiline:
                     self.parser_file.write('\n')
 

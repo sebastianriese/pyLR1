@@ -19,7 +19,7 @@ class LexingAction(object, metaclass=AutoAccept):
     def __init__(self):
         pass
 
-    def Accept(self):
+    def accept(self):
         raise NotImplementedError()
 
     def __eq__(self, other):
@@ -39,59 +39,62 @@ class Debug(LexingAction):
 
     def __init__(self, text):
         super(Debug, self).__init__()
-        self.text = text
+        self._text = text
 
     def __str__(self):
-        return "Debug(" + repr(self.text) + ")"
+        return "Debug(" + repr(self._text) + ")"
 
-    def Text(self):
-        return self.text
+    @property
+    def text(self):
+        return self._text
 
 class List(LexingAction):
 
-    def __init__(self, lst = None):
+    def __init__(self, lst=None):
         super(List, self).__init__()
-        self.list = lst or []
+        self._list = lst or []
 
     def __str__(self):
-        return "List([" + ", ".join(map(str, self.list)) + "])"
+        return "List([" + ", ".join(map(str, self._list)) + "])"
 
-    def Append(self, action):
-        self.list.append(action)
+    def __iter__(self):
+        return iter(self._list)
 
-    def List(self):
-        return self.list
+    def append(self, action):
+        self._list.append(action)
 
     # we have to implement this because lists
     # do not hash well
     def __hash__(self):
         return reduce(operator.__xor__,
-                      map(hash, self.list),
+                      map(hash, self._list),
                       id(self.__class__))
 
 class Begin(LexingAction):
 
     def __init__(self, state):
         super(Begin, self).__init__()
-        self.state = state
+        self._state = state
 
     def __repr__(self):
         return "Begin(%s)" % self.state
 
-    def State(self):
-        return self.state
+    @property
+    def state(self):
+        return self._state
 
 class Push(LexingAction):
 
     def __init__(self, state):
         super(Push, self).__init__()
-        self.state = state
+        self._state = state
 
     def __repr__(self):
         return "Push(%s)" % self.state
 
-    def State(self):
-        return self.state
+    @property
+    def state(self):
+        return self._state
 
 class Pop(LexingAction):
 
@@ -121,25 +124,27 @@ class Token(LexingAction):
 
     def __init__(self, name):
         super(Token, self).__init__()
-        self.name = name
+        self._name = name
 
     def __repr__(self):
         return "Token('%s')" % self.name
 
-    def Name(self):
-        return self.name
+    @property
+    def name(self):
+        return self._name
 
 class Function(LexingAction):
 
     def __init__(self, name):
         super().__init__()
-        self.name = name
+        self._name = name
 
     def __repr__(self):
         return "Function('%s')" % self.name
 
-    def Name(self):
-        return self.name
+    @property
+    def name(self):
+        return self._name
 
 
 class GetMatch(LexingAction):

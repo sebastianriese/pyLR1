@@ -17,8 +17,8 @@ class AutoAccept(type):
         Provide automagical VisitorBase and Accept generation with
         completeness checking for subclasses.
         """
-        if 'Accept' not in dict:
-            dict['Accept'] = cls._make_accept(name)
+        if 'accept' not in dict:
+            dict['accept'] = cls._make_accept(name)
 
         # setup portable subclass tracking
         # XXX: maybe this should be weaklist
@@ -38,7 +38,7 @@ class AutoAccept(type):
 
     @staticmethod
     def _make_accept(name):
-        visitor_name = "Visit" + name
+        visitor_name = "visit_" + name
         def accept(self, visitor):
             return getattr(visitor, visitor_name)(self)
         return accept
@@ -52,14 +52,14 @@ class AutoAccept(type):
     @staticmethod
     def _make_visit_any():
         def visit(self, obj):
-            return obj.Accept(self)
+            return obj.accept(self)
         return visit
 
     def base_visitor(self):
         dict = {}
         for subclass in self._subclasses_:
-            dict["Visit" + subclass.__name__] = abc.abstractmethod(self._make_visit())
-        dict["Visit"] = self._make_visit_any()
+            dict["visit_" + subclass.__name__] = abc.abstractmethod(self._make_visit())
+        dict["visit"] = self._make_visit_any()
 
         return abc.ABCMeta(self.__name__+"Visitor", (object,), dict)
 

@@ -201,20 +201,20 @@ class Parser(object):
         action = List()
 
         if match.group('debug'):
-            action.Append(Debug(match.group('debug')))
+            action.append(Debug(match.group('debug')))
 
         def beginMatcher(head, args):
             if match.group(head):
                 if match.group(head) == '%begin':
-                    action.Append(Begin(self.syntax.InitialCondition(match.group(args))))
+                    action.append(Begin(self.syntax.InitialCondition(match.group(args))))
                 elif match.group(head) == '%push':
-                    action.Append(Push(self.syntax.InitialCondition(match.group(args))))
+                    action.append(Push(self.syntax.InitialCondition(match.group(args))))
                 elif match.group(head) == '%pop':
                     if match.group(args):
                         self.logger.error("line {}: state argument for %pop".format(self.line))
-                    action.Append(Pop())
+                    action.append(Pop())
                 elif match.group(head) == '%function':
-                    action.Append(Function(match.group(args)))
+                    action.append(Function(match.group(args)))
                 else:
                     self.logger.error("line {}: invalid lexing action".format(self.line))
                     return True
@@ -228,14 +228,14 @@ class Parser(object):
             self.logger.error("line {}: error in lexaction: {}".format(self.line, e.args[0]))
 
         if match.group('restart'):
-            action.Append(Restart())
+            action.append(Restart())
 
         elif match.group('token'):
             self.syntax.RequireTerminal(match.group('token'))
-            action.Append(Token(match.group('token')))
+            action.append(Token(match.group('token')))
 
         elif match.group('continue'):
-            action.Append(Continue())
+            action.append(Continue())
 
         # put it all together, add a lexing rule
         try:

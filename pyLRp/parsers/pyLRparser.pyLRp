@@ -382,25 +382,25 @@ condspec:
     condspec COMMA SYMBOL: $$.sem = $1.sem + [$3.sem]
 
 lexaction:
-    stackactions final NEWLINE: $$.sem = $1.sem; $$.sem.Append($2.sem)
+    stackactions final NEWLINE: $$.sem = $1.sem; $$.sem.append($2.sem)
 
 stackactions:
     %empty: $$.sem = List()
     stackactions PUSH OPAREN SYMBOL CPAREN COMMA:
         $$.sem = $1.sem
-        $$.sem.Append(Push(self.syntax.InitialCondition($4.sem)))
+        $$.sem.append(Push(self.syntax.InitialCondition($4.sem)))
     stackactions POP OPAREN CPAREN COMMA:
         $$.sem = $1.sem
-        $$.sem.Append(Pop())
+        $$.sem.append(Pop())
     stackactions BEGIN OPAREN SYMBOL CPAREN COMMA:
         $$.sem = $1.sem
-        $$.sem.Append(Begin(self.syntax.InitialCondition($4.sem)))
+        $$.sem.append(Begin(self.syntax.InitialCondition($4.sem)))
     stackactions FUNCTION OPAREN SYMBOL CPAREN COMMA:
         $$.sem = $1.sem
-        $$.sem.Append(Function($4.sem))
+        $$.sem.append(Function($4.sem))
     stackactions DEBUG OPAREN STRLIT CPAREN COMMA:
         $$.sem = $1.sem
-        $$.sem.Append(Debug($4.sem))
+        $$.sem.append(Debug($4.sem))
 
 final:
     RESTART: $$.sem = Restart()
@@ -442,7 +442,7 @@ parserule:
     production COLON pyblob:
         # map the stack vars to numbers
         varmapper = PyBlobStackVarMapVisitor($1.sem.varmap)
-        varmapper.Visit($3.sem)
+        varmapper.visit($3.sem)
         $$.sem = $1.sem.production
         $$.sem.action = $3.sem
     production NEWLINE: $$.sem = $1.sem.production

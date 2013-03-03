@@ -2,7 +2,9 @@
 from .core import AutoAccept
 
 class PyBlob(object, metaclass=AutoAccept):
-    pass
+
+    def accept(self, visitor):
+        raise NotImplementedError()
 
 class PySuite(PyBlob):
     def __init__(self):
@@ -33,18 +35,19 @@ class PyBlobStackVarMapVisitor(PyBlobVisitor):
     def __init__(self, varmap):
         self.varmap = varmap
 
-    def VisitPySuite(self, suite):
+    def visit_PySuite(self, suite):
         for fragment in suite.code:
-            fragment.Accept(self)
+            fragment.accept(self)
 
-    def VisitPyText(self, text):
+    def visit_PyText(self, text):
         pass
 
-    def VisitPyNewline(self, newline):
+    def visit_PyNewline(self, newline):
         pass
 
-    def VisitPyStackvar(self, stackvar):
+    def visit_PyStackvar(self, stackvar):
         if stackvar.text == '$$':
             stackvar.result = True
         else:
             stackvar.num = self.varmap(stackvar.text)
+

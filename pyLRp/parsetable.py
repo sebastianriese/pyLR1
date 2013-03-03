@@ -13,7 +13,7 @@ class LRAction(metaclass=AutoAccept):
     def GetAssoc(self): return self.prec
     def NumberInFile(self): return self.numInFile
 
-    def Accept(self, visitor):
+    def accept(self, visitor):
         raise NotImplementedError()
 
 class Shift(LRAction):
