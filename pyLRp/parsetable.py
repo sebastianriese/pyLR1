@@ -86,13 +86,24 @@ class ParseTable(object):
         return self._start
 
     def print(self):
+        print("reductions:")
         for i, rule in enumerate(self._rules):
-            print("(%d) %s" % (i, str(rule)))
+            print("({:d}) {:s}".format(i, str(rule)))
 
-        for aline, gline in zip(self._gototable, self._actiontable):
+        print("table:")
+        for i, (aline, gline) in enumerate(zip(self._gototable,
+                                               self._actiontable)):
+            print(str(i).ljust(4), end=': ')
+
             for entry in aline:
+                if entry is None:
+                    entry = '.'
                 print(str(entry).center(5), end=' ')
 
+            print("|", end=' ')
+
             for entry in gline:
+                if entry is None:
+                    entry = '.'
                 print(str(entry).center(5), end=' ')
             print("")

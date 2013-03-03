@@ -83,6 +83,11 @@ arg_parser.add_argument("--print-lextable",
                         default=False,
                         help="Print the lextables to stdout")
 
+arg_parser.add_argument("--print-parsetable",
+                        action='store_true',
+                        default=False,
+                        help="Print the parsetable to stdout")
+
 arg_parser.add_argument("-D", "--not-deduplicate",
                         dest="deduplicate",
                         action='store_false',
@@ -202,6 +207,10 @@ if syn.Start() is not None:
                         value=lambda x: x.Number())
         )
     graph.report_num_of_conflicts()
+
+    if args.print_parsetable:
+        parseTable.print()
+
     del graph
 else:
     # generate the tokens required by the parser
