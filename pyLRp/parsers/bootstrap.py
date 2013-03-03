@@ -4,7 +4,8 @@ import re
 from ..core import CantHappen
 from ..syntax import Syntax, SyntaxNameError
 from ..regex import Regex, RegexSyntaxError
-from ..lexactions import List, Debug, Push, Pop, Function, Token, Begin, Restart
+from ..lexactions import (List, Debug, Push, Pop, Function, Token,
+                          Begin, Restart, Conintue)
 from ..lexer import LexingRule
 from ..lr import Production
 
@@ -381,7 +382,8 @@ class Parser(object):
             if char == ' ':
                ind += 1
             elif char == '\t':
-                self.logger.warning("Tab used for significant indention!")
+                logging.getLogger('pyLR1').warning(
+                    "Tab used for significant indention!")
                 ind += 8
             else:
                 break
