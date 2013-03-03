@@ -184,20 +184,20 @@ if syn.Start() is not None:
     else:
         graph = LR1StateTransitionGraph(syn, logger)
 
-    graph.Construct()
+    graph.construct()
 
     if args.graph:
         for state in graph.states:
             print(str(state))
 
     termsyms = frozenset([Syntax.TERMINAL, Syntax.EOF, Syntax.ERROR])
-    parseTable = graph.CreateParseTable(
+    parseTable = graph.create_parse_table(
         syn.SymTableMap(filt=lambda x: x.SymType() in termsyms,
                         value=lambda x: x.Number()),
         syn.SymTableMap(filt=lambda x: x.SymType() == Syntax.META,
                         value=lambda x: x.Number())
         )
-    graph.ReportNumOfConflicts()
+    graph.report_num_of_conflicts()
     del graph
 else:
     # generate the tokens required by the parser

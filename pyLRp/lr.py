@@ -106,134 +106,173 @@ class Production(object):
 
 
 class LR1Item(object):
-    """A LR(1) item (production, position, lookahead set)"""
+    """A LR(1) item (production, position, lookahead set)
+
+    The public accessors are:
+    * lookahead, the lookahead set
+    * prod (readonly), the production from the grammar
+    * pos (readonly), the position of the mark in the production
+    """
 
     def __init__(self, prod, pos, la):
-        self.prod = prod
-        self.pos = pos
-        self.la = frozenset(la)
+        self._prod = prod
+        self._pos = pos
+        self._lookahead = frozenset(la)
 
     def __str__(self):
         text =  (self.prod.left.Name() or "None") + " <- "
-        count = 0
-
-        for sub in self.prod:
-            if count == self.pos:
+        dotted = False
+        for count, sub in enumerate(self._prod):
+            if count == self._pos:
                 text += ". "
+                dotted = True
 
             text += (sub.Name() or "None") + " "
-            count += 1
 
-        if count == self.pos:
+        if not dotted:
             text += ". "
 
         text += "{ "
 
-        for sub in self.la:
+        for sub in self._lookahead:
             text += (sub.Name() or "None") + " "
 
         text += "}"
 
         return text
 
-    closure = dict()
+    _closure = dict()
 
     @classmethod
-    def FromCore(clazz, lr0, la):
-        return clazz(lr0.prod, lr0.pos, la)
+    def from_core(cls, lr0, la):
+        """
+        Reconstruct an item set from its core (that is LR(0) item) and
+        lookahead set.
+        """
+        return cls(lr0.prod, lr0.pos, la)
 
     def __hash__(self):
-        return hash(self.prod) \
-            ^ hash(self.pos) \
-            ^ hash(self.la)
+        return hash(self._prod) \
+            ^ hash(self._pos) \
+            ^ hash(self._lookahead)
 
     def __eq__(self, other):
-        return self.prod == other.prod \
-            and self.pos == other.pos \
-            and self.la == other.la
+        return self._prod == other._prod \
+            and self._pos == other._pos \
+            and self._lookahead == other._lookahead
 
-    def InKernel(self):
-        return self.pos != 0 or (self.prod.left.Name() == "$START")
+    def in_kernel(self):
+        """
+        Return whether this LR(1) item is part of the Kernel (either
+        it is a $START production or the position mark is not in the
+        first place)
+        """
+        return self._pos != 0 or (self._prod.left.Name() == "$START")
 
-    def AfterDot(self):
+    def after_dot(self):
+        """
+        Return the symbol that immediately follows the mark. If the
+        mark is behind the last symbol of the production return None.
+        """
         try:
-            return self.prod[self.pos]
+            return self._prod[self._pos]
         except IndexError:
             return None
 
-    def IsReduce(self):
-        return self.AfterDot() is None
+    def is_reduce(self):
+        """
+        Return wheter this is a reduce production (the mark is after
+        the last symbol).
+        """
+        return self.after_dot() is None
 
-    def Prod(self):
-        return self.prod
+    @property
+    def prod(self):
+        return self._prod
 
-    def Pos(self):
-        return self.pos
+    @property
+    def pos(self):
+        return self._pos
 
-    def Core(self):
-        return LR1Item(self.prod, self.pos, frozenset())
+    @property
+    def lookahead(self):
+        return self._lookahead
 
-    def SetLookahead(self, la):
-        if (self.prod,self.pos,self.la) in self.closure:
-            # the buffered closure is no longer valid, once
-            # a new lookahead set is assigned
-            del self.closure[(self.prod,self.pos,self.la)]
+    @lookahead.setter
+    def lookahead(self, la):
+        if (self._prod, self._pos, self._lookahead) in self._closure:
+            # the buffered closure is no longer valid, once a new
+            # lookahead set is assigned
+            del self._closure[(self._prod, self._pos, self._lookahead)]
 
-        self.la = frozenset(la)
+        self._lookahead = frozenset(la)
 
-    def Lookahead(self):
-        return self.la
+    def core(self):
+        """
+        Return the LR(0) item which results, when you strip this LR(1)
+        item of its lookahead set.
+        """
+        return LR1Item(self._prod, self._pos, frozenset())
 
-    def Goto(self, symbol):
-        afterDot = self.AfterDot()
+    def goto(self, symbol):
+        """
+        Calculate the GOTO set of ``symbol`` with respect to this
+        production.
+        """
+        after_dot = self.after_dot()
         result = set()
 
-        if afterDot == symbol:
-            result |= LR1Item(self.prod, self.pos+1, self.la).Closure()
+        if after_dot == symbol:
+            result |= LR1Item(self._prod, self._pos+1, self._lookahead).closure()
 
         return result
 
-    def Closure(self, visited=None):
+    def closure(self, visited=None):
+        """
+        Calculate the CLOSURE of the LR(1) item set containing this
+        item.
+        """
         # possibly the buffering is buggy
-        if (self.prod,self.pos,self.la) in self.closure:
-             return self.closure[(self.prod,self.pos,self.la)]
+        if (self._prod, self._pos, self._lookahead) in self._closure:
+             return self._closure[(self._prod, self._pos, self._lookahead)]
 
         if visited is None:
             visited = frozenset()
 
         closure = set([self])
-        afterDot = self.AfterDot()
+        after_dot = self.after_dot()
         recurses = False
 
-        if afterDot:
+        if after_dot:
             laset = set()
 
-            for la in self.la:
+            for la in self._lookahead:
                 firstconcat = self.prod[self.pos+1:].concat(la)
                 laset |= firstconcat.first()
 
-            for prod in afterDot.Productions():
+            for prod in after_dot.Productions():
 
                 if self not in visited:
                     elem = LR1Item(prod, 0, laset)
-                    closure |= elem.Closure(visited | set([self]))
+                    closure |= elem.closure(visited | set([self]))
                 else:
                     recurses = True
 
         if not recurses:
-            self.closure[(self.prod,self.pos,self.la)] = closure
+            self._closure[(self._prod, self._pos, self._lookahead)] = closure
 
         return closure
 
-    def TransitionsTo(self, other):
+    def transitions_to(self, other):
         """
         Determine whether the LR item generates `other` on transition.
         """
 
-        if self.IsReduce():
+        if self.is_reduce():
             return False
 
-        return self.Prod() == other.Prod() and self.Pos() + 1 == other.Pos()
+        return self.prod == other.prod and self.pos + 1 == other.pos
+
 
 class StateTransition(object):
     """
@@ -250,12 +289,6 @@ class StateTransition(object):
 
     def __hash__(self):
         return hash(self.symbol) ^ hash(self.state)
-
-    def Symbol(self):
-        return self.symbol
-
-    def State(self):
-        return self.state
 
 class StateTransitionGraph(object, metaclass=abc.ABCMeta):
 
@@ -278,18 +311,18 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
         # error recovery of the parser
         self.grammar.RequireTerminal("$RECOVER")
 
-    def ReportNumOfConflicts(self):
+    def report_num_of_conflicts(self):
         if self.conflicts:
             self.logger.warning(str(self.conflicts) + " conflict(s) found!")
 
     @abc.abstractmethod
-    def Construct(self):
+    def construct(self):
         """
         Construct the *LR(1) automaton.
         """
         pass
 
-    def NormalizeItemSet(self, elements):
+    def normalize_item_set(self, elements):
         """
         Normalize the item set.
 
@@ -303,40 +336,40 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
         """
         cores = {}
         for elem in elements:
-            if elem.Core() not in cores:
-                cores[elem.Core()] = set()
+            if elem.core() not in cores:
+                cores[elem.core()] = set()
 
-            cores[elem.Core()] |= elem.Lookahead()
+            cores[elem.core()] |= elem.lookahead
 
         elements = set()
         for core in cores:
-            elements.add(LR1Item.FromCore(core, cores[core]))
+            elements.add(LR1Item.from_core(core, cores[core]))
         cores = None
 
         return elements
 
-    def RequireState(self, elements):
+    def require_state(self, elements):
         """
         Check whether a state having the given elements already
         exists. If it does exist return it, otherwise create the new
         state and recursively determine its sub states.
         """
 
-        elements = self.NormalizeItemSet(elements)
+        elements = self.normalize_item_set(elements)
 
         # do we already have this state?
         for state in self.states:
-            if state.elements == elements:
+            if state.same_state_by_elements(elements):
                 return state
 
         # instanciate the new state
-        state = self.GenerateState(len(self.states), elements)
+        state = self.generate_state(len(self.states), elements)
         self.states.append(state)
-        state.GenerateSubStates()
+        state.generate_substates()
         return state
 
     @abc.abstractmethod
-    def GenerateState(self, number, elements):
+    def generate_state(self, number, elements):
         """
         Generate an appropriate `LR1StateGraphElement`. Where `number`
         is the assigned id number and `elements` is the associated set
@@ -344,7 +377,7 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
         """
         pass
 
-    def ResolveConflict(self, state, old, new):
+    def resolve_conflict(self, state, old, new):
         """
         Resolve a parse table conflict.
 
@@ -366,7 +399,8 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
 
         if old.IsReduce():
             self.logger.info(str(state))
-            self.logger.warning("Default to the first reduce for reduce/reduce-conflict")
+            self.logger.warning("Default to the first reduce for "
+                                "reduce/reduce-conflict")
             self.conflicts += 1
             if old.NumberInFile() > new.NumberInFile():
                 return new
@@ -380,7 +414,8 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
             # shift wins over reduce by default
             if assoc == Production.NONE:
                 self.logger.info(str(state))
-                self.logger.warning("Default to shift for shift/reduce-conflict")
+                self.logger.warning("Default to shift for "
+                                    "shift/reduce-conflict")
                 self.conflicts += 1
                 return old
 
@@ -414,24 +449,24 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
                 raise CantHappen()
 
 
-    def Kernels(self):
+    def kernels(self):
         """
         Reduce the item sets to their kernels
         (needed for LALR lookahead generation)
         """
         for state in self.states:
-            state.Kernel()
+            state.kernel()
 
-    def CloseKernels(self):
+    def close_kernels(self):
         """
         Complete the sets to their closure again
         after they where reduced to their kernels
         """
 
         for state in self.states:
-            state.Close()
+            state.close()
 
-    def CreateParseTable(self, terminals, metas):
+    def create_parse_table(self, terminals, metas):
         """
         Create the parse table from the LR graph. Requires two mappings
         from `Symbol` objects to their respective numbers: One of them
@@ -468,12 +503,12 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
             jtable.append(jcur)
 
             # fill goto table and write shifts to the action table
-            for trans, prods in state.Transitions().items():
-                symb = trans.Symbol()
-                tstate = trans.State()
+            for trans, prods in state.transitions():
+                symb = trans.symbol
+                tstate = trans.state
 
                 if symb in metas:
-                    jcur[metas[symb]] = tstate.Number()
+                    jcur[metas[symb]] = tstate.number
 
                 elif symb in terminals:
                     assoc = Production.NONE, -1
@@ -489,12 +524,12 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
                     # where does it matter (obviously it does not
                     # matter in most cases)
                     for item in prods:
-                        nprec = item.Prod().number_in_file
+                        nprec = item.prod.number_in_file
                         if nprec > prec:
                             prec = nprec
-                            assoc = item.Prod().assoc
+                            assoc = item.prod.assoc
 
-                    acur[terminals[symb]] = Shift(tstate.Number(),
+                    acur[terminals[symb]] = Shift(tstate.number,
                                                   assoc, prec)
                 else:
                     print(state, file=sys.stderr)
@@ -502,19 +537,20 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
                     raise CantHappen()
 
             # write reductions to the action table
-            for item in state.Reductions():
-                prod = item.Prod()
+            for item in state.reductions():
+                prod = item.prod
                 reduceAction = Reduce(prod.number,
                                       prod.assoc,
                                       prod.number_in_file)
 
-                for la in item.Lookahead():
+                for la in item.lookahead:
                     acur[terminals[la]] = \
-                        self.ResolveConflict(state,
-                                             acur[terminals[la]],
-                                             reduceAction)
+                        self.resolve_conflict(state,
+                                              acur[terminals[la]],
+                                              reduceAction)
 
-        return ParseTable(atable, jtable, self.start.Number(), rules)
+        return ParseTable(atable, jtable, self.start.number, rules)
+
 
 class LALR1StateTransitionGraph(StateTransitionGraph):
 
@@ -524,7 +560,7 @@ class LALR1StateTransitionGraph(StateTransitionGraph):
         """
         super(LALR1StateTransitionGraph, self).__init__(grammar, logger)
 
-    def Propagate(self):
+    def propagate(self):
         """
         Generate the lookahead sets.
 
@@ -534,20 +570,20 @@ class LALR1StateTransitionGraph(StateTransitionGraph):
         For details on the algorithm see the Dragon Book.
         """
 
-        self.Kernels()
+        self.kernels()
 
         # determine token generation and propagation
         for state in self.states:
-            state.DeterminePropagationAndGeneration()
+            state.determine_propagation_and_generation()
 
         # add EOF to the "$START <- start ." lookahead set
-        for item in self.start.Elements():
-            if item.Prod().left == self.grammar.RequireMeta("$START"):
-                item.SetLookahead(set([self.grammar.RequireEOF()]))
+        for item in self.start.elements():
+            if item.prod.left == self.grammar.RequireMeta("$START"):
+                item.lookahead = set([self.grammar.RequireEOF()])
 
         # set the spontaneously generated lookahead tokens
         for state in self.states:
-            state.Generate()
+            state.generate()
 
         # propagate the lookahead tokens
         propagated = True
@@ -555,14 +591,14 @@ class LALR1StateTransitionGraph(StateTransitionGraph):
             propagated = False
 
             for state in self.states:
-                propagated = state.Propagate() or propagated
+                propagated = state.propagate() or propagated
 
-        self.CloseKernels()
+        self.close_kernels()
 
-    def GenerateState(self, number, elements):
+    def generate_state(self, number, elements):
         return LALR1StateTransitionGraphElement(self, number, elements)
 
-    def Construct(self):
+    def construct(self):
 
         # construct the starting point (virtual starting node) and use
         # the RequireElement-method to build up the tree
@@ -577,10 +613,10 @@ class LALR1StateTransitionGraph(StateTransitionGraph):
         # we use an empty lookahead set to generate the LR(0) automaton
         start = LR1Item(prod,0,set([]))
 
-        self.start = self.RequireState(start.Closure())
+        self.start = self.require_state(start.closure())
 
         # calculate the LALR(1) lookahead sets
-        self.Propagate()
+        self.propagate()
 
 
 class LR1StateTransitionGraph(StateTransitionGraph):
@@ -591,7 +627,7 @@ class LR1StateTransitionGraph(StateTransitionGraph):
     def __init__(self, grammar, logger):
         super(LR1StateTransitionGraph, self).__init__(grammar, logger)
 
-    def Construct(self):
+    def construct(self):
 
         prod = Production(self.grammar.RequireMeta("$START"),
                           [self.grammar.Start()], -1)
@@ -599,83 +635,91 @@ class LR1StateTransitionGraph(StateTransitionGraph):
 
         self.grammar.RequireMeta("$START").AddProd(prod)
 
-        start = LR1Item(prod,0,set([self.grammar.RequireEOF()])).Closure()
+        start = LR1Item(prod,0,set([self.grammar.RequireEOF()])).closure()
 
-        self.start = self.RequireState(start)
+        self.start = self.require_state(start)
 
-    def GenerateState(self, number, elements):
+    def generate_state(self, number, elements):
         return LR1StateTransitionGraphElement(self, number, elements)
+
 
 class LR1StateTransitionGraphElement(object):
 
     def __init__(self, graph, number, elements):
-        self.number = number
+        self._number = number
         self.graph = graph
-        self.elements = elements
-        self.transitions = dict()
+        self._elements = elements
+        self._transitions = dict()
 
     def __str__(self):
         lines = []
-        lines.append("state: " + str(self.number))
+        lines.append("state: " + str(self._number))
 
         lines.append("elements:")
-
-        for elem in self.elements:
+        for elem in self._elements:
             lines.append(str(elem))
 
         lines.append("transitions:")
-        for trans in self.transitions:
-            lines.append((trans.Symbol().Name() or "None") + " -> " + str(trans.State().number))
+        for trans in self._transitions:
+            lines.append((trans.symbol.Name() or "None") +
+                         " -> " + str(trans.state.number))
 
         return '\n'.join(lines)
 
-    def Elements(self):
-        return self.elements
+    def same_state_by_elements(self, elements):
+        """
+        Return whether the set `elements` is the same as the elements
+        in this state.
+        """
+        return elements == self._elements
 
-    def Reductions(self):
+    def elements(self):
+        return iter(self._elements)
+
+    def reductions(self):
         """
         A generator yielding the reduction items in this LR state.
         """
-        for elem in self.elements:
-            if elem.IsReduce():
-                yield elem
+        return filter(lambda elem: elem.is_reduce(), self._elements)
 
-    def Transitions(self):
+    def transitions(self):
         """
         Return the state transitions.
         """
-        return self.transitions
+        return self._transitions.items()
 
-    def Number(self):
+    @property
+    def number(self):
         """
         Return the number.
         """
-        return self.number
+        return self._number
 
-    def Kernel(self):
+
+    def kernel(self):
         """
         Reduce the item set to the Kernel items
         """
         res = set()
 
-        for elem in self.elements:
-            if elem.InKernel():
+        for elem in self._elements:
+            if elem.in_kernel():
                 res.add(elem)
 
-        self.elements = res
+        self._elements = res
 
-    def Close(self):
+    def close(self):
         """
         Complete the item set to its closure
         """
         res = set()
 
-        for elem in self.elements:
-            res |= elem.Closure()
+        for elem in self._elements:
+            res |= elem.closure()
 
-        self.elements = self.graph.NormalizeItemSet(res)
+        self._elements = self.graph.normalize_item_set(res)
 
-    def GenerateSubStates(self):
+    def generate_substates(self):
         """
         Determine the substates of this state and add them to the
         transition graph.
@@ -683,20 +727,22 @@ class LR1StateTransitionGraphElement(object):
         Sort the elements by order in file for predictable results.
         """
 
-        for elem in sorted(self.elements,
-                           key=lambda elem: elem.Prod().number_in_file):
+        for elem in sorted(self._elements,
+                           key=lambda elem: elem.prod.number_in_file):
 
-            if elem.AfterDot():
+            if elem.after_dot():
                 goto = set()
 
-                for cur in self.elements:
-                    goto |= cur.Goto(elem.AfterDot())
+                for cur in self._elements:
+                    goto |= cur.goto(elem.after_dot())
 
-                trans = StateTransition(elem.AfterDot(), self.graph.RequireState(goto))
-                if trans not in self.transitions:
-                    self.transitions[trans] = set()
+                trans = StateTransition(elem.after_dot(),
+                                        self.graph.require_state(goto))
 
-                self.transitions[trans].add(elem.Core())
+                if trans not in self._transitions:
+                    self._transitions[trans] = set()
+
+                self._transitions[trans].add(elem.core())
 
 class LALR1StateTransitionGraphElement(LR1StateTransitionGraphElement):
 
@@ -704,12 +750,13 @@ class LALR1StateTransitionGraphElement(LR1StateTransitionGraphElement):
         """
         A State in a LALR(1) automaton.
         """
-        super(LALR1StateTransitionGraphElement, self).__init__(graph, number, elements)
+        super(LALR1StateTransitionGraphElement, self).__init__(graph, number,
+                                                               elements)
 
-        self.lapropagation = []
-        self.lageneration = []
+        self._lapropagation = []
+        self._lageneration = []
 
-    def DeterminePropagationAndGeneration(self):
+    def determine_propagation_and_generation(self):
         """
         Determine where and how the LA entries are generated or
         propagate.
@@ -720,54 +767,53 @@ class LALR1StateTransitionGraphElement(LR1StateTransitionGraphElement):
 
         undef = self.graph.grammar.RequireUndef()
 
-        for item in self.elements:
+        for item in self._elements:
 
-            item.SetLookahead(frozenset([undef]))
-            cls = item.Closure()
+            item.lookahead = frozenset([undef])
+            cls = item.closure()
 
             for other in cls:
-                symb = other.AfterDot()
-                if symb is not None:
+                symb = other.after_dot()
+                if symb is None:
+                    continue
 
-                    for trans in self.transitions:
-                        if trans.Symbol() == symb:
-                            stateTo = trans.State()
+                for trans in self._transitions:
+                    if trans.symbol != symb:
+                        continue
 
-                            for itemTo in stateTo.Elements():
+                    state_to = trans.state
 
-                                if other.TransitionsTo(itemTo):
+                    for item_to in state_to.elements():
 
-                                    for la in other.Lookahead():
+                        if other.transitions_to(item_to):
 
-                                        if la is undef:
-                                            # print "Propagate", self.Number(), stateTo.Number(), item, "->", itemTo
-                                            self.lapropagation.append((item, itemTo))
+                            for la in other.lookahead:
+                                if la is undef:
+                                    self._lapropagation.append((item, item_to))
+                                else:
+                                    state_to._lageneration.append((item_to, la))
 
-                                        else:
-                                            # print "Generate", itemTo, ":", la, "(", item, ")"
-                                            stateTo.lageneration.append((itemTo, la))
+            item.lookahead = frozenset()
 
-            item.SetLookahead(frozenset())
-
-    def Generate(self):
+    def generate(self):
         """
         Do the LA entry generation.
         """
-        for item, symb in self.lageneration:
-            newLa = set(item.Lookahead())
-            newLa.add(symb)
-            item.SetLookahead(newLa)
+        for item, symb in self._lageneration:
+            new_lookahead = set(item.lookahead)
+            new_lookahead.add(symb)
+            item.lookahead = new_lookahead
 
-    def Propagate(self):
+    def propagate(self):
         """
         Do the LA entry propagation.
         """
         propagated = False
-        for item, to in self.lapropagation:
-            newLa = to.Lookahead() | item.Lookahead()
+        for item, to in self._lapropagation:
+            new_lookahead = to.lookahead | item.lookahead
 
-            if newLa != to.Lookahead():
-                to.SetLookahead(newLa)
+            if new_lookahead != to.lookahead:
+                to.lookahead = new_lookahead
                 propagated = True
 
         return propagated

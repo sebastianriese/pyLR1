@@ -124,18 +124,18 @@ def compile(logger, source, listing=None, trace=False):
     parseTable = None
     if syn.Start() is not None:
         graph = LALR1StateTransitionGraph(syn, logger)
-        graph.Construct()
+        graph.construct()
 
         termsyms = frozenset([Syntax.TERMINAL,
                               Syntax.EOF,
                               Syntax.ERROR])
-        parseTable = graph.CreateParseTable(
+        parseTable = graph.create_parse_table(
             syn.SymTableMap(filt=lambda x: x.SymType() in termsyms,
                             value=lambda x: x.Number()),
             syn.SymTableMap(filt=lambda x: x.SymType() == Syntax.META,
                             value=lambda x: x.Number())
             )
-        graph.ReportNumOfConflicts()
+        graph.report_num_of_conflicts()
         # for state in graph.states:
         #     print(str(state))
         del graph
