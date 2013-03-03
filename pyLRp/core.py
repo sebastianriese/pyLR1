@@ -10,6 +10,7 @@ class CantHappen(Exception):
 
 Please report this.""")
 
+
 class AutoAccept(type):
 
     def __new__(cls, name, bases, dict):
@@ -58,13 +59,16 @@ class AutoAccept(type):
     def base_visitor(self):
         dict = {}
         for subclass in self._subclasses_:
-            dict["visit_" + subclass.__name__] = abc.abstractmethod(self._make_visit())
+            dict["visit_" + subclass.__name__] = \
+                abc.abstractmethod(self._make_visit())
         dict["visit"] = self._make_visit_any()
 
         return abc.ABCMeta(self.__name__+"Visitor", (object,), dict)
 
+
 class SingletonInitError(Exception):
     pass
+
 
 class Singleton(type):
 
