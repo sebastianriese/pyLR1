@@ -207,20 +207,20 @@ else:
 # construct the lexer
 lexer = LexerConstructor(syn, logger)
 
-lexer.ConstructDFAs()
-lexer.DropNFA()
+lexer.construct_DFAs()
+lexer.drop_NFA()
 
 if not args.fast:
-    lexer.Optimize()
+    lexer.optimize()
 
-lexer.CreateLexTables()
-lexer.DropDFA()
+lexer.create_lex_tables()
+lexer.drop_DFA()
 
 if args.print_lextable:
-    lexer.PrintTables()
+    lexer.print_tables()
 
 if not args.fast:
-    lexer.ConstructEquivalenceClasses()
+    lexer.construct_equivalence_classes()
 
 if logger.loggedErrors():
     sys.exit(1)

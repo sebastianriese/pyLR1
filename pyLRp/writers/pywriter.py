@@ -83,10 +83,10 @@ class LexActionToCode(lexactions.LexingActionVisitor):
         self._emit("pass")
 
     def visit_Begin(self, action):
-        self._emit("self.nextCond[-1] = {:d}".format(action.state.Number()))
+        self._emit("self.nextCond[-1] = {:d}".format(action.state.number))
 
     def visit_Push(self, action):
-        self._emit("self.nextCond.append({:d})".format(action.state.Number()))
+        self._emit("self.nextCond.append({:d})".format(action.state.number))
 
     def visit_Pop(self, action):
         self._emit("self.nextCond.pop()")
@@ -322,13 +322,13 @@ class %s(AST):
         action_table = {}
 
         lookup = baccess
-        if lexer.Mapping():
+        if lexer.mapping:
             lookup = "mapping[" + baccess + "]"
 
-        for cond, table, start, actions, mapping in lexer.Get():
+        for cond, table, start, actions, mapping in lexer.get():
 
             lextablehelper, lextablestr = \
-                self.TableStrings("ltd%d" % cond.Number(),
+                self.TableStrings("ltd%d" % cond.number,
                   tuple(tuple(state) for state in table))
 
             # create the string representing the actions
@@ -345,7 +345,7 @@ class %s(AST):
             actionmapstr = "({})".format(','.join(action_vector))
 
             mappingstr = ""
-            if lexer.Mapping():
+            if lexer.mapping:
                 # create the string mapping
                 mappingstr = '({})'.format(','.join(map(str, mapping)))
 
@@ -441,7 +441,7 @@ class %s(AST):
 class Lexer(object):
 
     starts = """ + startstr + r"""
-    mappings = """ + (mappingstr if lexer.Mapping() else "()") + r"""
+    mappings = """ + (mappingstr if lexer.mapping else "()") + r"""
 """ + (lextablehelper if self.deduplicate else "") + r"""
     tables  = """ + lextablestr + lexerDebugData + r"""
     actionmap = """ + actionmapstr + """
@@ -489,7 +489,7 @@ class Lexer(object):
                 self.size = len(self.buffer)
 
         self.root = 0
-        self.nextCond = [""" + repr(initial_conditions["$SOF"].Number()) + r"""]
+        self.nextCond = [""" + repr(initial_conditions["$SOF"].number) + r"""]
         self.token_push_back = []
         self.line = 1
         self.start_of_line = 0
@@ -512,7 +512,7 @@ class Lexer(object):
 
         cond = self.nextCond[-1]
         state = self.starts[cond]
-        """ + (r"size, table, cactions, mapping, buffer = self.size, self.tables[cond], self.actionmap[cond], self.mappings[cond], self.buffer" if lexer.Mapping() else
+        """ + (r"size, table, cactions, mapping, buffer = self.size, self.tables[cond], self.actionmap[cond], self.mappings[cond], self.buffer" if lexer.mapping else
         r"size, table, cactions, buffer = self.size, self.tables[cond], self.actionmap[cond], self.buffer") + r"""
         actionvec = self.actions
         cur_pos = self.root
@@ -546,20 +546,20 @@ class Lexer(object):
             """ + linesCount + r"""
             name = faction(text, position)
 
-            if self.nextCond[-1] == """ + repr(initial_conditions["$SOF"].Number()) + r""":
-                self.nextCond[-1] = """ + repr(initial_conditions["$INITIAL"].Number()) + r"""
+            if self.nextCond[-1] == """ + repr(initial_conditions["$SOF"].number) + r""":
+                self.nextCond[-1] = """ + repr(initial_conditions["$INITIAL"].number) + r"""
 
             if self.nextCond[-1] == """
-                        + repr(initial_conditions["$INITIAL"].Number()) +
+                        + repr(initial_conditions["$INITIAL"].number) +
                                r""" and text and text[-1] == '\n':
                 self.nextCond[-1] = """
-                               + repr(initial_conditions["$SOL"].Number()) +
+                               + repr(initial_conditions["$SOL"].number) +
                                r"""
             elif self.nextCond[-1] == """
-                               + repr(initial_conditions["$SOL"].Number()) +
+                               + repr(initial_conditions["$SOL"].number) +
                                r""" and text and text[-1] != '\n':
                 self.nextCond[-1] = """
-                               + repr(initial_conditions["$INITIAL"].Number()) +
+                               + repr(initial_conditions["$INITIAL"].number) +
                                r"""
             self.root = pos
 

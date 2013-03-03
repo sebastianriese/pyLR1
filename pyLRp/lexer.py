@@ -5,61 +5,71 @@ from .lexactions import Token
 class LexingRule(object):
 
     def __init__(self, conditions, regex, action):
-        self.conditions = conditions
-        self.regex = regex
-        self.action = action
+        self._conditions = conditions
+        self._regex = regex
+        self._action = action
 
-    def Regex(self):
-        return self.regex
+    @property
+    def regex(self):
+        return self._regex
 
-    def Action(self):
-        return self.action
+    @property
+    def action(self):
+        return self._action
 
-    def Conditions(self):
-        return self.conditions
-
+    @property
+    def conditions(self):
+        return self._conditions
 
 
 class InitialCondition(object):
     def __init__(self, name, number):
-        self.name = name
-        self.number = number
-        self.nullmatch = False
+        self._name = name
+        self._number = number
+        self._nullmatch = False
 
-    def IncludesSToken(self): return False
+    @property
+    def includes_s_token(self):
+        return False
 
-    def Nullmatch(self):
-        return self.nullmatch
+    @property
+    def nullmatch(self):
+        return self._nullmatch
 
-    def DeclareNullmatch(self):
-        self.nullmatch = True
+    def declare_nullmatch(self):
+        self._nullmatch = True
 
-    def Match(self, conditions):
+    def match(self, conditions):
         raise NotImplementedError()
 
-    def Name(self):
-        return self.name
+    @property
+    def name(self):
+        return self._name
 
-    def Number(self):
-        return self.number
+    @property
+    def number(self):
+        return self._number
 
 class InclusiveInitialCondition(InitialCondition):
-    def IncludesSToken(self): return True
 
     def __init__(self, name, number, *conditions):
         super().__init__(name, number)
-        self.conditions = conditions
+        self._conditions = conditions
 
-    def Match(self, conditions):
+    @property
+    def includes_s_token(self):
+        return True
+
+    def match(self, conditions):
         if not conditions or \
                 self in conditions or \
-                any(cond.Match(conditions) for cond in self.conditions):
+                any(cond.match(conditions) for cond in self._conditions):
             return True
         return False
 
 class ExclusiveInitialCondition(InitialCondition):
 
-    def Match(self, conditions):
+    def match(self, conditions):
         if self in conditions:
             return True
         return False
@@ -72,24 +82,33 @@ class LexerConstructor(object):
     applying the further manipulations to all of them.
     """
 
-    def __init__(self, lexerSpec, logger):
+    def __init__(self, lexer_spec, logger):
         self.logger = logger
 
         # sort initial conditions by number to create a reference
         # order for the other item lists
-        self.initial_conditions = list(sorted(lexerSpec.InitialConditions(),
-                                              key=lambda x: x.Number()))
-        self.nfas = []
-        self.dfas = []
-        self.lextables = []
-        self.mapping = False
+        self._initial_conditions = list(sorted(lexer_spec.InitialConditions(),
+                                               key=lambda x: x.number))
+        self._nfas = []
+        self._dfas = []
+        self._lextables = []
+        self._mapping = False
 
-        # construct the automaton for matching the inline tokens
-        inlineTokens = NFAState()
-        for token in lexerSpec.InlineTokens():
+        inline_tokens = self._make_inline_token_NFA(lexer_spec.InlineTokens())
+
+        # construct the NFAs for the initial conditions
+        for condition in self._initial_conditions:
+            self._nfas.append(LexingNFA(lexer_spec.Lexer(),
+                                        condition,
+                                        inline_tokens,
+                                        logger))
+
+    def _make_inline_token_NFA(self, inline_token_list):
+        inline_tokens = NFAState()
+        for token in inline_token_list:
 
             previous = NFAState()
-            inlineTokens.add_transition('', previous)
+            inline_tokens.add_transition('', previous)
 
             for char in token:
                 new = NFAState()
@@ -99,54 +118,50 @@ class LexerConstructor(object):
             previous.priority = 0
             previous.action = Token('"' + token + '"')
 
-        # construct the NFAs for the initial conditions
-        for condition in self.initial_conditions:
-            self.nfas.append(LexingNFA(lexerSpec.Lexer(),
-                                       condition,
-                                       inlineTokens,
-                                       logger))
+        return inline_tokens
 
-    def ConstructDFAs(self):
-        self.dfas = []
-        for nfa in self.nfas:
-            self.dfas.append(nfa.create_DFA())
+    def construct_DFAs(self):
+        self._dfas = []
+        for nfa in self._nfas:
+            self._dfas.append(nfa.create_DFA())
 
-    def DropNFA(self):
+    def drop_NFA(self):
         """
         Drop the nfas if they are no longer needed to spare memory
         """
-        self.nfas = None
+        self._nfas = None
 
 
-    def Optimize(self):
-        for dfa in self.dfas:
+    def optimize(self):
+        for dfa in self._dfas:
             dfa.optimize()
 
-    def CreateLexTables(self):
-        self.lextables = []
-        for dfa in self.dfas:
-            self.lextables.append(dfa.create_lex_table())
+    def create_lex_tables(self):
+        self._lextables = []
+        for dfa in self._dfas:
+            self._lextables.append(dfa.create_lex_table())
 
-    def DropDFA(self):
+    def drop_DFA(self):
         """
         Drop the dfas if they are no longer needed to spare memory
         """
-        self.dfas = None
+        self._dfas = None
 
-    def ConstructEquivalenceClasses(self):
-        self.mapping = True
-        for lextable in self.lextables:
+    def construct_equivalence_classes(self):
+        self._mapping = True
+        for lextable in self._lextables:
             lextable.construct_equivalence_classes()
 
-    def Mapping(self):
-        return self.mapping
+    @property
+    def mapping(self):
+        return self._mapping
 
-    def Get(self):
-        for cond, lextable in zip(self.initial_conditions, self.lextables):
+    def get(self):
+        for cond, lextable in zip(self._initial_conditions, self._lextables):
             yield tuple([cond] + list(lextable.get()))
 
-    def PrintTables(self):
-        for key, table in self.lextables.items():
+    def print_tables(self):
+        for key, table in self._lextables.items():
             print("-----------------", key.Name(), "--------------------")
             table.print()
 

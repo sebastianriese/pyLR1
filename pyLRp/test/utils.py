@@ -143,12 +143,12 @@ def compile(logger, source, listing=None, trace=False):
         syn.RequireEOF()
 
     lexer = LexerConstructor(syn, logger)
-    lexer.ConstructDFAs()
-    lexer.DropNFA()
-    lexer.Optimize()
-    lexer.CreateLexTables()
-    lexer.DropDFA()
-    lexer.ConstructEquivalenceClasses()
+    lexer.construct_DFAs()
+    lexer.drop_NFA()
+    lexer.optimize()
+    lexer.create_lex_tables()
+    lexer.drop_DFA()
+    lexer.construct_equivalence_classes()
 
     code = io.StringIO()
     w = Writer(code, logger,

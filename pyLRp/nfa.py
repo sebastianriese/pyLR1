@@ -82,17 +82,17 @@ class LexingNFA(object):
         self._logger = logger
         self._start = NFAState()
 
-        if condition.IncludesSToken():
+        if condition.includes_s_token:
             self._start.add_transition('', inline_token_NFA)
 
         self.nullmatch = False
-        if condition.Nullmatch():
+        if condition.nullmatch:
             self.nullmatch = True
 
         i = -1
         for lexing_rule in lexing_rules:
-            if condition.Match(lexing_rule.Conditions()):
-                start, end = lexing_rule.Regex().NFA()
+            if condition.match(lexing_rule.conditions):
+                start, end = lexing_rule.regex.NFA()
 
                 self._start.add_transition('', start)
                 end.priority = i
