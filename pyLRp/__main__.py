@@ -182,7 +182,7 @@ if logger.loggedErrors():
     sys.exit(1)
 
 # construct the parser
-parseTable = None
+parse_table = None
 
 # XXX: should we be more strict here and not generate a parser
 # when no %parser section is present but error on an empty
@@ -200,7 +200,7 @@ if syn.start_symbol is not None:
             print(str(state))
 
     termsyms = frozenset([Syntax.TERMINAL, Syntax.EOF, Syntax.ERROR])
-    parseTable = graph.create_parse_table(
+    parse_table = graph.create_parse_table(
         syn.sym_table_map(filt=lambda x: x.symtype in termsyms,
                         value=lambda x: x.number),
         syn.sym_table_map(filt=lambda x: x.symtype == Syntax.META,
@@ -209,7 +209,7 @@ if syn.start_symbol is not None:
     graph.report_num_of_conflicts()
 
     if args.print_parsetable:
-        parseTable.print()
+        parse_table.print()
 
     del graph
 else:
@@ -248,7 +248,7 @@ try:
                         debug=args.debug,
                         python3=args.python3)
 
-        writer.Write(syn, parseTable, lexer)
+        writer.write(syn, parse_table, lexer)
 
         if logger.loggedErrors():
             print("error: ", e, file=sys.stderr)

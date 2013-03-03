@@ -3,7 +3,8 @@ from .. import pyblob
 from .. import lexactions
 from .. import parsetable
 from ..syntax import Syntax
-from ..pyblob import PyBlobStackVarMapVisitor, PySuite, PyText, PyNewline, PyStackvar
+from ..pyblob import (PyBlobStackVarMapVisitor, PySuite, PyText,
+                      PyNewline, PyStackvar)
 
 class PyBlobToLines(pyblob.PyBlobVisitor):
     def __init__(self, stacklen, toplevel=True):
@@ -119,7 +120,7 @@ class LRActionToLRTableEntry(parsetable.LRActionVisitor):
 
 class Writer(object):
 
-    def Deduplicate(self, iterable):
+    def deduplicate(self, iterable):
         ded = []
         indices = []
         mapping = {}
@@ -134,34 +135,38 @@ class Writer(object):
 
         return ded, indices
 
-    def __init__(self, parser_file, logger, lines, trace, deduplicate, python3, debug=False):
+    def __init__(self, parser_file, logger, lines, trace,
+                 deduplicate, python3, debug=False):
         self.logger = logger
 
-        self.parser_file = parser_file
-        self.lines = lines
-        self.trace = trace
-        self.deduplicate = deduplicate
-        self.python3 = python3
-        self.debug = debug
+        self._parser_file = parser_file
+        self._lines = lines
+        self._trace = trace
+        self._deduplicate = deduplicate
+        self._python3 = python3
+        self._debug = debug
 
-    def WriteHeader(self, header):
-        self.parser_file.write("""# this file was generated automagically by pyLR1
+    def write_header(self, header):
+        self._parser_file.write(
+"""# this file was generated automagically by pyLR1
 # do not edit, if you want to modify the parser, adapt the grammar file
 
 import mmap
 """)
 
         for headline in header:
-            self.parser_file.write(headline + "\n")
+            self._parser_file.write(headline + "\n")
 
-    def TableStrings(self, helper, tableTuple):
+    def table_strings(self, helper, tableTuple):
         tablehelper = ""
         tablestr = "("
 
-        if self.deduplicate:
-            ded, indices = self.Deduplicate(tableTuple)
+        if self._deduplicate:
+            ded, indices = self.deduplicate(tableTuple)
 
-            tablehelper = helper + ' = (' + ',\n'.join(str(entry).replace(' ', '') for entry in ded) + (',)' if len(ded) == 1 else ')')
+            tablehelper = helper + ' = (' + \
+                ',\n'.join(str(entry).replace(' ', '') for entry in ded) + \
+                (',)' if len(ded) == 1 else ')')
             tablestr += ','.join(helper + '[%d]' % i for i in indices)
             if len(indices) == 1:
                 tablestr += ','
@@ -174,21 +179,20 @@ import mmap
 
         return tablehelper, tablestr
 
-    def WriteAST(self, ast, symtable):
+    def write_AST(self, ast, symtable):
         if not ast.used:
             return
 
         classes = {}
 
-        # collect information on the classes
-        # and attach the actions
+        # collect information on the classes and attach the actions
         for symbolname in symtable:
             symbol = symtable[symbolname]
 
             if symbol.symtype == Syntax.META:
                 if symbol.symbol.name in ast.lists:
-                    # trivial list creation ... could be more intelligent
-                    # at guessing how to do this
+                    # trivial list creation ... could be more
+                    # intelligent at guessing how to do this
                     for prod in symbol.symbol.productions():
                         if prod.action is not None:
                             continue
@@ -223,7 +227,9 @@ import mmap
                             action.add(PyStackvar(num=tail))
                             action.add(PyText('.sem)'))
                         else:
-                            self.logger.error("Erroneous %list target: more items than can be enlisted")
+                            errmsg = "Erroneous %list target: more items" \
+                                " than can be enlisted"
+                            self.logger.error(errmsg)
                             raise Exception()
                         prod.action = action
                 else:
@@ -233,8 +239,9 @@ import mmap
                             i = 0
                             action = PySuite()
                             action.add(PyStackvar(result=True))
-                            action.add(PyText('.sem = ' + ast.bindings[prod] + '('))
-                            if self.lines:
+                            action.add(PyText('.sem = ' +
+                                              ast.bindings[prod] + '('))
+                            if self._lines:
                                 action.add(PyStackvar(result=True))
                                 action.add(PyText('.pos, '))
 
@@ -254,66 +261,66 @@ import mmap
                             classes[ast.bindings[prod]] = args
                             prod.action = action
 
-        self.parser_file.write("""
+        self._parser_file.write("""
 class AST(object):
     def Accept(self, visitor):
         raise NotImplementedError()
 """)
 
-        if self.lines:
-            self.parser_file.write("""
+        if self._lines:
+            self._parser_file.write("""
     def Pos(self):
         return self.pos
 """)
 
-        self.parser_file.write("""
+        self._parser_file.write("""
 class %s(object):
     def Visit(self, ast):
         return ast.Accept(self)
 """ % (ast.visitor,))
 
         for name in classes:
-            self.parser_file.write("""
+            self._parser_file.write("""
     def Visit%s(self, node):
         raise NotImplementedError()
 """ % (name,))
 
         basearg = ['self']
-        if self.lines:
+        if self._lines:
             basearg.append('pos')
 
         for name, args in classes.items():
-            self.parser_file.write("""
+            self._parser_file.write("""
 class %s(AST):
     def __init__(""" % (name,) + ", ".join(basearg + args))
 
-            self.parser_file.write("):")
+            self._parser_file.write("):")
             if len(args) == 0:
-                self.parser_file.write("""
+                self._parser_file.write("""
         pass""")
 
-            if self.lines:
-                self.parser_file.write("""
+            if self._lines:
+                self._parser_file.write("""
         self.pos = pos""")
 
             for arg in args:
-                self.parser_file.write("""
+                self._parser_file.write("""
         self.%s = %s""" % (arg, arg))
 
             for arg in args:
-                self.parser_file.write("""
+                self._parser_file.write("""
     def get_%s(self):
         return self.%s
 """ % (arg, arg))
 
-            self.parser_file.write("""
+            self._parser_file.write("""
     def Accept(self, visitor):
         return visitor.Visit%s(self)
 """ % (name,))
 
-    def WriteLexer(self, lexer, symtable, initial_conditions):
+    def write_lexer(self, lexer, symtable, initial_conditions):
 
-        if self.python3:
+        if self._python3:
             extract = '.decode("UTF-8")'
             baccess = "buffer[cur_pos]"
         else:
@@ -330,7 +337,7 @@ class %s(AST):
         for cond, table, start, actions, mapping in lexer.get():
 
             lextablehelper, lextablestr = \
-                self.TableStrings("ltd%d" % cond.number,
+                self.table_strings("ltd%d" % cond.number,
                   tuple(tuple(state) for state in table))
 
             # create the string representing the actions
@@ -374,12 +381,12 @@ class %s(AST):
         mappingstr += ')'
         startstr += ')'
 
-        linesPositionClass = ''
-        linesCount = "position = None"
-        eofPosition = "None"
+        lines_position_class = ''
+        lines_count = "position = None"
+        eof_position = "None"
 
-        lexerDebugData = ""
-        if self.debug:
+        lexer_debug_data = ""
+        if self._debug:
             token_names = []
             token_numbers = []
             symtypes = frozenset([Syntax.TERMINAL, Syntax.EOF, Syntax.ERROR])
@@ -397,7 +404,7 @@ class %s(AST):
                 condition_names.append("{num}: {name}".format(**condition_spec))
                 condition_numbers.append("{name}: {num}".format(**condition_spec))
 
-            lexerDebugData = r"""
+            lexer_debug_data = r"""
     TOKEN_NAMES = {{{}}}
     TOKEN_NUMBERS = {{{}}}
     CONDITION_NAMES = {{{}}}
@@ -405,8 +412,8 @@ class %s(AST):
 """.format(','.join(token_names), ','.join(token_numbers),
            ','.join(condition_names), ','.join(condition_numbers))
 
-        if self.lines:
-            linesPositionClass = """class Position(object):
+        if self._lines:
+            lines_position_class = """class Position(object):
     def __init__(self, file, line0, col0, line1, col1):
         self.file  = file
         self.line0 = line0
@@ -418,10 +425,11 @@ class %s(AST):
         return Position(self.file, self.line0, self.col0, oth.line1, oth.col1)
 
     def __str__(self):
-        return "%s Line %d:%d - %d:%d" % (self.file, self.line0, self.col0, self.line1, self.col1)
+        return "{:s} Line {:d}:{:d} - {:d}:{:d}".format(
+            self.file, self.line0, self.col0, self.line1, self.col1)
 """
 
-            linesCount = r"""
+            lines_count = r"""
             line0 = self.line
             sol0 = self.start_of_line
             self.line += text.count('\n')
@@ -434,19 +442,20 @@ class %s(AST):
                                 self.line,
                                 pos - self.start_of_line)
 """
-            eofPosition = r"""Position(self.filename, self.line, 0, self.line, 0)"""
+            eof_position = \
+                r"""Position(self.filename, self.line, 0, self.line, 0)"""
 
-        self.parser_file.write(r"""class GotToken(Exception):
+        self._parser_file.write(r"""class GotToken(Exception):
     pass
 
-""" + linesPositionClass + r"""
+""" + lines_position_class + r"""
 
 class Lexer(object):
 
     starts = """ + startstr + r"""
     mappings = """ + (mappingstr if lexer.mapping else "()") + r"""
-""" + (lextablehelper if self.deduplicate else "") + r"""
-    tables  = """ + lextablestr + lexerDebugData + r"""
+""" + (lextablehelper if self._deduplicate else "") + r"""
+    tables  = """ + lextablestr + lexer_debug_data + r"""
     actionmap = """ + actionmapstr + """
 
     @classmethod
@@ -538,7 +547,7 @@ class Lexer(object):
             if action is None:
                 if cur_pos == self.root:
                     return ("""
-           + "{0}, {1}, {2}".format(symtable["$EOF"].number, "''", eofPosition) +
+           + "{0}, {1}, {2}".format(symtable["$EOF"].number, "''", eof_position) +
                                r""")
                 else:
                     action = cur_pos, self.error_action
@@ -546,7 +555,7 @@ class Lexer(object):
 
             text = self.buffer[self.root:pos]""" + extract + r"""
 
-            """ + linesCount + r"""
+            """ + lines_count + r"""
             name = faction(text, position)
 
             if self.nextCond[-1] == """ + repr(initial_conditions["$SOF"].number) + r""":
@@ -573,42 +582,42 @@ class Lexer(object):
 """)
 
         for action, number in sorted(action_table.items(), key=lambda x: x[1]):
-            self.parser_file.write("""
+            self._parser_file.write("""
     def action%d(self, text, position):
 """ % (number,))
 
             lexActionGen = LexActionToCode(symtable)
             lexActionGen.visit(action)
             for line in lexActionGen.code():
-                self.parser_file.write("        " + line + "\n")
+                self._parser_file.write("        " + line + "\n")
 
-        self.parser_file.write(r"""
+        self._parser_file.write(r"""
     def error_action(self, text, position):
         return """ + "{}".format(symtable["$ERROR"].number) + r"""
 """)
 
-    def WriteParser(self, parseTable, symtable):
-        # when there is no parser specified parseTable is None
+    def write_parser(self, parse_table, symtable):
+        # when there is no parser specified parse_table is None
         # and we don't write a parser to the output file
-        if parseTable is None:
+        if parse_table is None:
             return
 
-        linesPosAddition = ""
-        linesNullPos = ""
+        lines_pos_addition = ""
+        lines_null_pos = ""
 
-        if self.lines:
-            linesPosAddition = """new.pos = stack[-size].pos.Add(stack[-1].pos)"""
-            linesNullPos = "stack[-1].pos = Position('', 0,0,0,0)"
+        if self._lines:
+            lines_pos_addition = """new.pos = stack[-size].pos.Add(stack[-1].pos)"""
+            lines_null_pos = "stack[-1].pos = Position('', 0,0,0,0)"
 
         state_trace = ""
 
-        if self.trace:
-            if self.python3:
-                state_trace = "print(' '.join(str(entry.state) for entry in stack), '#', str((t,d)) ," + ("self.lexer.TOKEN_NAMES[token]" if self.debug else "token") + ", '\"' + lexeme + '\"')"
+        if self._trace:
+            if self._python3:
+                state_trace = "print(' '.join(str(entry.state) for entry in stack), '#', str((t,d)) ," + ("self.lexer.TOKEN_NAMES[token]" if self._debug else "token") + ", '\"' + lexeme + '\"')"
             else:
                 state_trace = "print stack[-1].state, token lexeme"
 
-        self.parser_file.write("""
+        self._parser_file.write("""
 class Accept(Exception):
     pass
 
@@ -632,30 +641,30 @@ class Parser(object):
 
         translator = LRActionToLRTableEntry(symtable)
 
-        actionTableHelper, actionTableStr = self.TableStrings("atd", tuple(tuple(translator.visit(a) if a is not None else (2,0) for a in state) for state in parseTable.actiontable()))
+        action_table_helper, action_table_str = self.table_strings("atd", tuple(tuple(translator.visit(a) if a is not None else (2,0) for a in state) for state in parse_table.actiontable()))
 
-        gotoTableHelper, gotoTableStr = self.TableStrings("gtd", tuple(tuple(a if a else 0 for a in state) for state in parseTable.gototable()))
+        goto_table_helper, goto_table_str = self.table_strings("gtd", tuple(tuple(a if a else 0 for a in state) for state in parse_table.gototable()))
 
-        reductionStr = "("
+        reduction_str = "("
         i = 0
-        for red in parseTable.rules():
-            reductionStr += "(%d,%d,self.action%d),\n" % (len(red), symtable[red.left.name].number, i)
+        for red in parse_table.rules():
+            reduction_str += "(%d,%d,self.action%d),\n" % (len(red), symtable[red.left.name].number, i)
             i += 1
-        reductionStr += ")"
+        reduction_str += ")"
 
-        self.parser_file.write("""
+        self._parser_file.write("""
     # tables
-    start = %d""" % parseTable.start + """
-    """ + actionTableHelper + """
-    atable = """ + actionTableStr + """
-    """ + gotoTableHelper + """
-    gtable = """ + gotoTableStr + """
+    start = %d""" % parse_table.start + """
+    """ + action_table_helper + """
+    atable = """ + action_table_str + """
+    """ + goto_table_helper + """
+    gtable = """ + goto_table_str + """
 
     # auto generated methods
     def __init__(self, lexer):
         self.lexer = lexer
         self.stack = []
-        self.reductions = """ + reductionStr + """
+        self.reductions = """ + reduction_str + """
 
     def Parse(self):
         lexer = self.lexer
@@ -665,7 +674,7 @@ class Parser(object):
         reductions = self.reductions
         stack.append(StackObject(self.start))
         recovering = False
-        """ + linesNullPos + """
+        """ + lines_null_pos + """
 
         try:
             while True:
@@ -677,7 +686,7 @@ class Parser(object):
                     size, sym, action = reductions[d]
                     state = gtable[stack[-size-1].state][sym]
                     new = StackObject(state)
-                    """ + linesPosAddition  + r"""
+                    """ + lines_pos_addition  + r"""
                     action(new)
                     if size > 0:
                         del stack[-size:]
@@ -721,28 +730,28 @@ class Parser(object):
             return stack[-1].sem
 """)
         redNum = 0
-        for red in parseTable.rules():
+        for red in parse_table.rules():
             text = red.action
 
-            self.parser_file.write("""
+            self._parser_file.write("""
     def action%d(self, result):""" % (redNum,))
 
             if isinstance(text, pyblob.PyBlob):
                 visitor = PyBlobToLines(len(red))
                 visitor.visit(text)
                 if visitor.multiline:
-                    self.parser_file.write('\n')
+                    self._parser_file.write('\n')
 
                 for line in visitor.get_lines():
                     if line:
                         # don't write indentation if there is
                         # no line!
                         if visitor.multiline:
-                            self.parser_file.write('        ')
+                            self._parser_file.write('        ')
                         else:
-                            self.parser_file.write(' ')
-                        self.parser_file.write(line)
-                    self.parser_file.write('\n')
+                            self._parser_file.write(' ')
+                        self._parser_file.write(line)
+                    self._parser_file.write('\n')
 
             elif isinstance(text, list):
                 text = list(filter(lambda x: bool(x.strip()), text))
@@ -751,7 +760,7 @@ class Parser(object):
                     indent = False
                 else:
                     indent = True
-                    self.parser_file.write("\n")
+                    self._parser_file.write("\n")
                 for line in text:
 
                     line = line.replace("$$", "result")
@@ -759,11 +768,11 @@ class Parser(object):
                         line = line.replace("$%d" % i, "self.stack[-%d]" % (len(red) - i + 1))
 
                     if indent:
-                        self.parser_file.write("        ")
+                        self._parser_file.write("        ")
                     else:
-                        self.parser_file.write(" ")
-                    self.parser_file.write(line)
-                    self.parser_file.write("\n")
+                        self._parser_file.write(" ")
+                    self._parser_file.write(line)
+                    self._parser_file.write("\n")
             else:
                 if not text: text = "pass"
                 text = text.replace("$$", "result")
@@ -772,34 +781,34 @@ class Parser(object):
 
 
                 for char in text:
-                    self.parser_file.write(char)
+                    self._parser_file.write(char)
                     if char == '\n':
                         # indent two levels: Parser class, current function
-                        self.parser_file.write("        ")
+                        self._parser_file.write("        ")
 
-                self.parser_file.write("\n")
+                self._parser_file.write("\n")
             redNum += 1
 
 
-    def WriteFooter(self, footer):
+    def write_footer(self, footer):
         if footer:
-            self.parser_file.write("""
+            self._parser_file.write("""
 # The following code is copied verbatim from the %footer section of
 # the parser specification
 """)
 
         for line in footer:
-            self.parser_file.write(line)
+            self._parser_file.write(line)
 
 
-    def Write(self, syntax, parsetable, lextable):
+    def write(self, syntax, parsetable, lextable):
 
-        self.WriteHeader(syntax.header())
+        self.write_header(syntax.header())
 
-        self.WriteAST(syntax.AST_info, syntax)
+        self.write_AST(syntax.AST_info, syntax)
 
-        self.WriteLexer(lextable, syntax, syntax.initial_conditions)
+        self.write_lexer(lextable, syntax, syntax.initial_conditions)
 
-        self.WriteParser(parsetable, syntax)
+        self.write_parser(parsetable, syntax)
 
-        self.WriteFooter(syntax.footer())
+        self.write_footer(syntax.footer())

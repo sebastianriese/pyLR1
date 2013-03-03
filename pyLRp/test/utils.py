@@ -121,7 +121,7 @@ def compile(logger, source, listing=None, trace=False):
     del parser
 
     syn.require_error()
-    parseTable = None
+    parse_table = None
     if syn.start_symbol is not None:
         graph = LALR1StateTransitionGraph(syn, logger)
         graph.construct()
@@ -129,7 +129,7 @@ def compile(logger, source, listing=None, trace=False):
         termsyms = frozenset([Syntax.TERMINAL,
                               Syntax.EOF,
                               Syntax.ERROR])
-        parseTable = graph.create_parse_table(
+        parse_table = graph.create_parse_table(
             syn.sym_table_map(filt=lambda x: x.symtype in termsyms,
                             value=lambda x: x.number),
             syn.sym_table_map(filt=lambda x: x.symtype == Syntax.META,
@@ -154,7 +154,7 @@ def compile(logger, source, listing=None, trace=False):
     w = Writer(code, logger,
                      lines=False, trace=trace, debug=trace,
                      deduplicate=True, python3=True)
-    w.Write(syn, parseTable, lexer)
+    w.write(syn, parse_table, lexer)
     result = {}
 
     # create a listing for debugging purposes
