@@ -119,12 +119,12 @@ class LexerConstructor(object):
 
     def Optimize(self):
         for dfa in self.dfas:
-            dfa.Optimize()
+            dfa.optimize()
 
     def CreateLexTables(self):
         self.lextables = []
         for dfa in self.dfas:
-            self.lextables.append(dfa.CreateLexTable())
+            self.lextables.append(dfa.create_lex_table())
 
     def DropDFA(self):
         """

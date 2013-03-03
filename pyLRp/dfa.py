@@ -6,91 +6,85 @@ from .lextable import Lextable
 class DFAState(object):
 
     def __init__(self):
-        self.transitions = []
+        self._transitions = []
         self.action = None
         self.number = None
 
     def __iter__(self):
-        return iter(self.transitions)
+        return iter(self._transitions)
 
-    def Move(self, chr):
+    def move(self, chr):
         """
         Get the transition on character for a DFA.
         """
-        return self.transitions[ord(chr)]
+        return self._transitions[ord(chr)]
 
-    def MoveNumeric(self, num):
-        return self.transitions[num]
+    def move_numeric(self, num):
+        return self._transitions[num]
 
-    def AddTransition(self, state):
-        self.transitions.append(state)
-
-    def SetAction(self, action):
-        self.action = action
-
-    def GetAction(self):
-        return self.action
+    def add_transition(self, state):
+        self._transitions.append(state)
 
 
 class OptimizerPartition(object):
     def __init__(self):
-        self.groups = []
-        self.forward = {}
+        self._groups = []
+        self._forward = {}
 
     def __len__(self):
-        return len(self.groups)
+        return len(self._groups)
 
-    def NewGroup(self):
-        num = len(self.groups)
-        self.groups.append([])
+    def new_group(self):
+        num = len(self._groups)
+        self._groups.append([])
         return num
 
-    def GroupOfState(self, state):
-        return self.forward[state]
+    def group_of_state(self, state):
+        return self._forward[state]
 
-    def Add(self, group, state):
-        self.forward[state] = group
-        self.groups[group].append(state)
+    def add(self, group, state):
+        self._forward[state] = group
+        self._groups[group].append(state)
 
-    def GeneratePartitionTransitionTable(self, state):
+    def generate_partition_transition_table(self, state):
         # efficiency hack for:
-        # return tuple(self.GroupOfState(target) for target in state)
-        return tuple(map(self.forward.__getitem__, state))
+        # return tuple(self.group_of_state(target) for target in state)
+        return tuple(map(self._forward.__getitem__, state))
 
-    def Partition(self):
+    def partition(self):
         partition = OptimizerPartition()
-        for group in self.groups:
+        for group in self._groups:
             patterns = {}
             for entry in group:
-                pattern = self.GeneratePartitionTransitionTable(entry)
+                pattern = self.generate_partition_transition_table(entry)
 
                 if pattern not in patterns:
-                    patterns[pattern] = partition.NewGroup()
+                    patterns[pattern] = partition.new_group()
 
-                partition.Add(patterns[pattern], entry)
+                partition.add(patterns[pattern], entry)
 
         if len(partition) == len(self):
             return self
         else:
-            return partition.Partition()
+            return partition.partition()
 
-    def Reconstruct(self, start):
+    def reconstruct(self, start):
         newstates = []
         newstart = None
 
         # create the new states
-        for group in self.groups:
+        for group in self._groups:
             newstates.append(DFAState())
 
             if start in group:
                 newstart = newstates[-1]
 
         # link the new states
-        for newstate, group in zip(newstates, self.groups):
+        for newstate, group in zip(newstates, self._groups):
             representative = group[0]
-            newstate.SetAction(representative.GetAction())
+            newstate.action = representative.action
             for target in representative:
-                newstate.AddTransition(newstates[self.GroupOfState(target)])
+                newstate.add_transition(newstates[self.group_of_state(target)])
 
         return newstart, newstates
 
@@ -100,24 +94,24 @@ class LexingDFA(object):
         self.start = start
         self.states = list(states)
 
-    def Optimize(self):
+    def optimize(self):
         # construct the initial partition
         partition = OptimizerPartition()
         actions   = {}
 
         for state in self.states:
             if state.action not in actions:
-                actions[state.action] = partition.NewGroup()
+                actions[state.action] = partition.new_group()
 
-            partition.Add(actions[state.action], state)
+            partition.add(actions[state.action], state)
 
         # run the optimizing algorithm
-        partition = partition.Partition()
+        partition = partition.partition()
 
         # construct a new DFA from the partition
-        self.start, self.states = partition.Reconstruct(self.start)
+        self.start, self.states = partition.reconstruct(self.start)
 
-    def CreateLexTable(self):
+    def create_lex_table(self):
         """
         Create a numeric table representation of the DFA.
         """
@@ -138,7 +132,7 @@ class LexingDFA(object):
                     target.number = cnt
                     cnt += 1
                 newline.append(target.number)
-            actions.append(cur.GetAction())
+            actions.append(cur.action)
             lextable.append(newline)
 
         return Lextable(lextable, self.start.number, actions)

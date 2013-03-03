@@ -106,7 +106,7 @@ class LexingNFA(object):
         # XXX: add feature to warn when there are nullmatches
         # but they are ignored
         if self.nullmatch:
-            dfaStates[si].SetAction(SelectAction(si))
+            dfaStates[si].action = SelectAction(si)
 
         while todo:
             cur = todo.pop()
@@ -124,14 +124,14 @@ class LexingNFA(object):
 
                     todo.append(newState)
                     dfaStates[newState] = DFAState()
-                    dfaStates[newState].SetAction(SelectAction(newState))
+                    dfaStates[newState].action = SelectAction(newState)
 
                     if len(newState) == 0:
                         # this is the error state (empty set of NFA states)
                         # if we get here nothing can match anymore, therefore
                         # we can retrieve our longest match
-                        dfaStates[newState].SetAction(GetMatch())
+                        dfaStates[newState].action = GetMatch()
 
-                dfaStates[cur].AddTransition(dfaStates[newState])
+                dfaStates[cur].add_transition(dfaStates[newState])
 
         return LexingDFA(dfaStates[si], dfaStates.values())
