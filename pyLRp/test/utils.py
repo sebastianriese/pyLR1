@@ -117,7 +117,7 @@ def compile(logger, source, listing=None, trace=False):
     codelines = source.split('\n')
 
     parser = Parser(codelines, logger)
-    syn = parser.Parse()
+    syn = parser.parse()
     del parser
 
     syn.require_error()

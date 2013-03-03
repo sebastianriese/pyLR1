@@ -174,7 +174,7 @@ if args.self_hosting:
 else:
     from .parsers.bootstrap import Parser
     p = Parser(infile, logger)
-    syn = p.Parse()
+    syn = p.parse()
     del p
 infile.close()
 
