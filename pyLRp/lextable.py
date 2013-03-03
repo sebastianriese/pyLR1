@@ -2,21 +2,21 @@
 class Lextable(object):
 
     def __init__(self, table, start, actionlist):
-        self.table = table
-        self.start = start
-        self.actions = actionlist
-        self.mapping = None
+        self._table = table
+        self._start = start
+        self._actions = actionlist
+        self._mapping = None
 
 
-    def Get(self):
-        return self.table, self.start, self.actions, self.mapping
+    def get(self):
+        return self._table, self._start, self._actions, self._mapping
 
-    def ConstructEquivalenceClasses(self):
+    def construct_equivalence_classes(self):
         i = 0
         classes = [[char for char in range(0,256)]]
 
-        for line in self.table:
-
+        # determine the equivalence classes
+        for line in self._table:
             newclasslist = []
             for cls in classes:
                 newclasses = dict()
@@ -24,59 +24,59 @@ class Lextable(object):
                     state = line[char]
                     if state not in newclasses:
                         newclasses[state] = []
-
                     newclasses[state].append(char)
                 newclasslist += list(newclasses.values())
-
             classes = newclasslist
 
-        self.mapping = [None for j in range(0,256)]
-        mapping = self.mapping
+        # construct the mapping from chars to classes
+        self._mapping = [None for j in range(0,256)]
+        mapping = self._mapping
         i = 0
         for cls in classes:
             for terminal in cls:
                 mapping[terminal] = i
             i += 1
 
+        # construct the new table
         newtable = []
-        for line in self.table:
+        for line in self._table:
             newtable.append([])
             my = newtable[-1]
             for cls in classes:
                 my.append(line[cls[0]])
-        self.table = newtable
+        self._table = newtable
 
 
-    def Print(self):
+    def print(self):
         print("start: %d\n" % self.start)
 
-        for num, action in enumerate(self.actions):
+        for num, action in enumerate(self._actions):
             print(num, str(action))
 
-        if not self.mapping:
+        if not self._mapping:
             print("\n    ", end=' ')
 
         # print the characters
         for i in range(32, 128):
-            if self.mapping:
-                print(chr(i), str(self.mapping[i]))
+            if self._mapping:
+                print(chr(i), str(self._mapping[i]))
             else:
                 print(chr(i).center(2), end=' ')
 
-        if self.mapping:
+        if self._mapping:
             print("\n    ", end=' ')
 
 
         printRange = range(32, 128)
 
-        if self.mapping:
-            printRange = range(len(self.table[0]))
+        if self._mapping:
+            printRange = range(len(self._table[0]))
             for i in printRange:
                 print(str(i).center(2), end=' ')
 
         print("")
         i = 0
-        for state in self.table:
+        for state in self._table:
             print(str(i).center(2), "-", end=' ')
             for a in printRange:
                 print(str(state[a]).center(2), end=' ')

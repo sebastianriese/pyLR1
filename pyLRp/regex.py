@@ -19,7 +19,7 @@ class CharacterRegex(RegexAST):
         start = NFAState()
         end = NFAState()
 
-        start.AddTransitions(self.chars, end)
+        start.add_transitions(self.chars, end)
 
         return start, end
 
@@ -37,7 +37,7 @@ class SequenceRegex(RegexAST):
 
         # chain the end of the first automaton to the start of the
         # second one with an epsilon transition
-        nfa1e.AddTransition('', nfa2s)
+        nfa1e.add_transition('', nfa2s)
 
         return nfa1s, nfa2e
 
@@ -53,7 +53,7 @@ class OptionRegex(RegexAST):
 
         nfas, nfae = self.regex.NFA()
 
-        nfas.AddTransition('', nfae)
+        nfas.add_transition('', nfae)
 
         return nfas, nfae
 
@@ -69,10 +69,10 @@ class RepeatorRegex(RegexAST):
         nfas, nfae = NFAState(), NFAState()
         nfars, nfare = self.regex.NFA()
 
-        nfas.AddTransition('', nfae)
-        nfas.AddTransition('', nfars)
-        nfare.AddTransition('', nfars)
-        nfare.AddTransition('', nfae)
+        nfas.add_transition('', nfae)
+        nfas.add_transition('', nfars)
+        nfare.add_transition('', nfars)
+        nfare.add_transition('', nfae)
 
         return nfas, nfae
 
@@ -90,11 +90,11 @@ class OrRegex(RegexAST):
         nfa2s, nfa2e = self.regex2.NFA()
         start, end = NFAState(), NFAState()
 
-        start.AddTransition('', nfa1s)
-        start.AddTransition('', nfa2s)
+        start.add_transition('', nfa1s)
+        start.add_transition('', nfa2s)
 
-        nfa1e.AddTransition('', end)
-        nfa2e.AddTransition('', end)
+        nfa1e.add_transition('', end)
+        nfa2e.add_transition('', end)
 
         return start, end
 

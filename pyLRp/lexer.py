@@ -89,14 +89,15 @@ class LexerConstructor(object):
         for token in lexerSpec.InlineTokens():
 
             previous = NFAState()
-            inlineTokens.AddTransition('', previous)
+            inlineTokens.add_transition('', previous)
 
             for char in token:
                 new = NFAState()
-                previous.AddTransition(char, new)
+                previous.add_transition(char, new)
                 previous = new
 
-            previous.SetAction(0, Token('"' + token + '"'))
+            previous.priority = 0
+            previous.action = Token('"' + token + '"')
 
         # construct the NFAs for the initial conditions
         for condition in self.initial_conditions:
@@ -108,7 +109,7 @@ class LexerConstructor(object):
     def ConstructDFAs(self):
         self.dfas = []
         for nfa in self.nfas:
-            self.dfas.append(nfa.CreateDFA())
+            self.dfas.append(nfa.create_DFA())
 
     def DropNFA(self):
         """
@@ -135,17 +136,17 @@ class LexerConstructor(object):
     def ConstructEquivalenceClasses(self):
         self.mapping = True
         for lextable in self.lextables:
-            lextable.ConstructEquivalenceClasses()
+            lextable.construct_equivalence_classes()
 
     def Mapping(self):
         return self.mapping
 
     def Get(self):
         for cond, lextable in zip(self.initial_conditions, self.lextables):
-            yield tuple([cond] + list(lextable.Get()))
+            yield tuple([cond] + list(lextable.get()))
 
     def PrintTables(self):
         for key, table in self.lextables.items():
             print("-----------------", key.Name(), "--------------------")
-            table.Print()
+            table.print()
 

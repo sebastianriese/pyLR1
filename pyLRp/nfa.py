@@ -5,24 +5,34 @@ from .lexactions import GetMatch
 class NFAState(object):
 
     def __init__(self):
-        self.transitions = {}
+        self._transitions = {}
         self.action = None
         self.priority = None
-        self.closure = None
+        self._closure = None
 
     def __iter__(self):
-        return iter(self.transitions.items())
+        return iter(self._transitions.items())
 
-    def Move(self, char):
+    def move(self, char):
         """
         Get the set of states reached by the transition on char.
         """
-        return self.transitions.get(char, set())
+        return self._transitions.get(char, set())
 
-    def EpsilonClosure(self, visited=None):
+    def epsilon_closure(self, visited=None):
+        """
+        Return the epsilon closure of the state.
 
-        if self.closure is not None:
-            return self.closure
+        CAVEAT: The epsilon closure is cached. Therefore this must not
+        be called before the NFA is fully constructed. Adding any
+        non-epsilon transitions or inbound epsilon from another NFA to
+        the NFA reachable when the epsilon closure was constructed is
+        safe. Adding epsilon transitions from the reachable NFA will
+        cause trouble.
+        """
+
+        if self._closure is not None:
+            return self._closure
 
         closure = set([self])
 
@@ -32,106 +42,108 @@ class NFAState(object):
         if self in visited:
             return closure
 
-        closure |= self.transitions.get('', set())
+        closure |= self._transitions.get('', set())
 
         nc = set(closure)
         for elem in closure:
-            nc |= elem.EpsilonClosure(visited | frozenset([self]))
+            nc |= elem.epsilon_closure(visited | frozenset([self]))
+        nc = frozenset(nc)
 
-        if visited == frozenset():
-            self.closure = frozenset(nc)
+        if not visited:
+            self._closure = nc
 
         return nc
 
-    def AddTransitions(self, chrs, state):
+    def add_transitions(self, chrs, state):
+        """
+        Add transitions on all elements of the iterable `chrs` to
+        `state`.
+        """
         for chr in chrs:
-            self.AddTransition(chr, state)
+            self.add_transition(chr, state)
 
-    def AddTransition(self, char, state):
-        if char not in self.transitions:
-            self.transitions[char] = set()
+    def add_transition(self, char, state):
+        """
+        Add a transition of `char` to `state.
+        """
+        if char not in self._transitions:
+            self._transitions[char] = set()
 
-        self.transitions[char].add(state)
-
-    def SetAction(self, priority, action):
-        self.action = action
-        self.priority = priority
-
-    def GetAction(self):
-        return self.action
-
-    def Priority(self):
-        return self.priority
+        self._transitions[char].add(state)
 
 
 class LexingNFA(object):
 
-    def __init__(self, lexingRules, condition, inlineTokenNFA, logger):
-        self.logger = logger
-        self.start = NFAState()
+    def __init__(self, lexing_rules, condition, inline_token_NFA, logger):
+        """
+        A NFA annotated with actions and with rules selected according
+        to `condition`.
+        """
+        self._logger = logger
+        self._start = NFAState()
 
         if condition.IncludesSToken():
-            self.start.AddTransition('', inlineTokenNFA)
+            self._start.add_transition('', inline_token_NFA)
 
         self.nullmatch = False
         if condition.Nullmatch():
             self.nullmatch = True
 
         i = -1
-        for lexingRule in lexingRules:
-            if condition.Match(lexingRule.Conditions()):
-                start, end = lexingRule.Regex().NFA()
+        for lexing_rule in lexing_rules:
+            if condition.Match(lexing_rule.Conditions()):
+                start, end = lexing_rule.Regex().NFA()
 
-                self.start.AddTransition('', start)
-                end.SetAction(i, lexingRule.Action())
+                self._start.add_transition('', start)
+                end.priority = i
+                end.action = lexing_rule.action
             i -= 1
 
-    def CreateDFA(self):
+    def create_DFA(self):
+        """
+        Create a DFA from the NFA.
+        """
 
-        def SelectAction(nfaStates):
+        def select_action(nfa_states):
             curpri = float('-inf')
             curaction = None
-            for state in nfaStates:
-                pri = state.Priority()
+            for state in nfa_states:
+                pri = state.priority
                 if pri is not None and pri > curpri:
-                    curaction = state.GetAction()
+                    curaction = state.action
                     curpri = pri
             return curaction
 
-        si = frozenset(self.start.EpsilonClosure())
-        dfaStates = {si : DFAState()}
+        si = frozenset(self._start.epsilon_closure())
+        dfa_states = {si : DFAState()}
         todo = [si]
-
 
         # XXX: add feature to warn when there are nullmatches
         # but they are ignored
         if self.nullmatch:
-            dfaStates[si].action = SelectAction(si)
+            dfa_states[si].action = select_action(si)
 
         while todo:
             cur = todo.pop()
-
             for i in range(0,256):
                 char = chr(i)
 
                 move = set()
                 for c in cur:
-                    for m in c.Move(char):
-                        move |= m.EpsilonClosure()
-                newState = frozenset(move)
+                    for m in c.move(char):
+                        move |= m.epsilon_closure()
+                new_state = frozenset(move)
 
-                if newState not in dfaStates:
-
-                    todo.append(newState)
-                    dfaStates[newState] = DFAState()
-                    dfaStates[newState].action = SelectAction(newState)
-
-                    if len(newState) == 0:
+                if new_state not in dfa_states:
+                    todo.append(new_state)
+                    dfa_states[new_state] = DFAState()
+                    dfa_states[new_state].action = select_action(new_state)
+                    if not new_state:
                         # this is the error state (empty set of NFA states)
                         # if we get here nothing can match anymore, therefore
                         # we can retrieve our longest match
-                        dfaStates[newState].action = GetMatch()
+                        dfa_states[new_state].action = GetMatch()
 
-                dfaStates[cur].add_transition(dfaStates[newState])
+                dfa_states[cur].add_transition(dfa_states[new_state])
 
-        return LexingDFA(dfaStates[si], dfaStates.values())
+        return LexingDFA(dfa_states[si], dfa_states.values())
