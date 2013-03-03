@@ -87,18 +87,18 @@ class LexerConstructor(object):
 
         # sort initial conditions by number to create a reference
         # order for the other item lists
-        self._initial_conditions = list(sorted(lexer_spec.InitialConditions(),
+        self._initial_conditions = list(sorted(lexer_spec.initial_conditions.values(),
                                                key=lambda x: x.number))
         self._nfas = []
         self._dfas = []
         self._lextables = []
         self._mapping = False
 
-        inline_tokens = self._make_inline_token_NFA(lexer_spec.InlineTokens())
+        inline_tokens = self._make_inline_token_NFA(lexer_spec.inline_tokens())
 
         # construct the NFAs for the initial conditions
         for condition in self._initial_conditions:
-            self._nfas.append(LexingNFA(lexer_spec.Lexer(),
+            self._nfas.append(LexingNFA(lexer_spec.lexer(),
                                         condition,
                                         inline_tokens,
                                         logger))

@@ -8,7 +8,8 @@ import logging
 
 from ..syntax import Syntax, SyntaxNameError
 from ..regex import Regex, RegexSyntaxError
-from ..lexactions import List, Debug, Push, Pop, Function, Token, Begin, Restart
+from ..lexactions import (List, Debug, Push, Pop, Function, Token,
+                          Begin, Restart, Continue)
 from ..lexer import LexingRule
 from ..lr import Production
 from ..pyblob import PyBlobStackVarMapVisitor, PySuite, PyText, PyNewline, PyStackvar
@@ -275,17 +276,17 @@ pyblob_:
 
 header:
     %empty
-    header PYVERB: self.syntax.AddHeader($2.sem)
+    header PYVERB: self.syntax.add_header($2.sem)
 
 ast:
-    AST: self.syntax.ASTInfo().set_used()
+    AST: self.syntax.AST_info.set_used()
     ast LIST symbollist:
         for name in $3.sem:
-            self.syntax.ASTInfo().list(name)
+            self.syntax.AST_info.list(name)
 
     ast VISITOR symbollist:
        try:
-           self.syntax.ASTInfo().visitor, = $3.sem
+           self.syntax.AST_info.visitor, = $3.sem
        except ValueError:
            # XXX signal error!
            pass
@@ -300,29 +301,29 @@ lexdecs:
 lexdec:
     EXCLUSIVE symbollist:
         for symb in $2.sem:
-            self.syntax.AddExclusiveInitialCondition(symb)
+            self.syntax.add_exclusive_initial_condition(symb)
 
     INCLUSIVE symbollist:
         for symb in $2.sem:
-            self.syntax.AddInclusiveInitialCondition(symb)
+            self.syntax.add_inclusive_initial_condition(symb)
 
     NULLMATCH symbollist:
         for symb in $2.sem:
-            self.syntax.InitialCondition(symb).DeclareNullmatch()
+            self.syntax.initial_condition(symb).seclare_nullmatch()
 
     DEF INDENT lexdefs DEDENT
 
 lexdefs:
     SYMBOL REGEX NEWLINE:
-        self.syntax.AddNamedPattern(
+        self.syntax.add_named_pattern(
             $1.sem,
-            Regex($2.sem, bindings=self.syntax.NamedPatterns()).ast
+            Regex($2.sem, bindings=self.syntax.named_patterns()).ast
         )
 
     lexdefs SYMBOL REGEX NEWLINE:
-        self.syntax.AddNamedPattern(
+        self.syntax.add_named_pattern(
             $2.sem,
-            Regex($3.sem, bindings=self.syntax.NamedPatterns()).ast
+            Regex($3.sem, bindings=self.syntax.named_patterns()).ast
         )
 
 lexrules:
@@ -332,18 +333,18 @@ lexrules:
 lexrule:
     lexscope
     REGEX lexaction:
-        regex = Regex($1.sem, bindings=self.syntax.NamedPatterns())
-        self.syntax.AddLexingRule(LexingRule(set(), regex, $2.sem))
+        regex = Regex($1.sem, bindings=self.syntax.named_patterns())
+        self.syntax.add_lexing_rule(LexingRule(set(), regex, $2.sem))
     CARET REGEX lexaction:
-        regex = Regex($2.sem, bindings=self.syntax.NamedPatterns())
-        self.syntax.AddLexingRule(LexingRule(set([self.syntax.InitialCondition("$SOL")]), regex, $3.sem))
+        regex = Regex($2.sem, bindings=self.syntax.named_patterns())
+        self.syntax.add_lexing_rule(LexingRule(set([self.syntax.initial_condition("$SOL")]), regex, $3.sem))
 
     LANGLE condspec RANGLE REGEX lexaction:
-        regex = Regex($4.sem, bindings=self.syntax.NamedPatterns())
+        regex = Regex($4.sem, bindings=self.syntax.named_patterns())
         state = set()
         for symb in $2.sem:
-            state.add(self.syntax.InitialCondition(symb))
-        self.syntax.AddLexingRule(LexingRule(state, regex, $5.sem))
+            state.add(self.syntax.initial_condition(symb))
+        self.syntax.add_lexing_rule(LexingRule(state, regex, $5.sem))
 
 lexscope:
     lexscopedecl INDENT lexscope_ DEDENT: self.lexscopes.pop()
@@ -352,7 +353,7 @@ lexscopedecl:
     SCOPE OPAREN scopespec CPAREN:
         state = set(self.lexscopes[-1])
         for op, cond in $3.sem:
-            cond = self.syntax.InitialCondition(cond)
+            cond = self.syntax.initial_condition(cond)
             if op == '+':
                 state.add(cond)
             elif op == '-':
@@ -370,12 +371,12 @@ scopespec:
 lexscope_:
     lexscope
     REGEX lexaction:
-       regex = Regex($1.sem, bindings=self.syntax.NamedPatterns())
-       self.syntax.AddLexingRule(LexingRule(self.lexscopes[-1], regex, $2.sem))
+       regex = Regex($1.sem, bindings=self.syntax.named_patterns())
+       self.syntax.add_lexing_rule(LexingRule(self.lexscopes[-1], regex, $2.sem))
     lexscope_ lexscope
     lexscope_ REGEX lexaction:
-       regex = Regex($2.sem, bindings=self.syntax.NamedPatterns())
-       self.syntax.AddLexingRule(LexingRule(self.lexscopes[-1], regex, $3.sem))
+       regex = Regex($2.sem, bindings=self.syntax.named_patterns())
+       self.syntax.add_lexing_rule(LexingRule(self.lexscopes[-1], regex, $3.sem))
 
 condspec:
     SYMBOL: $$.sem = [$1.sem]
@@ -388,13 +389,13 @@ stackactions:
     %empty: $$.sem = List()
     stackactions PUSH OPAREN SYMBOL CPAREN COMMA:
         $$.sem = $1.sem
-        $$.sem.append(Push(self.syntax.InitialCondition($4.sem)))
+        $$.sem.append(Push(self.syntax.initial_condition($4.sem)))
     stackactions POP OPAREN CPAREN COMMA:
         $$.sem = $1.sem
         $$.sem.append(Pop())
     stackactions BEGIN OPAREN SYMBOL CPAREN COMMA:
         $$.sem = $1.sem
-        $$.sem.append(Begin(self.syntax.InitialCondition($4.sem)))
+        $$.sem.append(Begin(self.syntax.initial_condition($4.sem)))
     stackactions FUNCTION OPAREN SYMBOL CPAREN COMMA:
         $$.sem = $1.sem
         $$.sem.append(Function($4.sem))
@@ -406,7 +407,7 @@ final:
     RESTART: $$.sem = Restart()
     CONTINUE: $$.sem = Continue()
     SYMBOL:
-        self.syntax.RequireTerminal($1.sem)
+        self.syntax.require_terminal($1.sem)
         $$.sem = Token($1.sem)
 
 parser:
@@ -424,14 +425,14 @@ assocdef:
 
 ruleset:
     SYMBOL COLON INDENT:
-        symbol = self.syntax.RequireMeta($1.sem)
+        symbol = self.syntax.require_meta($1.sem)
 
         if symbol in self.undef:
             del self.undef[symbol]
         self.defined.add(symbol)
 
-        if self.syntax.Start() is None:
-            self.syntax.SetStart(symbol)
+        if self.syntax.start_symbol is None:
+            self.syntax.start_symbol = symbol
 
         $$.sem = symbol
     ruleset parserule:
@@ -448,7 +449,7 @@ parserule:
     production NEWLINE: $$.sem = $1.sem.production
     production ASTACTION OPAREN SYMBOL CPAREN NEWLINE:
         $$.sem = $1.sem.production
-        self.syntax.ASTInfo().bind($$.sem, $4.sem)
+        self.syntax.AST_info.bind($$.sem, $4.sem)
 
 production:
     SYMBOL:
@@ -495,7 +496,7 @@ optfooter:
 
 footer:
     FOOTER
-    footer PYVERB: self.syntax.AddFooter($2.sem)
+    footer PYVERB: self.syntax.add_footer($2.sem)
 
 %footer
 
@@ -588,8 +589,8 @@ def set_assoc(parser, assoctype, symbols):
     parser.assocPower += 1
 
 def add_meta_symbol(self, prod, symbol, pos, altname=None):
-    sym = self.syntax.RequireMeta(symbol)
-    if self.syntax.SymTable()[sym.name].SymType() == Syntax.META \
+    sym = self.syntax.require_meta(symbol)
+    if self.syntax[sym.name].symtype == Syntax.META \
             and sym not in self.defined:
         self.undef.setdefault(sym, []).append(pos)
 
@@ -602,16 +603,16 @@ def add_meta_symbol(self, prod, symbol, pos, altname=None):
         prod.name_last(altname, explicit=True)
 
 def add_stoken(self, prod, stoken, pos):
-    sym = self.syntax.RequireTerminal(stoken, stoken=True)
+    sym = self.syntax.require_terminal(stoken, stoken=True)
     # XXX: maybe we should do this by hand
-    self.syntax.AddInlineLexingRule(bytes(stoken[1:-1], "utf-8").decode('unicode-escape'))
+    self.syntax.add_inline_lexing_rule(bytes(stoken[1:-1], "utf-8").decode('unicode-escape'))
 
     prod.production.assoc = self.assocDefs.get(sym.name,
                                                prod.production.assoc)
     prod.production.add_sym(sym)
 
 def add_error(self, prod, pos):
-    sym = self.syntax.RequireTerminal("$RECOVER")
+    sym = self.syntax.require_terminal("$RECOVER")
     prod.production.add_sym(sym)
 
 class PyBlobBuilder(object):

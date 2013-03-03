@@ -75,7 +75,7 @@ class LexActionToCode(lexactions.LexingActionVisitor):
         self._emit("return None")
 
     def visit_Token(self, action):
-        self._emit("return {:d}".format(self._symtable[action.name].Number()))
+        self._emit("return {:d}".format(self._symtable[action.name].number))
 
     def visit_GetMatch(self, action):
         # this is never actually called!
@@ -182,12 +182,14 @@ import mmap
 
         # collect information on the classes
         # and attach the actions
-        for symbol in symtable.values():
-            if symbol.SymType() == Syntax.META:
-                if symbol.Symbol().name in ast.lists:
+        for symbolname in symtable:
+            symbol = symtable[symbolname]
+
+            if symbol.symtype == Syntax.META:
+                if symbol.symbol.name in ast.lists:
                     # trivial list creation ... could be more intelligent
                     # at guessing how to do this
-                    for prod in symbol.Symbol().productions():
+                    for prod in symbol.symbol.productions():
                         if prod.action is not None:
                             continue
                         positions = []
@@ -225,7 +227,7 @@ import mmap
                             raise Exception()
                         prod.action = action
                 else:
-                    for prod in symbol.Symbol().productions():
+                    for prod in symbol.symbol.productions():
                         if prod in ast.bindings:
                             args = []
                             i = 0
@@ -381,16 +383,17 @@ class %s(AST):
             token_names = []
             token_numbers = []
             symtypes = frozenset([Syntax.TERMINAL, Syntax.EOF, Syntax.ERROR])
-            for key, value in symtable.items():
-                if value.SymType() in symtypes:
-                    token_spec = dict(key=repr(key), token=value.Number())
+            for key in symtable:
+                value = symtable[key]
+                if value.symtype in symtypes:
+                    token_spec = dict(key=repr(key), token=value.number)
                     token_names.append("{token}: {key}".format(**token_spec))
                     token_numbers.append("{key}: {token}".format(**token_spec))
 
             condition_names = []
             condition_numbers = []
             for name, cond in initial_conditions.items():
-                condition_spec = dict(name=repr(name), num=cond.Number())
+                condition_spec = dict(name=repr(name), num=cond.number)
                 condition_names.append("{num}: {name}".format(**condition_spec))
                 condition_numbers.append("{name}: {num}".format(**condition_spec))
 
@@ -502,7 +505,7 @@ class Lexer(object):
         tokens = []
         while True:
             type, text, pos = self.lex()
-            if type == """ + str(symtable["$EOF"].Number()) + r""":
+            if type == """ + str(symtable["$EOF"].number) + r""":
                 return tokens
             tokens.append((type, text, pos))
 
@@ -535,7 +538,7 @@ class Lexer(object):
             if action is None:
                 if cur_pos == self.root:
                     return ("""
-           + "{0}, {1}, {2}".format(symtable["$EOF"].Number(), "''", eofPosition) +
+           + "{0}, {1}, {2}".format(symtable["$EOF"].number, "''", eofPosition) +
                                r""")
                 else:
                     action = cur_pos, self.error_action
@@ -581,7 +584,7 @@ class Lexer(object):
 
         self.parser_file.write(r"""
     def error_action(self, text, position):
-        return """ + "{}".format(symtable["$ERROR"].Number()) + r"""
+        return """ + "{}".format(symtable["$ERROR"].number) + r"""
 """)
 
     def WriteParser(self, parseTable, symtable):
@@ -636,7 +639,7 @@ class Parser(object):
         reductionStr = "("
         i = 0
         for red in parseTable.rules():
-            reductionStr += "(%d,%d,self.action%d),\n" % (len(red), symtable[red.left.name].Number(), i)
+            reductionStr += "(%d,%d,self.action%d),\n" % (len(red), symtable[red.left.name].number, i)
             i += 1
         reductionStr += ")"
 
@@ -694,7 +697,7 @@ class Parser(object):
                     else:
                         # setup error recovery by shifting the $RECOVER token
                         recovering = True
-                        rec = """ + str(symtable["$RECOVER"].Number()) + r"""
+                        rec = """ + str(symtable["$RECOVER"].number) + r"""
 
                         # pop tokens until error can be shifted
                         t, d = atable[stack[-1].state][rec]
@@ -791,12 +794,12 @@ class Parser(object):
 
     def Write(self, syntax, parsetable, lextable):
 
-        self.WriteHeader(syntax.Header())
+        self.WriteHeader(syntax.header())
 
-        self.WriteAST(syntax.ASTInfo(), syntax.SymTable())
+        self.WriteAST(syntax.AST_info, syntax)
 
-        self.WriteLexer(lextable, syntax.SymTable(), syntax.initial_conditions)
+        self.WriteLexer(lextable, syntax, syntax.initial_conditions)
 
-        self.WriteParser(parsetable, syntax.SymTable())
+        self.WriteParser(parsetable, syntax)
 
-        self.WriteFooter(syntax.Footer())
+        self.WriteFooter(syntax.footer())

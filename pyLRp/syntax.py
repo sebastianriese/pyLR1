@@ -52,165 +52,167 @@ class Syntax(object):
     class SymbolTableEntry(object):
 
         def __init__(self, symbol, symbol_number, symtype):
-            self.symbol = symbol
-            self.symbol_number = symbol_number
-            self.symtype = symtype
+            self._symbol = symbol
+            self._number = symbol_number
+            self._symtype = symtype
 
-        def SymType(self):
-            return self.symtype
+        @property
+        def symtype(self):
+            return self._symtype
 
-        def Symbol(self):
-            return self.symbol
+        @property
+        def symbol(self):
+            return self._symbol
 
-        def Number(self):
-            return self.symbol_number
+        @property
+        def number(self):
+            return self._number
 
     def __init__(self):
-        self.metacounter = 0
-        self.termcounter = 0
+        self._meta_counter = 0
+        self._term_counter = 0
 
-        self.start = None
-        self.symbols = {}
-        self.lexer_defs = {}
-        self.ast_info = ASTInformation()
-        self.header = []
-        self.footer = []
-        self.lexer = []
-        self.inline_tokens = set()
+        self.start_symbol = None
+        self._symbols = {}
+        self._lexer_defs = {}
+        self._ast_info = ASTInformation()
+        self._header = []
+        self._footer = []
+        self._lexer = []
+        self._inline_tokens = set()
 
-        self.initial_conditions = {}
+        self._initial_conditions = {}
         # the condition $INITIAL is the default condition
         # $SOL is the start of line condition
         # $SOF is the start of file condition
-        initial = self.initial_conditions["$INITIAL"] = \
+        initial = self._initial_conditions["$INITIAL"] = \
             InclusiveInitialCondition("$INITIAL", 0)
-        sol = self.initial_conditions["$SOL"] = \
+        sol = self._initial_conditions["$SOL"] = \
             InclusiveInitialCondition("$SOL", 1, initial)
-        self.initial_conditions["$SOF"] = \
+        self._initial_conditions["$SOF"] = \
             InclusiveInitialCondition("$SOF", 2, sol)
 
         # require the error symbol
-        self.RequireError()
+        self.require_error()
 
-    def InlineTokens(self):
-        return self.inline_tokens
+    def __iter__(self):
+        return iter(self._symbols)
 
-    def ASTInfo(self):
-        return self.ast_info
+    def __getitem__(self, index):
+        return self._symbols[index]
 
-    def Lexer(self):
-        return self.lexer
+    def inline_tokens(self):
+        return iter(self._inline_tokens)
 
-    def Start(self):
-        return self.start
+    @property
+    def AST_info(self):
+        return self._ast_info
 
-    def SetStart(self, start):
-        self.start = start
+    def lexer(self):
+        return iter(self._lexer)
 
-    def AddFooter(self, line):
-        self.footer.append(line)
+    def add_footer(self, line):
+        self._footer.append(line)
 
-    def Footer(self):
-        return self.footer
+    def footer(self):
+        return iter(self._footer)
 
-    def AddLexingRule(self, lexingrule):
-        self.lexer.append(lexingrule)
+    def add_lexing_rule(self, lexingrule):
+        self._lexer.append(lexingrule)
 
-    def AddInlineLexingRule(self, token):
-        self.inline_tokens.add(token)
+    def add_inline_lexing_rule(self, token):
+        self._inline_tokens.add(token)
 
-    def AddNamedPattern(self, name, regex):
-        if name in self.lexer_defs:
+    def add_named_pattern(self, name, regex):
+        if name in self._lexer_defs:
             raise SyntaxNameError("Pattern name {} already in use".format(name))
-        self.lexer_defs[name] = regex
+        self._lexer_defs[name] = regex
 
-    def NamedPatterns(self):
-        return self.lexer_defs
+    def named_patterns(self):
+        return self._lexer_defs
 
-    def InitialConditions(self):
-        return self.initial_conditions.values()
+    @property
+    def initial_conditions(self):
+        return self._initial_conditions
 
-    def InitialCondition(self, name):
+    def initial_condition(self, name):
         try:
-            return self.initial_conditions[name]
+            return self._initial_conditions[name]
         except KeyError:
             errmsg = "Initial condition {} not defined".format(name)
             raise SyntaxNameError(errmsg)
 
-    def AddInclusiveInitialCondition(self, name):
-        if name in self.initial_conditions:
+    def add_inclusive_initial_condition(self, name):
+        if name in self._initial_conditions:
             errmsg = "Initial condition name {} already in use".format(name)
             raise SyntaxNameError(errmsg)
 
-        self.initial_conditions[name] = \
+        self._initial_conditions[name] = \
             InclusiveInitialCondition(name,
-                                      len(self.initial_conditions),
-                                      self.InitialCondition('$INITIAL'))
+                                      len(self._initial_conditions),
+                                      self.initial_condition('$INITIAL'))
 
-    def AddExclusiveInitialCondition(self, name):
-        if name in self.initial_conditions:
+    def add_exclusive_initial_condition(self, name):
+        if name in self._initial_conditions:
             errmsg = "Initial condition name {} already in use".format(name)
             raise SyntaxNameError(errmsg)
 
-        self.initial_conditions[name] = \
-            ExclusiveInitialCondition(name, len(self.initial_conditions))
+        self._initial_conditions[name] = \
+            ExclusiveInitialCondition(name, len(self._initial_conditions))
 
-    def RequireEOF(self):
-        if "$EOF" not in self.symbols:
-            self.symbols['$EOF'] = \
-                Syntax.SymbolTableEntry(EOF(), self.termcounter, self.EOF)
-            self.termcounter += 1
+    def require_EOF(self):
+        if "$EOF" not in self._symbols:
+            self._symbols['$EOF'] = \
+                Syntax.SymbolTableEntry(EOF(), self._term_counter, self.EOF)
+            self._term_counter += 1
 
-        return self.symbols["$EOF"].Symbol()
+        return self._symbols["$EOF"].symbol
 
-    def RequireError(self):
-        if "$ERROR" not in self.symbols:
-            self.symbols['$ERROR'] = \
-                Syntax.SymbolTableEntry(Error(), self.termcounter, self.ERROR)
-            self.termcounter += 1
+    def require_error(self):
+        if "$ERROR" not in self._symbols:
+            self._symbols['$ERROR'] = \
+                Syntax.SymbolTableEntry(Error(), self._term_counter, self.ERROR)
+            self._term_counter += 1
 
-        return self.symbols["$ERROR"].Symbol()
+        return self._symbols["$ERROR"].symbol
 
 
-    def RequireUndef(self):
-        if "$UNDEF" not in self.symbols:
-            self.symbols['$UNDEF'] = \
+    def require_undef(self):
+        if "$UNDEF" not in self._symbols:
+            self._symbols['$UNDEF'] = \
                 Syntax.SymbolTableEntry(Undef(), None, self.UNDEF)
 
-        return self.symbols["$UNDEF"].Symbol()
+        return self._symbols["$UNDEF"].symbol
 
-    def RequireTerminal(self, name, stoken=False):
-        if name not in self.symbols:
-            self.symbols[name] = \
+    def require_terminal(self, name, stoken=False):
+        if name not in self._symbols:
+            self._symbols[name] = \
                 Syntax.SymbolTableEntry(Terminal(name, stoken),
-                                        self.termcounter, self.TERMINAL)
-            self.termcounter += 1
+                                        self._term_counter, self.TERMINAL)
+            self._term_counter += 1
 
-        return self.symbols[name].Symbol()
+        return self._symbols[name].symbol
 
-    def RequireMeta(self, name):
-        if name not in self.symbols:
-            self.symbols[name] = \
-                Syntax.SymbolTableEntry(Meta(name), self.metacounter, self.META)
-            self.metacounter += 1
+    def require_meta(self, name):
+        if name not in self._symbols:
+            self._symbols[name] = \
+                Syntax.SymbolTableEntry(Meta(name), self._meta_counter, self.META)
+            self._meta_counter += 1
 
-        return self.symbols[name].Symbol()
+        return self._symbols[name].symbol
 
-    def AddHeader(self, line):
-        self.header.append(line)
+    def add_header(self, line):
+        self._header.append(line)
 
-    def SymTable(self):
-        return self.symbols
+    def header(self):
+        return iter(self._header)
 
-    def Header(self):
-        return iter(self.header)
-
-    def SymTableMap(self, key=None, value=None, filt=None):
+    def sym_table_map(self, key=None, value=None, filt=None):
         """
         map/filter on the symtable
         """
         if key is None:
-            key = lambda x: x.Symbol()
+            key = lambda x: x.symbol
 
         if value is None:
             value = lambda x: x
@@ -219,5 +221,5 @@ class Syntax(object):
             filt = lambda x: True
 
         return {key(symbol): value(symbol)
-                for symbol in self.symbols.values()
+                for symbol in self._symbols.values()
                 if filt(symbol)}

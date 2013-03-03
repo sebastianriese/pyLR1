@@ -309,7 +309,7 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
 
         # require the $RECOVER terminal symbol used during
         # error recovery of the parser
-        self.grammar.RequireTerminal("$RECOVER")
+        self.grammar.require_terminal("$RECOVER")
 
     def report_num_of_conflicts(self):
         if self.conflicts:
@@ -475,11 +475,11 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
         They can be created from the `Syntax` object by calling:
 
             termsyms = frozenset([Syntax.TERMINAL, Syntax.EOF, Syntax.ERROR])
-            syn.SymTableMap(filt=lambda x: x.SymType() in termsyms,
-                            value=lambda x: x.Number())
+            syn.sym_table_map(filt=lambda x: x.symtype in termsyms,
+                            value=lambda x: x.number)
 
-            syn.SymTableMap(filt=lambda x: x.SymType() == Syntax.META,
-                            value=lambda x: x.Number())
+            syn.sym_table_map(filt=lambda x: x.symtype == Syntax.META,
+                            value=lambda x: x.number)
 
         The function returns a `Parsetable` object.
         """
@@ -578,8 +578,8 @@ class LALR1StateTransitionGraph(StateTransitionGraph):
 
         # add EOF to the "$START <- start ." lookahead set
         for item in self.start.elements():
-            if item.prod.left == self.grammar.RequireMeta("$START"):
-                item.lookahead = set([self.grammar.RequireEOF()])
+            if item.prod.left == self.grammar.require_meta("$START"):
+                item.lookahead = set([self.grammar.require_EOF()])
 
         # set the spontaneously generated lookahead tokens
         for state in self.states:
@@ -603,12 +603,12 @@ class LALR1StateTransitionGraph(StateTransitionGraph):
         # construct the starting point (virtual starting node) and use
         # the RequireElement-method to build up the tree
 
-        prod = Production(self.grammar.RequireMeta("$START"),
-                          [self.grammar.Start()], -1)
+        prod = Production(self.grammar.require_meta("$START"),
+                          [self.grammar.start_symbol], -1)
 
         prod.action = PyText("raise Accept()")
 
-        self.grammar.RequireMeta("$START").add_prod(prod)
+        self.grammar.require_meta("$START").add_prod(prod)
 
         # we use an empty lookahead set to generate the LR(0) automaton
         start = LR1Item(prod,0,set([]))
@@ -629,13 +629,13 @@ class LR1StateTransitionGraph(StateTransitionGraph):
 
     def construct(self):
 
-        prod = Production(self.grammar.RequireMeta("$START"),
-                          [self.grammar.Start()], -1)
+        prod = Production(self.grammar.require_meta("$START"),
+                          [self.grammar.start_symbol], -1)
         prod.action = PyText("raise Accept()")
 
-        self.grammar.RequireMeta("$START").add_prod(prod)
+        self.grammar.require_meta("$START").add_prod(prod)
 
-        start = LR1Item(prod,0,set([self.grammar.RequireEOF()])).closure()
+        start = LR1Item(prod,0,set([self.grammar.require_EOF()])).closure()
 
         self.start = self.require_state(start)
 
@@ -765,7 +765,7 @@ class LALR1StateTransitionGraphElement(LR1StateTransitionGraphElement):
         Book.
         """
 
-        undef = self.graph.grammar.RequireUndef()
+        undef = self.graph.grammar.require_undef()
 
         for item in self._elements:
 

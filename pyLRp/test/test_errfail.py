@@ -38,8 +38,8 @@ class TestGeneratedLexerErrors(utils.FailOnLogTestCase):
 [a-zA-Z0-9]+ TOKEN
 """)
 
-        TOKEN = symtable["TOKEN"].Number()
-        ERROR = symtable["$ERROR"].Number()
+        TOKEN = symtable["TOKEN"].number
+        ERROR = symtable["$ERROR"].number
 
         test_cases = [
             (b"baked beans and spam", [(TOKEN, "baked"),
@@ -71,8 +71,8 @@ class TestGeneratedLexerErrors(utils.FailOnLogTestCase):
 \s+ %restart
 a*b*ca*b* TOKEN
 """)
-        TOKEN = symtable["TOKEN"].Number()
-        ERROR = symtable["$ERROR"].Number()
+        TOKEN = symtable["TOKEN"].number
+        ERROR = symtable["$ERROR"].number
 
         test_cases = [
             (b"aaabbcab", [(TOKEN, "aaabbcab")]),

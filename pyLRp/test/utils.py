@@ -120,9 +120,9 @@ def compile(logger, source, listing=None, trace=False):
     syn = parser.Parse()
     del parser
 
-    syn.RequireError()
+    syn.require_error()
     parseTable = None
-    if syn.Start() is not None:
+    if syn.start_symbol is not None:
         graph = LALR1StateTransitionGraph(syn, logger)
         graph.construct()
 
@@ -130,17 +130,17 @@ def compile(logger, source, listing=None, trace=False):
                               Syntax.EOF,
                               Syntax.ERROR])
         parseTable = graph.create_parse_table(
-            syn.SymTableMap(filt=lambda x: x.SymType() in termsyms,
-                            value=lambda x: x.Number()),
-            syn.SymTableMap(filt=lambda x: x.SymType() == Syntax.META,
-                            value=lambda x: x.Number())
+            syn.sym_table_map(filt=lambda x: x.symtype in termsyms,
+                            value=lambda x: x.number),
+            syn.sym_table_map(filt=lambda x: x.symtype == Syntax.META,
+                            value=lambda x: x.number)
             )
         graph.report_num_of_conflicts()
         # for state in graph.states:
         #     print(str(state))
         del graph
     else:
-        syn.RequireEOF()
+        syn.require_EOF()
 
     lexer = LexerConstructor(syn, logger)
     lexer.construct_DFAs()
@@ -166,4 +166,4 @@ def compile(logger, source, listing=None, trace=False):
 
     # compile the generated lexer and parser
     exec(code.getvalue(), result)
-    return result, syn.SymTable()
+    return result, syn
