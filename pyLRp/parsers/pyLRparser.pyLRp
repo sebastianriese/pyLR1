@@ -436,7 +436,7 @@ ruleset:
         $$.sem = symbol
     ruleset parserule:
         $$.sem = $1.sem
-        $$.sem.AddProd($2.sem)
+        $$.sem.add_prod($2.sem)
 
 parserule:
     production COLON pyblob:
@@ -589,11 +589,11 @@ def set_assoc(parser, assoctype, symbols):
 
 def add_meta_symbol(self, prod, symbol, pos, altname=None):
     sym = self.syntax.RequireMeta(symbol)
-    if self.syntax.SymTable()[sym.Name()].SymType() == Syntax.META \
+    if self.syntax.SymTable()[sym.name].SymType() == Syntax.META \
             and sym not in self.defined:
         self.undef.setdefault(sym, []).append(pos)
 
-    prod.production.assoc = self.assocDefs.get(sym.Name(),
+    prod.production.assoc = self.assocDefs.get(sym.name,
                                                prod.production.assoc)
     prod.production.add_sym(sym)
 
@@ -606,7 +606,7 @@ def add_stoken(self, prod, stoken, pos):
     # XXX: maybe we should do this by hand
     self.syntax.AddInlineLexingRule(bytes(stoken[1:-1], "utf-8").decode('unicode-escape'))
 
-    prod.production.assoc = self.assocDefs.get(sym.Name(),
+    prod.production.assoc = self.assocDefs.get(sym.name,
                                                prod.production.assoc)
     prod.production.add_sym(sym)
 

@@ -178,17 +178,17 @@ import mmap
         # and attach the actions
         for symbol in symtable.values():
             if symbol.SymType() == Syntax.META:
-                if symbol.Symbol().Name() in ast.lists:
+                if symbol.Symbol().name in ast.lists:
                     # trivial list creation ... could be more intelligent
                     # at guessing how to do this
-                    for prod in symbol.Symbol().Productions():
+                    for prod in symbol.Symbol().productions():
                         if prod.action is not None:
                             continue
                         positions = []
                         i = 0
                         for symb in prod:
                             i += 1
-                            if not symb.IsSToken():
+                            if not symb.is_s_token:
                                 positions.append(i)
 
                         action = PySuite()
@@ -219,7 +219,7 @@ import mmap
                             raise Exception()
                         prod.action = action
                 else:
-                    for prod in symbol.Symbol().Productions():
+                    for prod in symbol.Symbol().productions():
                         if prod in ast.bindings:
                             args = []
                             i = 0
@@ -232,16 +232,16 @@ import mmap
 
                             for symb in prod:
                                 i += 1
-                                if not symb.IsSToken():
+                                if not symb.is_s_token:
                                     action.add(PyStackvar(num=i))
                                     action.add(PyText('.sem, '))
-                                    if symb.Name() in args:
+                                    if symb.name in args:
                                         args.append('{name:s}{count:d}'.format(
-                                                name=symb.Name(),
-                                                count=args.count(symb.Name()))
+                                                name=symb.name,
+                                                count=args.count(symb.name))
                                         )
                                     else:
-                                        args.append(symb.Name())
+                                        args.append(symb.name)
                             action.add(PyText(')'))
                             classes[ast.bindings[prod]] = args
                             prod.action = action
@@ -631,7 +631,7 @@ class Parser(object):
         reductionStr = "("
         i = 0
         for red in parseTable.Rules():
-            reductionStr += "(%d,%d,self.action%d),\n" % (len(red), symtable[red.left.Name()].Number(), i)
+            reductionStr += "(%d,%d,self.action%d),\n" % (len(red), symtable[red.left.name].Number(), i)
             i += 1
         reductionStr += ")"
 

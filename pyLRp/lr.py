@@ -73,13 +73,13 @@ class Production(object):
 
         for sub in self._syms:
             if sub  not in visited:
-                result |= sub.First(visited | set([self])) - set([Empty.Instance()])
+                result |= sub.first(visited | set([self])) - set([Empty()])
 
-            if not sub.ReducesToEmpty():
+            if not sub.reduces_to_empty():
                 break
 
         else:
-            result.add(Empty.Instance())
+            result.add(Empty())
 
         # if len(visited) == 0:
         #     self.first = result
@@ -99,7 +99,7 @@ class Production(object):
         the FIRST set of the concatenation.
         """
 
-        if elem.IsEmpty():
+        if elem.is_empty:
             return Production(None, self)
 
         return Production(None, self._syms + [elem])
@@ -120,14 +120,14 @@ class LR1Item(object):
         self._lookahead = frozenset(la)
 
     def __str__(self):
-        text =  (self.prod.left.Name() or "None") + " <- "
+        text =  (self.prod.left.name or "None") + " <- "
         dotted = False
         for count, sub in enumerate(self._prod):
             if count == self._pos:
                 text += ". "
                 dotted = True
 
-            text += (sub.Name() or "None") + " "
+            text += (sub.name or "None") + " "
 
         if not dotted:
             text += ". "
@@ -135,7 +135,7 @@ class LR1Item(object):
         text += "{ "
 
         for sub in self._lookahead:
-            text += (sub.Name() or "None") + " "
+            text += (sub.name or "None") + " "
 
         text += "}"
 
@@ -167,7 +167,7 @@ class LR1Item(object):
         it is a $START production or the position mark is not in the
         first place)
         """
-        return self._pos != 0 or (self._prod.left.Name() == "$START")
+        return self._pos != 0 or (self._prod.left.name == "$START")
 
     def after_dot(self):
         """
@@ -250,7 +250,7 @@ class LR1Item(object):
                 firstconcat = self.prod[self.pos+1:].concat(la)
                 laset |= firstconcat.first()
 
-            for prod in after_dot.Productions():
+            for prod in after_dot.productions():
 
                 if self not in visited:
                     elem = LR1Item(prod, 0, laset)
@@ -271,7 +271,7 @@ class LR1Item(object):
         if self.is_reduce():
             return False
 
-        return self.prod == other.prod and self.pos + 1 == other.pos
+        return self._prod == other._prod and self._pos + 1 == other._pos
 
 
 class StateTransition(object):
@@ -490,7 +490,7 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
 
         # populate the rules vector
         for meta in sorted(metas, key=lambda meta: metas[meta]):
-            for rule in meta.Productions():
+            for rule in meta.productions():
                 rule.number = len(rules)
                 rules.append(rule)
 
@@ -608,7 +608,7 @@ class LALR1StateTransitionGraph(StateTransitionGraph):
 
         prod.action = PyText("raise Accept()")
 
-        self.grammar.RequireMeta("$START").AddProd(prod)
+        self.grammar.RequireMeta("$START").add_prod(prod)
 
         # we use an empty lookahead set to generate the LR(0) automaton
         start = LR1Item(prod,0,set([]))
@@ -633,7 +633,7 @@ class LR1StateTransitionGraph(StateTransitionGraph):
                           [self.grammar.Start()], -1)
         prod.action = PyText("raise Accept()")
 
-        self.grammar.RequireMeta("$START").AddProd(prod)
+        self.grammar.RequireMeta("$START").add_prod(prod)
 
         start = LR1Item(prod,0,set([self.grammar.RequireEOF()])).closure()
 
@@ -661,7 +661,7 @@ class LR1StateTransitionGraphElement(object):
 
         lines.append("transitions:")
         for trans in self._transitions:
-            lines.append((trans.symbol.Name() or "None") +
+            lines.append((trans.symbol.name or "None") +
                          " -> " + str(trans.state.number))
 
         return '\n'.join(lines)

@@ -1,41 +1,43 @@
 
-from .core import CantHappen
+from .core import CantHappen, Singleton
 
 class Symbol(object):
     """Base class for all types symbols in the system (terminal, meta,
     undef and empty)."""
 
     def __init__(self, name):
-        self.name = name
+        self._name = name
 
     def __str__(self):
-        return self.Name()
-
-    def Name(self):
+        # use self.name to allow overiding by subclasses
         return self.name
 
-    def IsSToken(self):
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def is_s_token(self):
         return False
 
-    def Productions(self):
+    @property
+    def is_empty(self):
+        """Return whether the symbol is the empty symbol."""
+        return False
+
+    def productions(self):
         """Return an iterator over the list of productions"""
         return iter([])
 
-    def First(self, visited=None):
+    def first(self, visited=None):
         """The FIRST-set of the symbol."""
         raise NotImplementedError()
 
-    def ReducesToEmpty(self, visited=None):
+    def reduces_to_empty(self, visited=None):
         """Return whether the symbol can be reduced to the empty
         symbol."""
         return False
 
-    def Productions(self):
-        return iter([])
-
-    def IsEmpty(self):
-        """Return whether the symbol is the empty symbol."""
-        return False
 
 class EOF(Symbol):
     """
@@ -45,8 +47,9 @@ class EOF(Symbol):
     def __init__(self):
         super(EOF, self).__init__("$EOF")
 
-    def First(self, visited=None):
+    def first(self, visited=None):
         return set([self])
+
 
 class Error(Symbol):
     """
@@ -57,8 +60,9 @@ class Error(Symbol):
     def __init__(self):
         super(Error, self).__init__("$ERROR")
 
-    def First(self, visited=None):
+    def first(self, visited=None):
         return set([self])
+
 
 class Undef(Symbol):
     """
@@ -69,11 +73,11 @@ class Undef(Symbol):
     def __init__(self):
         super(Undef, self).__init__("$UNDEF")
 
-    def First(self, visited=None):
+    def first(self, visited=None):
         return set([self])
 
 
-class Empty(Symbol):
+class Empty(Symbol, metaclass=Singleton):
     """
     The empty terminal symbol.  The class is a singleton, in order to
     make many of the methods of the other classes work you should not
@@ -86,22 +90,15 @@ class Empty(Symbol):
     def __init__(self):
         super(Empty, self).__init__("$Empty")
 
-    @classmethod
-    def Instance(clazz):
-        """Return the singleton instance, create it, if neccessary."""
-        if not clazz.instance:
-            clazz.instance = Empty()
-
-        return clazz.instance
-
-    def First(self, visited=None):
+    def first(self, visited=None):
         return set([self])
 
-    def ReducesToEmpty(self, visited=None):
+    def reduces_to_empty(self, visited=None):
         # empty is not allowed in productions
         raise CantHappen()
 
-    def IsEmpty(self):
+    @property
+    def is_empty(self):
         return True
 
 class Terminal(Symbol):
@@ -111,10 +108,11 @@ class Terminal(Symbol):
         super(Terminal, self).__init__(name)
         self.stoken = stoken
 
-    def First(self, visited=None):
+    def first(self, visited=None):
         return set([self])
 
-    def IsSToken(self):
+    @property
+    def is_s_token(self):
         return self.stoken
 
 class Meta(Symbol):
@@ -124,22 +122,18 @@ class Meta(Symbol):
 
     def __init__(self, name):
         super(Meta, self).__init__(name)
-        self.prod = []
-        self.first = None
-        self.reduces_to_empty = None
+        self._prod = []
+        self._first = None
+        self._reduces_to_empty = None
 
-    def Productions(self):
-        return iter(self.prod)
+    def productions(self):
+        return iter(self._prod)
 
-    def AddProd(self, prod):
+    def add_prod(self, prod):
         prod.left = self
-        self.prod.append(prod)
+        self._prod.append(prod)
 
-    def Productions(self):
-        # the copying is just a safety measure ...
-        return self.prod[:]
-
-    def First(self, visited=None):
+    def first(self, visited=None):
         # if self.first is not None:
         #     return self.first
 
@@ -147,7 +141,7 @@ class Meta(Symbol):
 
         if visited is None: visited = frozenset()
 
-        for prod in self.prod:
+        for prod in self._prod:
             result |= prod.first(visited | set([self]))
 
         # if len(visited) == 0:
@@ -155,33 +149,34 @@ class Meta(Symbol):
 
         return result
 
-    def ReducesToEmpty(self, visited=None):
-
-        if self.reduces_to_empty is not None:
-            return self.reduces_to_empty
+    def reduces_to_empty(self, visited=None):
+        if self._reduces_to_empty is not None:
+            return self._reduces_to_empty
 
         if visited is None:
             visited = frozenset()
 
-        for prod in self.prod:
+        for prod in self._prod:
 
             for sub in prod:
-                if sub not in visited and not sub.ReducesToEmpty(visited | set([self])):
+                if sub in visited:
+                    continue
+
+                if not sub.reduces_to_empty(visited | set([self])):
                     # this production doesn't reduce to empty (because
                     # one subsymbol doesn't)
                     break
             else:
                 # all subsymbols in this production reduced to empty,
                 # therefore the symbol may reduce to empty
-
                 if len(visited) == 0:
-                    self.reduces_to_empty = True
+                    self._reduces_to_empty = True
 
                 return True
 
         # no production for this symbol does reduce to empty
         if len(visited) == 0:
-            self.reduces_to_empty = False
+            self._reduces_to_empty = False
 
         return False
 

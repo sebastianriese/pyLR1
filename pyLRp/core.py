@@ -62,3 +62,41 @@ class AutoAccept(type):
         dict["Visit"] = self._make_visit_any()
 
         return abc.ABCMeta(self.__name__+"Visitor", (object,), dict)
+
+class SingletonInitError(Exception):
+    pass
+
+class Singleton(type):
+
+    def __new__(cls, name, bases, dict):
+        dict['_instance_'] = None
+        return super().__new__(cls, name, bases, dict)
+
+    def configure(cls, *args, **kwargs):
+        """
+        Construct the singleton instance with the given arguments.
+
+        If there alread is an instance an error is raised.
+        """
+        if cls._instance_ is not None:
+            raise SingletonInitError("Cannot configure a singleton if"
+                                     " there already is an instance")
+        cls._instance_ = super().__call__(*args, **kwargs)
+
+    def __call__(cls, *args, **kwargs):
+        """
+        Retrieve the singleton instance.
+
+        If there is no instance create it with no arguments. If you
+        supply arguments an error will be raised. If you want to
+        configure your singleton class with arguments, then use the
+        `configure` method of the singleton class like::
+
+            MySingleton.configure(arg, barg, kwarg=spam)
+        """
+        if args or kwargs:
+            raise SingletonInitError("When retrieving a singleton instance"
+                                     " you must not supply arguments")
+
+        if cls._instance_ is None:
+            cls._instance_ = super().__call__()

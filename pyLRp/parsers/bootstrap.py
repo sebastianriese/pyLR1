@@ -315,7 +315,7 @@ class Parser(object):
                         elem = self.syntax.RequireMeta(match.group(1))
                         # terminal symbols are already defined, and returned
                         # as such
-                        if self.syntax.SymTable()[elem.Name()].SymType() == Syntax.META and \
+                        if self.syntax.SymTable()[elem.name].SymType() == Syntax.META and \
                                 elem not in self.defined:
                             self.undef.setdefault(elem, []).append(self.line)
 
@@ -354,7 +354,7 @@ class Parser(object):
 
                         if line:
                             prod.action = line
-                            self.current.AddProd(prod)
+                            self.current.add_prod(prod)
                         else:
                             self.state = self.Action
                             self.current = prod
@@ -368,10 +368,10 @@ class Parser(object):
                 line = line.strip()
 
                 if elem:
-                    prod.assoc = self.assocDefs.get(elem.Name(), prod.assoc)
+                    prod.assoc = self.assocDefs.get(elem.name, prod.assoc)
                     prod.add_sym(elem)
 
-            self.current.AddProd(prod)
+            self.current.add_prod(prod)
 
     @staticmethod
     def Indention(line):
@@ -390,7 +390,7 @@ class Parser(object):
 
     def Action(self, line, eof=False):
         if eof:
-            self.current.left.AddProd(self.current)
+            self.current.left.add_prod(self.current)
             return
 
         indent = self.Indention(line)
@@ -399,7 +399,7 @@ class Parser(object):
 
         if indent < self.indent:
             self.state = self.Parser
-            self.current.left.AddProd(self.current)
+            self.current.left.add_prod(self.current)
             self.current = self.current.left
             self.indent = None
             return self.state(line)
@@ -440,10 +440,10 @@ class Parser(object):
         self.state('', eof=True)
 
         if self.undef:
-            for symbol, lines in sorted(self.undef.items(), key=lambda x: x[0].Name()):
+            for symbol, lines in sorted(self.undef.items(), key=lambda x: x[0].name):
                 usedinlines = "used in lines"
                 if len(lines) == 1: usedinlines = "used in line"
-                self.logger.error(' '.join(["Undefined symbol", symbol.Name(), usedinlines,
+                self.logger.error(' '.join(["Undefined symbol", symbol.name, usedinlines,
                                   ', '.join(str(line) for line in lines)]))
             self.logger.error("Undefined meta symbols found")
 
