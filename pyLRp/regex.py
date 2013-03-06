@@ -147,6 +147,10 @@ class Regex(object):
                         continue
 
                 if char == ']':
+                    if group:
+                        raise RegexSyntaxError(
+                            "incomplete range in character "
+                            "class -- did you mean [...\\-]")
                     return chars
 
                 elif char == '-':

@@ -30,6 +30,7 @@ class RegexParserTestCase(unittest.TestCase):
                             (r'ab+|(cd*', r'missing closing paren'),
                             (r'ab+|cd)*', r'superfluous closing paren'),
                             (r'|+', r"missing argument for \'\+\' operator"),
+                            (r'[+-][0-9]+', r"incomplete range in character class"),
                             (r'|?', r"missing argument for \'\?\' operator")]:
             self.assertRaisesRegex(Regex.RegexSyntaxError, text,
                                    Regex.Regex, regex)
