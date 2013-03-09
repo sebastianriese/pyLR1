@@ -278,13 +278,13 @@ pyblob:
 
 pysingle:
     PYBLOB: $$.sem = PyBlobBuilder(); $$.sem.text($1.sem)
-    STACKVAR: $$.sem = PyBlobBuilder(); $$.sem.stackvar($1.sem)
+    STACKVAR: $$.sem = PyBlobBuilder(); $$.sem.stackvar($1.sem, $1.pos)
     pysingle PYBLOB: $$.sem = $1.sem; $$.sem.text($2.sem)
     pysingle STACKVAR: $$.sem = $1.sem; $$.sem.stackvar($2.sem)
 
 pyblob_:
     PYBLOB: $$.sem = PyBlobBuilder(); $$.sem.text($1.sem)
-    STACKVAR: $$.sem = PyBlobBuilder(); $$.sem.stackvar($1.sem)
+    STACKVAR: $$.sem = PyBlobBuilder(); $$.sem.stackvar($1.sem, $1.pos)
     INDENT pyblob_ DEDENT: $$.sem = PyBlobBuilder(); $$.sem.suite($2.sem.get())
     pyblob_ PYBLOB: $$.sem = $1.sem; $$.sem.text($2.sem)
     pyblob_ STACKVAR: $$.sem = $1.sem; $$.sem.stackvar($2.sem)
@@ -562,13 +562,14 @@ def indent(lexer, text, position):
 
 class AnnotatedProduction(object):
 
-    def __init__(self, production):
+    def __init__(self, parser, production):
         """
         A `Production` annotated with names for the single elements.
         """
         self.production = production
         self.names = {}
         self.ambiguous = set()
+        self.parser = parser
 
     def varmap(self, var):
         """
@@ -584,12 +585,19 @@ class AnnotatedProduction(object):
         except ValueError:
             try:
                 if text in self.ambiguous:
-                    logging.getLogger('pyLR1').error("Ambiguous stack var")
+                    error(self.parser, var.position,
+                          "ambiguous stack var ${}".format(text))
 
                 num = self.names[text]
             except KeyError:
-                logging.getLogger('pyLR1').error("Undefined stack var")
+                error(self.parser, var.position,
+                      "undefined stack var ${}".format(text))
                 return ''
+
+        if num > len(self.production):
+            error(self.parser, var.position,
+                  "invalid stack var ${} value too large".format(num))
+
 
         return num
 
@@ -641,7 +649,7 @@ def get_initial_condition(self, pos, name):
 def setup_production(self):
     prod = Production(None, [], self.productionNumber)
     self.productionNumber += 1
-    return AnnotatedProduction(prod)
+    return AnnotatedProduction(self, prod)
 
 def set_assoc(parser, assoctype, symbols):
     assoc = assoctype, parser.assocPower
