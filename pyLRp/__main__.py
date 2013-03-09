@@ -171,6 +171,7 @@ if args.self_hosting:
     p = Parser(Lexer(infile, filename=args.infile))
     p.Parse()
     syn = p.syntax
+    del p
 else:
     from .parsers.bootstrap import Parser
     p = Parser(infile, logger)
