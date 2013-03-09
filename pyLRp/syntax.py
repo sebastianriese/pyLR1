@@ -40,8 +40,7 @@ class ASTInformation(object):
         self.visitor = 'ASTVisitor'
         self.bindings = {}
 
-class Syntax(object):
-
+class Symtable:
     TERMINAL = 0
     META = 1
     EOF = 2
@@ -72,25 +71,9 @@ class Syntax(object):
         self._meta_counter = 0
         self._term_counter = 0
 
-        self.start_symbol = None
         self._symbols = {}
-        self._lexer_defs = {}
-        self._ast_info = ASTInformation()
-        self._header = []
-        self._footer = []
-        self._lexer = []
-        self._inline_tokens = set()
-
-        self._initial_conditions = {}
-        # the condition $INITIAL is the default condition
-        # $SOL is the start of line condition
-        # $SOF is the start of file condition
-        initial = self._initial_conditions["$INITIAL"] = \
-            InclusiveInitialCondition("$INITIAL", 0)
-        sol = self._initial_conditions["$SOL"] = \
-            InclusiveInitialCondition("$SOL", 1, initial)
-        self._initial_conditions["$SOF"] = \
-            InclusiveInitialCondition("$SOF", 2, sol)
+        self._metas = {}
+        self._terminals = {}
 
         # require the error symbol
         self.require_error()
@@ -101,35 +84,78 @@ class Syntax(object):
     def __getitem__(self, index):
         return self._symbols[index]
 
-    def inline_tokens(self):
-        return iter(self._inline_tokens)
+    def metas(self):
+        return {value.symbol: value.number for value in self._symbols.values()
+                                           if value.symtype == Symtable.META}
 
-    @property
-    def AST_info(self):
-        return self._ast_info
+    def terminals(self):
+        termsyms = frozenset([Symtable.TERMINAL, Symtable.EOF, Symtable.ERROR])
+        return {value.symbol: value.number for value in self._symbols.values()
+                                           if value.symtype in termsyms}
 
-    def lexer(self):
-        return iter(self._lexer)
+    def require_EOF(self):
+        if "$EOF" not in self._symbols:
+            self._symbols['$EOF'] = \
+                Symtable.SymbolTableEntry(EOF(), self._term_counter, self.EOF)
 
-    def add_footer(self, line):
-        self._footer.append(line)
+            self._term_counter += 1
 
-    def footer(self):
-        return iter(self._footer)
+        return self._symbols["$EOF"].symbol
 
-    def add_lexing_rule(self, lexingrule):
-        self._lexer.append(lexingrule)
+    def require_error(self):
+        if "$ERROR" not in self._symbols:
+            self._symbols['$ERROR'] = \
+                Symtable.SymbolTableEntry(Error(), self._term_counter, self.ERROR)
+            self._term_counter += 1
 
-    def add_inline_lexing_rule(self, token):
-        self._inline_tokens.add(token)
+        return self._symbols["$ERROR"].symbol
 
-    def add_named_pattern(self, name, regex):
-        if name in self._lexer_defs:
-            raise SyntaxNameError("Pattern name {} already in use".format(name))
-        self._lexer_defs[name] = regex
 
-    def named_patterns(self):
-        return self._lexer_defs
+    def require_undef(self):
+        if "$UNDEF" not in self._symbols:
+            self._symbols['$UNDEF'] = \
+                Symtable.SymbolTableEntry(Undef(), None, self.UNDEF)
+
+        return self._symbols["$UNDEF"].symbol
+
+    def require_terminal(self, name, stoken=False):
+        if name not in self._symbols:
+            self._symbols[name] = \
+                Symtable.SymbolTableEntry(Terminal(name, stoken),
+                                        self._term_counter, self.TERMINAL)
+            self._term_counter += 1
+
+        return self._symbols[name].symbol
+
+    def require_meta(self, name):
+        if name not in self._symbols:
+            self._symbols[name] = \
+                Symtable.SymbolTableEntry(Meta(name), self._meta_counter, self.META)
+            self._meta_counter += 1
+
+        return self._symbols[name].symbol
+
+class Grammar:
+    def __init__(self, symtable):
+        self.start_symbol = None
+        self._symtable = symtable
+
+class Lexer:
+    def __init__(self):
+        self._lexer = []
+        self._lexer_defs = {}
+        self._initial_conditions = {}
+        self._inline_tokens = {}
+
+        # the condition $INITIAL is the default condition
+        # $SOL is the start of line condition
+        # $SOF is the start of file condition
+        initial = self._initial_conditions["$INITIAL"] = \
+            InclusiveInitialCondition("$INITIAL", 0)
+        sol = self._initial_conditions["$SOL"] = \
+            InclusiveInitialCondition("$SOL", 1, initial)
+        self._initial_conditions["$SOF"] = \
+            InclusiveInitialCondition("$SOF", 2, sol)
 
     @property
     def initial_conditions(self):
@@ -142,14 +168,35 @@ class Syntax(object):
             errmsg = "Initial condition {} not defined".format(name)
             raise SyntaxNameError(errmsg)
 
+    def __iter__(self):
+        return iter(self._lexer)
+
+    def inline_tokens(self):
+        return self._inline_tokens.items()
+
+    def add_lexing_rule(self, lexingrule):
+        self._lexer.append(lexingrule)
+
+    def add_inline_lexing_rule(self, token, text):
+        if token in self._inline_tokens:
+            assert text == self._inline_tokens[token]
+        self._inline_tokens[token] = text
+
+    def add_named_pattern(self, name, regex):
+        if name in self._lexer_defs:
+            raise SyntaxNameError("Pattern name {} already in use".format(name))
+        self._lexer_defs[name] = regex
+
+    def named_patterns(self):
+        return self._lexer_defs
+
     def add_inclusive_initial_condition(self, name):
         if name in self._initial_conditions:
             errmsg = "Initial condition name {} already in use".format(name)
             raise SyntaxNameError(errmsg)
 
         self._initial_conditions[name] = \
-            InclusiveInitialCondition(name,
-                                      len(self._initial_conditions),
+            InclusiveInitialCondition(name, len(self._initial_conditions),
                                       self.initial_condition('$INITIAL'))
 
     def add_exclusive_initial_condition(self, name):
@@ -160,66 +207,61 @@ class Syntax(object):
         self._initial_conditions[name] = \
             ExclusiveInitialCondition(name, len(self._initial_conditions))
 
-    def require_EOF(self):
-        if "$EOF" not in self._symbols:
-            self._symbols['$EOF'] = \
-                Syntax.SymbolTableEntry(EOF(), self._term_counter, self.EOF)
-            self._term_counter += 1
-
-        return self._symbols["$EOF"].symbol
-
-    def require_error(self):
-        if "$ERROR" not in self._symbols:
-            self._symbols['$ERROR'] = \
-                Syntax.SymbolTableEntry(Error(), self._term_counter, self.ERROR)
-            self._term_counter += 1
-
-        return self._symbols["$ERROR"].symbol
 
 
-    def require_undef(self):
-        if "$UNDEF" not in self._symbols:
-            self._symbols['$UNDEF'] = \
-                Syntax.SymbolTableEntry(Undef(), None, self.UNDEF)
+class VerbatimSection:
 
-        return self._symbols["$UNDEF"].symbol
+    def __init__(self):
+        self._lines = []
 
-    def require_terminal(self, name, stoken=False):
-        if name not in self._symbols:
-            self._symbols[name] = \
-                Syntax.SymbolTableEntry(Terminal(name, stoken),
-                                        self._term_counter, self.TERMINAL)
-            self._term_counter += 1
+    def add(self, line):
+        self._lines.append(line)
 
-        return self._symbols[name].symbol
+    def __iter__(self):
+        return iter(self._lines)
 
-    def require_meta(self, name):
-        if name not in self._symbols:
-            self._symbols[name] = \
-                Syntax.SymbolTableEntry(Meta(name), self._meta_counter, self.META)
-            self._meta_counter += 1
+class Syntax(object):
 
-        return self._symbols[name].symbol
+    def __init__(self):
+        self._symtable = Symtable()
+        self._grammar = Grammar(self._symtable)
+        self._ast_info = ASTInformation()
+        self._header = VerbatimSection()
+        self._footer = VerbatimSection()
+        self._lexer = Lexer()
 
-    def add_header(self, line):
-        self._header.append(line)
+    @property
+    def symtable(self):
+        return self._symtable
 
+    @property
+    def AST_info(self):
+        return self._ast_info
+
+    @property
+    def footer(self):
+        return self._footer
+
+    @property
     def header(self):
-        return iter(self._header)
+        return self._header
 
-    def sym_table_map(self, key=None, value=None, filt=None):
-        """
-        map/filter on the symtable
-        """
-        if key is None:
-            key = lambda x: x.symbol
+    @property
+    def lexer(self):
+        return self._lexer
 
-        if value is None:
-            value = lambda x: x
+    @property
+    def grammar(self):
+        return self._grammar
 
-        if filt is None:
-            filt = lambda x: True
+    def normalize_s_token_name(self, stoken):
+        text = bytes(stoken[1:-1], "utf-8").decode('unicode-escape')
+        normal_name = repr(text)
+        return text, normal_name
 
-        return {key(symbol): value(symbol)
-                for symbol in self._symbols.values()
-                if filt(symbol)}
+    def define_s_token(self, stoken):
+        text, normal_name = self.normalize_s_token_name(stoken)
+        sym = self.symtable.require_terminal(normal_name, stoken=True)
+        self.lexer.add_inline_lexing_rule(normal_name, text)
+
+        return sym

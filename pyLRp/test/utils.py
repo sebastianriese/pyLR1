@@ -120,29 +120,23 @@ def compile(logger, source, listing=None, trace=False):
     syn = parser.parse()
     del parser
 
-    syn.require_error()
     parse_table = None
-    if syn.start_symbol is not None:
+    if syn.grammar.start_symbol is not None:
         graph = LALR1StateTransitionGraph(syn, logger)
         graph.construct()
 
-        termsyms = frozenset([Syntax.TERMINAL,
-                              Syntax.EOF,
-                              Syntax.ERROR])
         parse_table = graph.create_parse_table(
-            syn.sym_table_map(filt=lambda x: x.symtype in termsyms,
-                            value=lambda x: x.number),
-            syn.sym_table_map(filt=lambda x: x.symtype == Syntax.META,
-                            value=lambda x: x.number)
+            syn.symtable.terminals(),
+            syn.symtable.metas()
             )
         graph.report_num_of_conflicts()
         # for state in graph.states:
         #     print(str(state))
         del graph
     else:
-        syn.require_EOF()
+        syn.symtable.require_EOF()
 
-    lexer = LexerConstructor(syn, logger)
+    lexer = LexerConstructor(syn.lexer, logger)
     lexer.construct_DFAs()
     lexer.drop_NFA()
     lexer.optimize()

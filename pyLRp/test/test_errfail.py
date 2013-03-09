@@ -32,12 +32,13 @@ class TestGeneratedLexerErrors(utils.FailOnLogTestCase):
         Test correct handling of encountering characters not allowed
         in the input.
         """
-        parser, symtable = self.compile(r"""
+        parser, syntax = self.compile(r"""
 %lexer
 \s+ %restart
 [a-zA-Z0-9]+ TOKEN
 """)
 
+        symtable = syntax.symtable
         TOKEN = symtable["TOKEN"].number
         ERROR = symtable["$ERROR"].number
 
@@ -66,11 +67,13 @@ class TestGeneratedLexerErrors(utils.FailOnLogTestCase):
         """
         Test allowed character in a forbidden position.
         """
-        parser, symtable = self.compile(r"""
+        parser, syntax = self.compile(r"""
 %lexer
 \s+ %restart
 a*b*ca*b* TOKEN
 """)
+
+        symtable = syntax.symtable
         TOKEN = symtable["TOKEN"].number
         ERROR = symtable["$ERROR"].number
 
@@ -96,7 +99,7 @@ class TestGeneratedParserErrors(utils.FailOnLogTestCase,
         what happens then, when no token can be identified.
         """
 
-        parser, symtable = self.compile(r"""
+        parser, syntax = self.compile(r"""
 %lexer
 \s+ %restart
 "(.|\"|\s)*" %restart

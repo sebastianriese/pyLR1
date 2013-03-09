@@ -2,7 +2,7 @@
 from .. import pyblob
 from .. import lexactions
 from .. import parsetable
-from ..syntax import Syntax
+from ..syntax import Syntax, Symtable
 from ..pyblob import (PyBlobStackVarMapVisitor, PySuite, PyText,
                       PyNewline, PyStackvar)
 
@@ -155,7 +155,7 @@ import mmap
 """)
 
         for headline in header:
-            self._parser_file.write(headline + "\n")
+            self._parser_file.write(headline)
 
     def table_strings(self, helper, tableTuple):
         tablehelper = ""
@@ -189,7 +189,7 @@ import mmap
         for symbolname in symtable:
             symbol = symtable[symbolname]
 
-            if symbol.symtype == Syntax.META:
+            if symbol.symtype == Symtable.META:
                 if symbol.symbol.name in ast.lists:
                     # trivial list creation ... could be more
                     # intelligent at guessing how to do this
@@ -389,7 +389,7 @@ class %s(AST):
         if self._debug:
             token_names = []
             token_numbers = []
-            symtypes = frozenset([Syntax.TERMINAL, Syntax.EOF, Syntax.ERROR])
+            symtypes = frozenset([Symtable.TERMINAL, Symtable.EOF, Symtable.ERROR])
             for key in symtable:
                 value = symtable[key]
                 if value.symtype in symtypes:
@@ -803,12 +803,12 @@ class Parser(object):
 
     def write(self, syntax, parsetable, lextable):
 
-        self.write_header(syntax.header())
+        self.write_header(syntax.header)
 
-        self.write_AST(syntax.AST_info, syntax)
+        self.write_AST(syntax.AST_info, syntax.symtable)
 
-        self.write_lexer(lextable, syntax, syntax.initial_conditions)
+        self.write_lexer(lextable, syntax.symtable, syntax.lexer.initial_conditions)
 
-        self.write_parser(parsetable, syntax)
+        self.write_parser(parsetable, syntax.symtable)
 
-        self.write_footer(syntax.footer())
+        self.write_footer(syntax.footer)

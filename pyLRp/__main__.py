@@ -187,7 +187,7 @@ parse_table = None
 # XXX: should we be more strict here and not generate a parser
 # when no %parser section is present but error on an empty
 # %parser section
-if syn.start_symbol is not None:
+if syn.grammar.start_symbol is not None:
     if args.lalr:
         graph = LALR1StateTransitionGraph(syn, logger)
     else:
@@ -199,12 +199,9 @@ if syn.start_symbol is not None:
         for state in graph.states:
             print(str(state))
 
-    termsyms = frozenset([Syntax.TERMINAL, Syntax.EOF, Syntax.ERROR])
     parse_table = graph.create_parse_table(
-        syn.sym_table_map(filt=lambda x: x.symtype in termsyms,
-                        value=lambda x: x.number),
-        syn.sym_table_map(filt=lambda x: x.symtype == Syntax.META,
-                        value=lambda x: x.number)
+        syn.symtable.terminals(),
+        syn.symtable.metas()
         )
     graph.report_num_of_conflicts()
 
@@ -215,10 +212,10 @@ if syn.start_symbol is not None:
 else:
     # generate the tokens required by the parser
     # and used for special lexer conditions
-    syn.require_EOF()
+    syn.symtable.require_EOF()
 
 # construct the lexer
-lexer = LexerConstructor(syn, logger)
+lexer = LexerConstructor(syn.lexer, logger)
 
 lexer.construct_DFAs()
 lexer.drop_NFA()

@@ -2,7 +2,7 @@
 import re
 
 from ..core import CantHappen
-from ..syntax import Syntax, SyntaxNameError
+from ..syntax import Syntax, Symtable, SyntaxNameError
 from ..regex import Regex, RegexSyntaxError
 from ..lexactions import (List, Debug, Push, Pop, Function, Token,
                           Begin, Restart, Continue)
@@ -69,8 +69,8 @@ class Parser(object):
     syntax_binding_re = re.compile(r'%left|%right|%nonassoc')
     syntax_binding_param_re = re.compile(r'''
     (,\s*)?
-    ([a-zA-Z_][a-zA-Z_0-9]*|
-    \"(.|\\\")+?\")''',
+    ((?P<token>[a-zA-Z_][a-zA-Z_0-9]*)|
+    (?P<stoken>\"(.|\\\")+?\"))''',
                                          flags=re.X)
 
     ast_list_re = re.compile(r'%list\s+([a-zA-Z_][a-zA-Z_0-9]*)')
@@ -127,7 +127,7 @@ class Parser(object):
         if eof:
             return
 
-        self._syntax.add_header(line)
+        self._syntax.header.add(line)
 
     def footer(self, line, eof=False):
         """
@@ -136,7 +136,7 @@ class Parser(object):
         if eof:
             return
 
-        self._syntax.add_footer(line)
+        self._syntax.footer.add(line)
 
     def AST(self, line, eof=False):
         """
@@ -181,10 +181,10 @@ class Parser(object):
         match = self.lexing_named_pattern_line_re.match(line.strip())
         if match:
             try:
-                self._syntax.add_named_pattern(
+                self._syntax.lexer.add_named_pattern(
                     match.group('name'),
                     Regex(match.group('regex'),
-                          bindings=self._syntax.named_patterns()).ast)
+                          bindings=self._syntax.lexer.named_patterns()).ast)
             except (RegexSyntaxError, SyntaxNameError) as e:
                 self.error("syntax error in regex def: {}".format(e.args[0]))
         else:
@@ -208,13 +208,13 @@ class Parser(object):
             try:
                 if match.group('type') == '%x':
                     for name in statenames:
-                        self._syntax.add_exclusive_initial_condition(name)
+                        self._syntax.lexer.add_exclusive_initial_condition(name)
                 elif match.group('type') == '%s':
                     for name in statenames:
-                        self._syntax.add_inclusive_initial_condition(name)
+                        self._syntax.lexer.add_inclusive_initial_condition(name)
                 elif match.group('type') == '%nullmatch':
                     for name in statenames:
-                        self._syntax.initial_condition(name).declare_nullmatch()
+                        self._syntax.lexer.initial_condition(name).declare_nullmatch()
                 else:
                     raise CantHappen()
             except SyntaxNameError as e:
@@ -225,10 +225,10 @@ class Parser(object):
         if match:
             if match.group('one'):
                 try:
-                    self._syntax.add_named_pattern(
+                    self._syntax.lexer.add_named_pattern(
                         match.group('name'),
                         Regex(match.group('regex'),
-                              bindings=self._syntax.named_patterns()).ast)
+                              bindings=self._syntax.lexer.named_patterns()).ast)
                 except (RegexSyntaxError, SyntaxNameError) as e:
                     errmsg = "syntax error in regex def: {}".format(e.args[0])
                     self.error(errmsg)
@@ -246,14 +246,14 @@ class Parser(object):
 
         # determine the inital condtions
         if match.group('sol'):
-            state.add(self._syntax.initial_condition("$SOL"))
+            state.add(self._syntax.lexer.initial_condition("$SOL"))
 
         if match.group('initialNames'):
             names = \
                 [name.strip() for name in match.group('initialNames').split(',')]
             for name in names:
                 try:
-                    state.add(self._syntax.initial_condition(name))
+                    state.add(self._syntax.lexer.initial_condition(name))
                 except  SyntaxNameError as e:
                     errmsg = \
                         "error in start condition list: {}".format(e.args[0])
@@ -270,10 +270,10 @@ class Parser(object):
             if match.group(head):
                 if match.group(head) == '%begin':
                     action.append(Begin(
-                            self._syntax.initial_condition(match.group(args))))
+                            self._syntax.lexer.initial_condition(match.group(args))))
                 elif match.group(head) == '%push':
                     action.append(Push(
-                            self._syntax.initial_condition(match.group(args))))
+                            self._syntax.lexer.initial_condition(match.group(args))))
                 elif match.group(head) == '%pop':
                     if match.group(args):
                         self.error("state argument for %pop")
@@ -298,7 +298,7 @@ class Parser(object):
             action.append(Restart())
 
         elif match.group('token'):
-            self._syntax.require_terminal(match.group('token'))
+            self._syntax.symtable.require_terminal(match.group('token'))
             action.append(Token(match.group('token')))
 
         elif match.group('continue'):
@@ -307,11 +307,11 @@ class Parser(object):
         # put it all together, add a lexing rule
         try:
             regex = Regex(match.group('regex'),
-                          bindings=self._syntax.named_patterns())
+                          bindings=self._syntax.lexer.named_patterns())
         except RegexSyntaxError as e:
             self.error("syntax error in regex: {}".format(e.args[0]))
         else:
-            self._syntax.add_lexing_rule(LexingRule(state, regex, action))
+            self._syntax.lexer.add_lexing_rule(LexingRule(state, regex, action))
 
     def parser(self, line, eof=False):
         """
@@ -341,7 +341,12 @@ class Parser(object):
                 while line:
                     match = self.syntax_binding_param_re.match(line)
                     if match:
-                        self._assoc_defs[match.group(2)] = obj
+                        groupdict = match.groupdict()
+                        if groupdict['token'] is not None:
+                            self._assoc_defs[groupdict['token']] = obj
+                        else:
+                            text, normal_name = self._syntax.normalize_s_token_name(groupdict['stoken'])
+                            self._assoc_defs[normal_name] = obj
 
                         line = line[len(match.group(0)):]
                         line = line.strip()
@@ -354,13 +359,13 @@ class Parser(object):
 
         match = self.syntax_rule_re.match(line)
         if match:
-            symbol = self._syntax.require_meta(match.group(1))
+            symbol = self._syntax.symtable.require_meta(match.group(1))
             if symbol in self._undef:
                 del self._undef[symbol]
             self._defined.add(symbol)
 
-            if self._syntax.start_symbol is None:
-                self._syntax.start_symbol = symbol
+            if self._syntax.grammar.start_symbol is None:
+                self._syntax.grammar.start_symbol = symbol
 
             self._current = symbol
 
@@ -380,21 +385,15 @@ class Parser(object):
 
                     match = self.syntax_stoken_re.match(line)
                     if match:
-                        elem = self._syntax.require_terminal(match.group(0),
-                                                             stoken=True)
-                        # XXX: maybe we should do the escape handling
-                        # this by hand or not at all
-                        text = bytes(match.group(1),
-                                     "utf-8").decode('unicode-escape')
-                        self._syntax.add_inline_lexing_rule(text)
+                        elem = self._syntax.define_s_token(match.group(0))
                         break
 
                     match = self.syntax_symbol_re.match(line)
                     if match:
-                        elem = self._syntax.require_meta(match.group(1))
+                        elem = self._syntax.symtable.require_meta(match.group(1))
                         # terminal symbols are already defined, and returned
                         # as such
-                        if self._syntax[elem.name].symtype == Syntax.META and \
+                        if self._syntax.symtable[elem.name].symtype == Symtable.META and \
                                 elem not in self._defined:
                             self._undef.setdefault(elem, []).append(self._line)
 
@@ -406,7 +405,7 @@ class Parser(object):
 
                     match = self.syntax_error_re.match(line)
                     if match:
-                        elem = self._syntax.require_terminal("$RECOVER")
+                        elem = self._syntax.symtable.require_terminal("$RECOVER")
                         break
 
                     match = self.syntax_prec_re.match(line)
