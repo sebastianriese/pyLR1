@@ -76,12 +76,13 @@ class Parser(object):
     ast_list_re = re.compile(r'%list\s+([a-zA-Z_][a-zA-Z_0-9]*)')
     ast_visitor_re = re.compile(r'%visitor\s+([a-zA-Z_][a-zA-Z_0-9]*)')
 
-    def __init__(self, grammar_file, logger):
+    def __init__(self, grammar_file, logger, filename=None):
         self.logger = logger
 
         self._syntax = Syntax()
 
         self._grammar_file = grammar_file
+        self._grammer_file_name = filename
         self._line = 0
 
         # ugly state variable available to the subparsers
@@ -102,14 +103,22 @@ class Parser(object):
         Wrapper for the logging.error method to include the current
         line number in the error message.
         """
-        self.logger.error('line {}: {}'.format(self._line, message))
+        if self._grammar_file_name is not None:
+            self.logger.error('{}:{}: {}'.format(self._grammar_file_name,
+                                                 self._line, message))
+        else:
+            self.logger.error('line {}: {}'.format(self._line, message))
 
     def warning(self, message):
         """
         Wrapper for the logging.warning method to include the current
         line number in the error message.
         """
-        self.logger.warning('line {}: {}'.format(self._line, message))
+        if self._grammar_file_name is not None:
+            self.logger.warning('{}:{}: {}'.format(self._grammar_file_name,
+                                                   self._line, message))
+        else:
+            self.logger.warning('line {}: {}'.format(self._line, message))
 
     def header(self, line, eof=False):
         """
