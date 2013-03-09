@@ -7,6 +7,7 @@ from .lexer import *
 class SyntaxNameError(Exception):
     pass
 
+
 class ASTInformation(object):
 
     def set_used(self):
@@ -40,13 +41,14 @@ class ASTInformation(object):
         self.visitor = 'ASTVisitor'
         self.bindings = {}
 
+
 class Symtable:
+
     TERMINAL = 0
     META = 1
     EOF = 2
     UNDEF = 3
     ERROR = 4
-
 
     class SymbolTableEntry(object):
 
@@ -135,10 +137,15 @@ class Symtable:
 
         return self._symbols[name].symbol
 
+
 class Grammar:
+    # XXX most of the grammar information is defined as attributes of
+    # metasymbols, therfore only few things are defined here
+
     def __init__(self, symtable):
         self.start_symbol = None
         self._symtable = symtable
+
 
 class Lexer:
     def __init__(self):
@@ -165,7 +172,7 @@ class Lexer:
         try:
             return self._initial_conditions[name]
         except KeyError:
-            errmsg = "Initial condition {} not defined".format(name)
+            errmsg = "undefined initial condition {}".format(name)
             raise SyntaxNameError(errmsg)
 
     def __iter__(self):
@@ -184,7 +191,7 @@ class Lexer:
 
     def add_named_pattern(self, name, regex):
         if name in self._lexer_defs:
-            raise SyntaxNameError("Pattern name {} already in use".format(name))
+            raise SyntaxNameError("redefinition of pattern name {}".format(name))
         self._lexer_defs[name] = regex
 
     def named_patterns(self):
@@ -192,7 +199,7 @@ class Lexer:
 
     def add_inclusive_initial_condition(self, name):
         if name in self._initial_conditions:
-            errmsg = "Initial condition name {} already in use".format(name)
+            errmsg = "redefinition of initial condition {}".format(name)
             raise SyntaxNameError(errmsg)
 
         self._initial_conditions[name] = \
@@ -201,12 +208,11 @@ class Lexer:
 
     def add_exclusive_initial_condition(self, name):
         if name in self._initial_conditions:
-            errmsg = "Initial condition name {} already in use".format(name)
+            errmsg = "redefinition of initial condition {}".format(name)
             raise SyntaxNameError(errmsg)
 
         self._initial_conditions[name] = \
             ExclusiveInitialCondition(name, len(self._initial_conditions))
-
 
 
 class VerbatimSection:
@@ -219,6 +225,7 @@ class VerbatimSection:
 
     def __iter__(self):
         return iter(self._lines)
+
 
 class Syntax(object):
 

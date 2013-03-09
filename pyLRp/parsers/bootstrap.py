@@ -413,8 +413,8 @@ class Parser(object):
                         try:
                             prod.assoc = self._assoc_defs[match.group(1)]
                         except KeyError:
-                            errmsg = "line {}: ".format(self._line)
-                            self.warning("Erroneous precedence declaration")
+                            errmsg = "line {}: precedence of symbol used in %prec undefined".format(self._line)
+                            self.error(errmsg)
 
                         break
 
