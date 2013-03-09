@@ -148,8 +148,8 @@ from ..pyblob import (PyBlobStackVarMapVisitor, PySuite, PyText,
 #######################################################
 <PARSER>{name}    %begin(PARSERMETA), SYMBOL
 <PARSER>%left     %push(FIXITYSPEC),  LEFT
-<PARSER>%right    %begin(FIXITYSPEC), RIGHT
-<PARSER>%nonassoc %begin(FIXITYSPEC), NONASSOC
+<PARSER>%right    %push(FIXITYSPEC), RIGHT
+<PARSER>%nonassoc %push(FIXITYSPEC), NONASSOC
 <PARSERMETA>:{comment} %begin(PARSER), %push(PARSERULE), %push(INDENT), COLON
 
 <PARSERULE>{name}    SYMBOL
