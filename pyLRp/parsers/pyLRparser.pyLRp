@@ -673,6 +673,14 @@ def add_error(self, prod, pos):
     sym = self.syntax.symtable.require_terminal("$RECOVER")
     prod.production.add_sym(sym)
 
+def check_for_undefined_metas(parser):
+    if parser.undef:
+        for symbol, posis in sorted(parser.undef.items(),
+                                    key=lambda x: x[0].name):
+            for pos in posis:
+                error(parser, pos,
+                      "used undefined symbol {}".format(symbol.name))
+
 class PyBlobBuilder(object):
     def __init__(self):
         self.blob = PySuite()

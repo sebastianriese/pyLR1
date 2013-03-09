@@ -116,9 +116,17 @@ def compile(logger, source, listing=None, trace=False):
     """
     codelines = source.split('\n')
 
-    parser = Parser(codelines, logger)
-    syn = parser.parse()
+    lexer = pyLRparser.Lexer(source.encode('utf-8'), filename='<string>', string=True)
+    parser = pyLRparser.Parser(lexer)
+    parser.Parse()
+    pyLRparser.check_for_undefined_metas(parser)
+    syn = parser.syntax
     del parser
+    del lexer
+
+    # parser = Parser(codelines, logger)
+    # syn = parser.parse()
+    # del parser
 
     parse_table = None
     if syn.grammar.start_symbol is not None:

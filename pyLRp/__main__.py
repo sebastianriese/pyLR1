@@ -167,9 +167,10 @@ except IOError as e:
     sys.exit(1)
 
 if args.self_hosting:
-    from .parsers.pyLRparser import Parser, Lexer
+    from .parsers.pyLRparser import Parser, Lexer, check_for_undefined_metas
     p = Parser(Lexer(infile, filename=args.infile))
     p.Parse()
+    check_for_undefined_metas(p)
     syn = p.syntax
     del p
 else:
