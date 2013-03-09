@@ -137,6 +137,7 @@ from ..pyblob import (PyBlobStackVarMapVisitor, PySuite, PyText,
 <LEXACTION>"([^\"\n]|\\\")*" STRLIT
 <LEXACTION>%function FUNCTION
 <LEXACTION>{name}   SYMBOL
+<LEXACTION>$INITIAL INITIAL
 <LEXACTION>\(       OPAREN
 <LEXACTION>\)       CPAREN
 <LEXACTION>{comment}\n %pop(), NEWLINE
