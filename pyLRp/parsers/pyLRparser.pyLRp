@@ -244,9 +244,6 @@ init:
         self.assocPower = 0
         self.productionNumber = 0
 
-        self.undef = {}
-        self.defined = set()
-
         self.lexscopes = [set()]
 
 symbollist:
@@ -280,14 +277,14 @@ pysingle:
     PYBLOB: $$.sem = PyBlobBuilder(); $$.sem.text($1.sem)
     STACKVAR: $$.sem = PyBlobBuilder(); $$.sem.stackvar($1.sem, $1.pos)
     pysingle PYBLOB: $$.sem = $1.sem; $$.sem.text($2.sem)
-    pysingle STACKVAR: $$.sem = $1.sem; $$.sem.stackvar($2.sem)
+    pysingle STACKVAR: $$.sem = $1.sem; $$.sem.stackvar($2.sem, $2.pos)
 
 pyblob_:
     PYBLOB: $$.sem = PyBlobBuilder(); $$.sem.text($1.sem)
     STACKVAR: $$.sem = PyBlobBuilder(); $$.sem.stackvar($1.sem, $1.pos)
     INDENT pyblob_ DEDENT: $$.sem = PyBlobBuilder(); $$.sem.suite($2.sem.get())
     pyblob_ PYBLOB: $$.sem = $1.sem; $$.sem.text($2.sem)
-    pyblob_ STACKVAR: $$.sem = $1.sem; $$.sem.stackvar($2.sem)
+    pyblob_ STACKVAR: $$.sem = $1.sem; $$.sem.stackvar($2.sem, $2.pos)
     pyblob_ INDENT pyblob_ DEDENT: $$.sem = $1.sem; $$.sem.suite($3.sem.get())
     pyblob_ NEWLINE: $$.sem = $1.sem; $$.sem.newline()
 
@@ -414,7 +411,7 @@ final:
     RESTART: $$.sem = Restart()
     CONTINUE: $$.sem = Continue()
     SYMBOL:
-        self.syntax.symtable.require_terminal($1.sem)
+        self.syntax.symtable.define_terminal($1.sem)
         $$.sem = Token($1.sem)
 
 parser:
@@ -432,11 +429,7 @@ assocdef:
 
 ruleset:
     SYMBOL COLON INDENT:
-        symbol = self.syntax.symtable.require_meta($1.sem)
-
-        if symbol in self.undef:
-            del self.undef[symbol]
-        self.defined.add(symbol)
+        symbol = self.syntax.symtable.define_meta($1.sem)
 
         if self.syntax.grammar.start_symbol is None:
             self.syntax.grammar.start_symbol = symbol
@@ -658,10 +651,7 @@ def set_assoc(parser, assoctype, symbols):
     parser.assocPower += 1
 
 def add_meta_symbol(self, prod, symbol, pos, altname=None):
-    sym = self.syntax.symtable.require_meta(symbol)
-    if self.syntax.symtable[sym.name].symtype == Symtable.META \
-            and sym not in self.defined:
-        self.undef.setdefault(sym, []).append(pos)
+    sym = self.syntax.symtable.require_symbol(symbol, pos)
 
     prod.production.assoc = self.assocDefs.get(sym.name,
                                                prod.production.assoc)
@@ -678,16 +668,15 @@ def add_stoken(self, prod, stoken, pos):
     prod.production.add_sym(sym)
 
 def add_error(self, prod, pos):
-    sym = self.syntax.symtable.require_terminal("$RECOVER")
+    sym = self.syntax.symtable.require_recover()
     prod.production.add_sym(sym)
 
 def check_for_undefined_metas(parser):
-    if parser.undef:
-        for symbol, posis in sorted(parser.undef.items(),
-                                    key=lambda x: x[0].name):
-            for pos in posis:
-                error(parser, pos,
-                      "used undefined symbol {}".format(symbol.name))
+    for symbol, posis in sorted(parser.syntax.symtable.undef(),
+                                key=lambda x: x[0].name):
+        for pos in posis:
+            error(parser, pos,
+                  "used undefined symbol {}".format(symbol.name))
 
 class PyBlobBuilder(object):
     def __init__(self):
@@ -702,8 +691,8 @@ class PyBlobBuilder(object):
     def text(self, text):
         self.blob.add(PyText(text))
 
-    def stackvar(self, sv):
-        self.blob.add(PyStackvar(text=sv))
+    def stackvar(self, sv, pos):
+        self.blob.add(PyStackvar(text=sv, position=pos))
 
     def suite(self, suite):
         self.blob.add(suite)

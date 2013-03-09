@@ -77,6 +77,8 @@ class Symtable:
         self._metas = {}
         self._terminals = {}
 
+        self._undef = {}
+
         # require the error symbol
         self.require_error()
 
@@ -95,6 +97,9 @@ class Symtable:
         return {value.symbol: value.number for value in self._symbols.values()
                                            if value.symtype in termsyms}
 
+    def undef(self):
+        return self._undef.items()
+
     def require_EOF(self):
         if "$EOF" not in self._symbols:
             self._symbols['$EOF'] = \
@@ -103,6 +108,15 @@ class Symtable:
             self._term_counter += 1
 
         return self._symbols["$EOF"].symbol
+
+    def require_recover(self):
+        if "$RECOVER" not in self._symbols:
+            self._symbols['$RECOVER'] = \
+                Symtable.SymbolTableEntry(Terminal('$RECOVER', False),
+                                          self._term_counter, self.TERMINAL)
+            self._term_counter += 1
+
+        return self._symbols['$RECOVER'].symbol
 
     def require_error(self):
         if "$ERROR" not in self._symbols:
@@ -120,7 +134,10 @@ class Symtable:
 
         return self._symbols["$UNDEF"].symbol
 
-    def require_terminal(self, name, stoken=False):
+    def define_terminal(self, name, stoken=False):
+        """
+        Define and return a terminal symbol.
+        """
         if name not in self._symbols:
             self._symbols[name] = \
                 Symtable.SymbolTableEntry(Terminal(name, stoken),
@@ -129,14 +146,42 @@ class Symtable:
 
         return self._symbols[name].symbol
 
-    def require_meta(self, name):
+    def define_meta(self, name):
+        """
+        Define and return a meta symbol.
+
+        If the symbol does not exist create a new meta symbol with
+        that name. If it is marked undefined, remove it from the list
+        of undefined symbols.
+        """
         if name not in self._symbols:
             self._symbols[name] = \
                 Symtable.SymbolTableEntry(Meta(name), self._meta_counter, self.META)
             self._meta_counter += 1
 
+        if name in self._undef:
+            del self._undef[name]
+
         return self._symbols[name].symbol
 
+    def require_symbol(self, name, loc):
+        """
+        Return symbol identified by *name*.
+
+        If the symbol does not exist create a new meta symbol with
+        that name and add it to the list of undefined symbols.
+        """
+
+        if name not in self._symbols:
+            self._symbols[name] = \
+                Symtable.SymbolTableEntry(Meta(name), self._meta_counter, self.META)
+            self._meta_counter += 1
+
+            if name not in self._undef:
+                self._undef[name] = []
+            self._undef[name].append(loc)
+
+        return self._symbols[name].symbol
 
 class Grammar:
     # XXX most of the grammar information is defined as attributes of

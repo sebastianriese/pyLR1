@@ -309,7 +309,7 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
 
         # require the $RECOVER terminal symbol used during
         # error recovery of the parser
-        self.grammar.symtable.require_terminal("$RECOVER")
+        self.grammar.symtable.require_recover()
 
     def report_num_of_conflicts(self):
         if self.conflicts:
@@ -572,7 +572,7 @@ class LALR1StateTransitionGraph(StateTransitionGraph):
 
         # add EOF to the "$START <- start ." lookahead set
         for item in self.start.elements():
-            if item.prod.left == self.grammar.symtable.require_meta("$START"):
+            if item.prod.left == self.grammar.symtable.define_meta("$START"):
                 item.lookahead = set([self.grammar.symtable.require_EOF()])
 
         # set the spontaneously generated lookahead tokens
@@ -597,12 +597,12 @@ class LALR1StateTransitionGraph(StateTransitionGraph):
         # construct the starting point (virtual starting node) and use
         # the RequireElement-method to build up the tree
 
-        prod = Production(self.grammar.symtable.require_meta("$START"),
+        prod = Production(self.grammar.symtable.define_meta("$START"),
                           [self.grammar.grammar.start_symbol], -1)
 
         prod.action = PyText("raise Accept()")
 
-        self.grammar.symtable.require_meta("$START").add_prod(prod)
+        self.grammar.symtable.define_meta("$START").add_prod(prod)
 
         # we use an empty lookahead set to generate the LR(0) automaton
         start = LR1Item(prod, 0, set([]))
@@ -623,11 +623,11 @@ class LR1StateTransitionGraph(StateTransitionGraph):
 
     def construct(self):
 
-        prod = Production(self.grammar.require_meta("$START"),
+        prod = Production(self.grammar.define_meta("$START"),
                           [self.grammar.start_symbol], -1)
         prod.action = PyText("raise Accept()")
 
-        self.grammar.symtable.require_meta("$START").add_prod(prod)
+        self.grammar.symtable.define_meta("$START").add_prod(prod)
 
         start = LR1Item(prod, 0, set([self.grammar.symtable.require_EOF()])).closure()
 

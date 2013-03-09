@@ -93,9 +93,6 @@ class Parser(object):
         self._production_number = 0
         self._indent = None
 
-        self._undef = {}
-        self._defined = set()
-
         self._state = self.header
 
     def error(self, message):
@@ -298,7 +295,7 @@ class Parser(object):
             action.append(Restart())
 
         elif match.group('token'):
-            self._syntax.symtable.require_terminal(match.group('token'))
+            self._syntax.symtable.define_terminal(match.group('token'))
             action.append(Token(match.group('token')))
 
         elif match.group('continue'):
@@ -359,10 +356,7 @@ class Parser(object):
 
         match = self.syntax_rule_re.match(line)
         if match:
-            symbol = self._syntax.symtable.require_meta(match.group(1))
-            if symbol in self._undef:
-                del self._undef[symbol]
-            self._defined.add(symbol)
+            symbol = self._syntax.symtable.define_meta(match.group(1))
 
             if self._syntax.grammar.start_symbol is None:
                 self._syntax.grammar.start_symbol = symbol
@@ -390,13 +384,7 @@ class Parser(object):
 
                     match = self.syntax_symbol_re.match(line)
                     if match:
-                        elem = self._syntax.symtable.require_meta(match.group(1))
-                        # terminal symbols are already defined, and returned
-                        # as such
-                        if self._syntax.symtable[elem.name].symtype == Symtable.META and \
-                                elem not in self._defined:
-                            self._undef.setdefault(elem, []).append(self._line)
-
+                        elem = self._syntax.symtable.require_symbol(match.group(1), self._line)
                         break
 
                     match = self.syntax_empty_re.match(line)
@@ -405,7 +393,7 @@ class Parser(object):
 
                     match = self.syntax_error_re.match(line)
                     if match:
-                        elem = self._syntax.symtable.require_terminal("$RECOVER")
+                        elem = self._syntax.symtable.require_recover()
                         break
 
                     match = self.syntax_prec_re.match(line)
@@ -527,18 +515,16 @@ class Parser(object):
         # apply any pending state
         self._state('', eof=True)
 
-        if self._undef:
-            for symbol, lines in sorted(self._undef.items(),
-                                        key=lambda x: x[0].name):
-                usedinlines = "used in lines"
-                if len(lines) == 1:
-                    usedinlines = "used in line"
-                self.logger.error(' '.join(["Undefined symbol",
-                                            symbol.name,
-                                            usedinlines,
-                                            ', '.join(str(line)
-                                                      for line
-                                                      in lines)]))
-            self.logger.error("Undefined meta symbols found")
+        for symbol, lines in sorted(self._syntax.symtable.undef(),
+                                    key=lambda x: x[0].name):
+            usedinlines = "used in lines"
+            if len(lines) == 1:
+                usedinlines = "used in line"
+            self.logger.error(' '.join(["Undefined symbol",
+                                        symbol.name,
+                                        usedinlines,
+                                        ', '.join(str(line)
+                                                  for line
+                                                  in lines)]))
 
         return self._syntax
