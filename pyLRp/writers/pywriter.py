@@ -635,6 +635,14 @@ class SyntaxError(Exception):
     def __str__(self):
         return '{}:{}'.format(str(self.position), self.message)
 
+# default definitions of the error reporting functions there are
+# usually overwritten by the parser
+def error(parser, pos, msg):
+    raise SyntaxError(message=msg, position=pos)
+
+def warning(parser, pos, msg):
+    pass
+
 class Parser(object):
     # actions from the grammar
 """)
@@ -707,6 +715,8 @@ class Parser(object):
                         # setup error recovery by shifting the $RECOVER token
                         recovering = True
                         rec = """ + str(symtable["$RECOVER"].number) + r"""
+
+                        error(self, pos, "syntax error")
 
                         # pop tokens until error can be shifted
                         t, d = atable[stack[-1].state][rec]

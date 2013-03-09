@@ -260,8 +260,15 @@ symbollist_:
 
     # this can only occur in fixity spec lists!
     # there we want normalizes stoken names!
+    STOKEN:
+        text, normal_name = self.syntax.normalize_s_token_name($1.sem)
+        $$.sem = [normal_name]
     symbollist_ STOKEN:
-        text, normal_name = self.sytnax.normalize_s_token_name($2.sem)
+        text, normal_name = self.syntax.normalize_s_token_name($2.sem)
+        $$.sem = $1.sem + [normal_name]
+
+    symbollist_ COMMA STOKEN:
+        text, normal_name = self.syntax.normalize_s_token_name($3.sem)
         $$.sem = $1.sem + [normal_name]
 
 
@@ -311,30 +318,27 @@ lexdecs:
 lexdec:
     EXCLUSIVE symbollist:
         for symb in $2.sem:
-            self.syntax.lexer.add_exclusive_initial_condition(symb)
+            try:
+                self.syntax.lexer.add_exclusive_initial_condition(symb)
+            except SyntaxNameError as e:
+                error(self, $2.pos, e.args[0])
 
     INCLUSIVE symbollist:
         for symb in $2.sem:
-            self.syntax.lexer.add_inclusive_initial_condition(symb)
+            try:
+                self.syntax.lexer.add_inclusive_initial_condition(symb)
+            except SyntaxNameError as e:
+                error(self, $2.pos, e.args[0])
 
     NULLMATCH symbollist:
         for symb in $2.sem:
-            self.syntax.lexer.initial_condition(symb).declare_nullmatch()
+            get_initial_condition(self, $2.pos, symb).declare_nullmatch()
 
     DEF INDENT lexdefs DEDENT
 
 lexdefs:
-    SYMBOL REGEX NEWLINE:
-        self.syntax.lexer.add_named_pattern(
-            $1.sem,
-            Regex($2.sem, bindings=self.syntax.lexer.named_patterns()).ast
-        )
-
-    lexdefs SYMBOL REGEX NEWLINE:
-        self.syntax.lexer.add_named_pattern(
-            $2.sem,
-            Regex($3.sem, bindings=self.syntax.lexer.named_patterns()).ast
-        )
+    SYMBOL REGEX NEWLINE: bind_named_pattern(self, $1, $2)
+    lexdefs SYMBOL REGEX NEWLINE: bind_named_pattern(self, $2, $3)
 
 lexrules:
     %empty
@@ -342,23 +346,11 @@ lexrules:
 
 lexrule:
     lexscope
-    REGEX lexaction:
-        regex = Regex($1.sem, bindings=self.syntax.lexer.named_patterns())
-        lex_rule = LexingRule(set(), regex, $2.sem)
-        self.syntax.lexer.add_lexing_rule(lex_rule)
+    REGEX lexaction: add_lexrule(self, set(), $1, $2)
     CARET REGEX lexaction:
-        regex = Regex($2.sem, bindings=self.syntax.named_patterns())
-        lex_rule = LexingRule(set([self.syntax.lexer.initial_condition("$SOL")]),
-                              regex, $3.sem)
-        self.syntax.lexer.add_lexing_rule(lex_rule)
-
-    LANGLE condspec RANGLE REGEX lexaction:
-        regex = Regex($4.sem, bindings=self.syntax.lexer.named_patterns())
-        state = set()
-        for symb in $2.sem:
-            state.add(self.syntax.lexer.initial_condition(symb))
-        lex_rule = LexingRule(state, regex, $5.sem)
-        self.syntax.lexer.add_lexing_rule(lex_rule)
+        add_lexrule(self, set([get_initial_condition(self, $1.pos, "$SOL")]),
+                    $2, $3)
+    LANGLE condspec RANGLE REGEX lexaction: add_lexrule(self, $2.sem, $4, $5)
 
 lexscope:
     lexscopedecl INDENT lexscope_ DEDENT: self.lexscopes.pop()
@@ -367,11 +359,13 @@ lexscopedecl:
     SCOPE OPAREN scopespec CPAREN:
         state = set(self.lexscopes[-1])
         for op, cond in $3.sem:
-            cond = self.syntax.lexer.initial_condition(cond)
+            cond = get_initial_condition(self, $3.pos, cond)
             if op == '+':
                 state.add(cond)
             elif op == '-':
                 state.discard(cond)
+        if not state:
+            warning($4.pos, "Defined empty start condition scope")
         self.lexscopes.append(state)
 
 scopespec:
@@ -384,19 +378,13 @@ scopespec:
 
 lexscope_:
     lexscope
-    REGEX lexaction:
-       regex = Regex($1.sem, bindings=self.syntax.lexer.named_patterns())
-       lex_rule = LexingRule(self.lexscopes[-1], regex, $2.sem)
-       self.syntax.lexer.add_lexing_rule(lex_rule)
+    REGEX lexaction: add_lexrule(self, self.lexscopes[-1], $1, $2)
     lexscope_ lexscope
-    lexscope_ REGEX lexaction:
-       regex = Regex($2.sem, bindings=self.syntax.lexer.named_patterns())
-       lex_rule = LexingRule(self.lexscopes[-1], regex, $3.sem)
-       self.syntax.lexer.add_lexing_rule()
+    lexscope_ REGEX lexaction: add_lexrule(self, self.lexscopes[-1], $2, $3)
 
 condspec:
-    SYMBOL: $$.sem = [$1.sem]
-    condspec COMMA SYMBOL: $$.sem = $1.sem + [$3.sem]
+    SYMBOL: $$.sem = [get_initial_condition(self, $1.pos, $1.sem)]
+    condspec COMMA SYMBOL: $$.sem = $1.sem + [get_initial_condition(self, $3.pos, $3.sem)]
 
 lexaction:
     stackactions final NEWLINE: $$.sem = $1.sem; $$.sem.append($2.sem)
@@ -405,13 +393,16 @@ stackactions:
     %empty: $$.sem = List()
     stackactions PUSH OPAREN SYMBOL CPAREN COMMA:
         $$.sem = $1.sem
-        $$.sem.append(Push(self.syntax.lexer.initial_condition($4.sem)))
+        $$.sem.append(Push(get_initial_condition(self, $4.pos, $4.sem)))
     stackactions POP OPAREN CPAREN COMMA:
         $$.sem = $1.sem
         $$.sem.append(Pop())
     stackactions BEGIN OPAREN SYMBOL CPAREN COMMA:
         $$.sem = $1.sem
-        $$.sem.append(Begin(self.syntax.lexer.initial_condition($4.sem)))
+        $$.sem.append(Begin(get_initial_condition(self, $4.pos, $4.sem)))
+    stackactions BEGIN OPAREN INITIAL CPAREN COMMA:
+        $$.sem = $1.sem
+        $$.sem.append(Begin(get_initial_condition(self, $4.pos, $4.sem)))
     stackactions FUNCTION OPAREN SYMBOL CPAREN COMMA:
         $$.sem = $1.sem
         $$.sem.append(Function($4.sem))
@@ -484,12 +475,20 @@ production:
 
     production PREC OPAREN SYMBOL CPAREN:
         $$.sem = $1.sem
-        $$.sem.production.assoc = self.assocDefs[$4.sem]
+        try:
+            $$.sem.production.assoc = self.assocDefs[$4.sem]
+        except KeyError:
+            errmsg = "precedence of symbol used in %prec undefined"
+            error(self, $4.pos, errmsg)
 
     production PREC OPAREN STOKEN CPAREN:
         $$.sem = $1.sem
-        text, normal_name, self.syntax.normalize_s_token_name($4.sem)
-        $$.sem.production.assoc = self.assocDefs[normal_name]
+        text, normal_name = self.syntax.normalize_s_token_name($4.sem)
+        try:
+            $$.sem.production.assoc = self.assocDefs[normal_name]
+        except KeyError:
+            errmsg = "precedence of symbol used in %prec undefined"
+            error(self, $4.pos, errmsg)
 
     production SYMBOL:
         $$.sem = $1.sem
@@ -497,7 +496,6 @@ production:
 
     production SYMBOL OBRACKET SYMBOL CBRACKET:
         $$.sem = $1.sem
-
         add_meta_symbol(self, $$.sem, $2.sem, $2.pos, altname=$4.sem)
 
     production EMPTY: $$.sem = $1.sem
@@ -520,6 +518,18 @@ footer:
     footer PYVERB: self.syntax.footer.add($2.sem)
 
 %footer
+
+# overwrite the default error and warning functions
+def error(parser, pos, errmsg):
+    logger = logging.getLogger("pyLR1")
+    logger.error("{}:{}:{}: {}: {}".format(pos.file, pos.line0,
+                                           pos.col0, "error", errmsg))
+
+def warning(parser, pos, warning):
+    logger = logging.getLogger("pyLR1")
+    logger.warning("{}:{}:{}: {}: {}".format(pos.file, pos.line0,
+                                             pos.col0, "warning", errmsg))
+
 
 def indent(lexer, text, position):
     if not hasattr(lexer, 'indent_stack'):
@@ -598,6 +608,35 @@ class AnnotatedProduction(object):
                 self.ambiguous.add(name)
 
         self.names[name] = len(self.production) - 1
+
+
+def bind_named_pattern(self, name, regex):
+    try:
+        self.syntax.lexer.add_named_pattern(
+            name.sem,
+            Regex(regex.sem, bindings=self.syntax.lexer.named_patterns()).ast
+        )
+    except (RegexSyntaxError, SyntaxNameError) as e:
+        error(self, regex.pos,
+              "syntax error in regex def: {}".format(e.args[0]))
+
+
+def add_lexrule(self, start_conditions, regex, lexaction):
+    try:
+        regex = Regex(regex.sem, bindings=self.syntax.lexer.named_patterns())
+    except (RegexSyntaxError, SyntaxNameError) as e:
+        error(self, regex.pos,
+              "syntax error in regex: {}".format(e.args[0]))
+    lex_rule = LexingRule(start_conditions, regex, lexaction.sem)
+    self.syntax.lexer.add_lexing_rule(lex_rule)
+
+def get_initial_condition(self, pos, name):
+    try:
+        return self.syntax.lexer.initial_condition(name)
+    except SyntaxNameError as e:
+        error(self, pos, str(e))
+        self.syntax.lexer.add_inclusive_initial_condition(name)
+        return self.syntax.lexer.initial_condition(name)
 
 def setup_production(self):
     prod = Production(None, [], self.productionNumber)

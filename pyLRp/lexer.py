@@ -5,7 +5,7 @@ from .lexactions import Token
 class LexingRule(object):
 
     def __init__(self, conditions, regex, action):
-        self._conditions = conditions
+        self._conditions = frozenset(conditions)
         self._regex = regex
         self._action = action
 
