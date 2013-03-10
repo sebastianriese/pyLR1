@@ -313,7 +313,7 @@ class Syntax(object):
 
     def define_s_token(self, stoken):
         text, normal_name = self.normalize_s_token_name(stoken)
-        sym = self.symtable.require_terminal(normal_name, stoken=True)
+        sym = self.symtable.define_terminal(normal_name, stoken=True)
         self.lexer.add_inline_lexing_rule(normal_name, text)
 
         return sym
