@@ -3,8 +3,7 @@ from .. import pyblob
 from .. import lexactions
 from .. import parsetable
 from ..syntax import Syntax, Symtable
-from ..pyblob import (PyBlobStackVarMapVisitor, PySuite, PyText,
-                      PyNewline, PyStackvar)
+from ..pyblob import PySuite, PyText, PyNewline, PyStackvar
 
 class PyBlobToLines(pyblob.PyBlobVisitor):
     def __init__(self, stacklen, toplevel=True):
@@ -746,6 +745,7 @@ class Parser(object):
             self._parser_file.write("""
     def action%d(self, result):""" % (redNum,))
 
+            # the proper parser builds up a pyblob
             if isinstance(text, pyblob.PyBlob):
                 visitor = PyBlobToLines(len(red))
                 visitor.visit(text)
@@ -763,6 +763,7 @@ class Parser(object):
                         self._parser_file.write(line)
                     self._parser_file.write('\n')
 
+            # the bootstrap parser just concatenates text
             elif isinstance(text, list):
                 text = list(filter(lambda x: bool(x.strip()), text))
                 if not text: text = ["pass"]

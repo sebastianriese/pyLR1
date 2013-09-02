@@ -12,8 +12,7 @@ from ..lexactions import (List, Debug, Push, Pop, Function, Token,
                           Begin, Restart, Continue)
 from ..lexer import LexingRule
 from ..lr import Production
-from ..pyblob import (PyBlobStackVarMapVisitor, PySuite, PyText,
-                      PyNewline, PyStackvar)
+from ..pyblob import PyBlobVisitor, PySuite, PyText, PyNewline, PyStackvar
 
 %lexer
 
@@ -609,6 +608,27 @@ class AnnotatedProduction(object):
                 self.ambiguous.add(name)
 
         self.names[name] = len(self.production) - 1
+
+class PyBlobStackVarMapVisitor(PyBlobVisitor):
+
+    def __init__(self, varmap):
+        self.varmap = varmap
+
+    def visit_PySuite(self, suite):
+        for fragment in suite.code:
+            fragment.accept(self)
+
+    def visit_PyText(self, text):
+        pass
+
+    def visit_PyNewline(self, newline):
+        pass
+
+    def visit_PyStackvar(self, stackvar):
+        if stackvar.text == '$$':
+            stackvar.result = True
+        else:
+            stackvar.num = self.varmap(stackvar.text)
 
 
 def bind_named_pattern(self, name, regex):
