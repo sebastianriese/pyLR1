@@ -26,7 +26,7 @@ class AutoAccept(type):
 
         res = super().__new__(cls, name, bases, dict)
 
-        res._regsiter_subclass_recurse(subclass, set())
+        res._register_subclass_recurse(res, set())
 
         return res
 
