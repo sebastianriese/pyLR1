@@ -37,7 +37,8 @@ class CountingLogger(logging.getLoggerClass()):
         """
         Exit if there were errors.
         """
-        sys.exit(exitCode)
+        if self.errors > 0:
+            sys.exit(exitCode)
 
     def loggedErrors(self):
         """
