@@ -5,7 +5,7 @@ from .lexactions import Token
 class LexingRule(object):
 
     def __init__(self, conditions, regex, action):
-        self._conditions = conditions
+        self._conditions = frozenset(conditions)
         self._regex = regex
         self._action = action
 
@@ -98,25 +98,25 @@ class LexerConstructor(object):
 
         # construct the NFAs for the initial conditions
         for condition in self._initial_conditions:
-            self._nfas.append(LexingNFA(lexer_spec.lexer(),
+            self._nfas.append(LexingNFA(lexer_spec,
                                         condition,
                                         inline_tokens,
                                         logger))
 
     def _make_inline_token_NFA(self, inline_token_list):
         inline_tokens = NFAState()
-        for token in inline_token_list:
+        for name, text in inline_token_list:
 
             previous = NFAState()
             inline_tokens.add_transition('', previous)
 
-            for char in token:
+            for char in text:
                 new = NFAState()
                 previous.add_transition(char, new)
                 previous = new
 
             previous.priority = 0
-            previous.action = Token('"' + token + '"')
+            previous.action = Token(name)
 
         return inline_tokens
 

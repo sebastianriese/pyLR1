@@ -6,7 +6,7 @@
 import pyLRp
 import logging
 
-from ..syntax import Syntax, SyntaxNameError
+from ..syntax import Syntax, SyntaxNameError, Symtable
 from ..regex import Regex, RegexSyntaxError
 from ..lexactions import (List, Debug, Push, Pop, Function, Token,
                           Begin, Restart, Continue)
@@ -87,7 +87,7 @@ from ..pyblob import (PyBlobStackVarMapVisitor, PySuite, PyText,
 <SYMBOLLIST,FIXITYSPEC>{name}      SYMBOL
 
 # fixityspecs allow stokens to appear in the list
-<FIXITYSPEC>{stoken}               SYMBOL
+<FIXITYSPEC>{stoken}               STOKEN
 
 #######################################################
 # the lexer spec
@@ -137,6 +137,7 @@ from ..pyblob import (PyBlobStackVarMapVisitor, PySuite, PyText,
 <LEXACTION>"([^\"\n]|\\\")*" STRLIT
 <LEXACTION>%function FUNCTION
 <LEXACTION>{name}   SYMBOL
+<LEXACTION>$INITIAL INITIAL
 <LEXACTION>\(       OPAREN
 <LEXACTION>\)       CPAREN
 <LEXACTION>{comment}\n %pop(), NEWLINE
@@ -148,8 +149,8 @@ from ..pyblob import (PyBlobStackVarMapVisitor, PySuite, PyText,
 #######################################################
 <PARSER>{name}    %begin(PARSERMETA), SYMBOL
 <PARSER>%left     %push(FIXITYSPEC),  LEFT
-<PARSER>%right    %begin(FIXITYSPEC), RIGHT
-<PARSER>%nonassoc %begin(FIXITYSPEC), NONASSOC
+<PARSER>%right    %push(FIXITYSPEC), RIGHT
+<PARSER>%nonassoc %push(FIXITYSPEC), NONASSOC
 <PARSERMETA>:{comment} %begin(PARSER), %push(PARSERULE), %push(INDENT), COLON
 
 <PARSERULE>{name}    SYMBOL
@@ -243,9 +244,6 @@ init:
         self.assocPower = 0
         self.productionNumber = 0
 
-        self.undef = {}
-        self.defined = set()
-
         self.lexscopes = [set()]
 
 symbollist:
@@ -257,28 +255,42 @@ symbollist_:
     symbollist_ SYMBOL:       $$.sem = $1.sem + [$2.sem]
     symbollist_ %error COMMA: $$.sem = $1.sem
 
+    # this can only occur in fixity spec lists!
+    # there we want normalizes stoken names!
+    STOKEN:
+        text, normal_name = self.syntax.normalize_s_token_name($1.sem)
+        $$.sem = [normal_name]
+    symbollist_ STOKEN:
+        text, normal_name = self.syntax.normalize_s_token_name($2.sem)
+        $$.sem = $1.sem + [normal_name]
+
+    symbollist_ COMMA STOKEN:
+        text, normal_name = self.syntax.normalize_s_token_name($3.sem)
+        $$.sem = $1.sem + [normal_name]
+
+
 pyblob:
     pysingle NEWLINE: $$.sem = $1.sem.get()
     INDENT pyblob_ DEDENT: $$.sem = $2.sem.get()
 
 pysingle:
     PYBLOB: $$.sem = PyBlobBuilder(); $$.sem.text($1.sem)
-    STACKVAR: $$.sem = PyBlobBuilder(); $$.sem.stackvar($1.sem)
+    STACKVAR: $$.sem = PyBlobBuilder(); $$.sem.stackvar($1.sem, $1.pos)
     pysingle PYBLOB: $$.sem = $1.sem; $$.sem.text($2.sem)
-    pysingle STACKVAR: $$.sem = $1.sem; $$.sem.stackvar($2.sem)
+    pysingle STACKVAR: $$.sem = $1.sem; $$.sem.stackvar($2.sem, $2.pos)
 
 pyblob_:
     PYBLOB: $$.sem = PyBlobBuilder(); $$.sem.text($1.sem)
-    STACKVAR: $$.sem = PyBlobBuilder(); $$.sem.stackvar($1.sem)
+    STACKVAR: $$.sem = PyBlobBuilder(); $$.sem.stackvar($1.sem, $1.pos)
     INDENT pyblob_ DEDENT: $$.sem = PyBlobBuilder(); $$.sem.suite($2.sem.get())
     pyblob_ PYBLOB: $$.sem = $1.sem; $$.sem.text($2.sem)
-    pyblob_ STACKVAR: $$.sem = $1.sem; $$.sem.stackvar($2.sem)
+    pyblob_ STACKVAR: $$.sem = $1.sem; $$.sem.stackvar($2.sem, $2.pos)
     pyblob_ INDENT pyblob_ DEDENT: $$.sem = $1.sem; $$.sem.suite($3.sem.get())
     pyblob_ NEWLINE: $$.sem = $1.sem; $$.sem.newline()
 
 header:
     %empty
-    header PYVERB: self.syntax.add_header($2.sem)
+    header PYVERB: self.syntax.header.add($2.sem)
 
 ast:
     AST: self.syntax.AST_info.set_used()
@@ -303,30 +315,27 @@ lexdecs:
 lexdec:
     EXCLUSIVE symbollist:
         for symb in $2.sem:
-            self.syntax.add_exclusive_initial_condition(symb)
+            try:
+                self.syntax.lexer.add_exclusive_initial_condition(symb)
+            except SyntaxNameError as e:
+                error(self, $2.pos, e.args[0])
 
     INCLUSIVE symbollist:
         for symb in $2.sem:
-            self.syntax.add_inclusive_initial_condition(symb)
+            try:
+                self.syntax.lexer.add_inclusive_initial_condition(symb)
+            except SyntaxNameError as e:
+                error(self, $2.pos, e.args[0])
 
     NULLMATCH symbollist:
         for symb in $2.sem:
-            self.syntax.initial_condition(symb).seclare_nullmatch()
+            get_initial_condition(self, $2.pos, symb).declare_nullmatch()
 
     DEF INDENT lexdefs DEDENT
 
 lexdefs:
-    SYMBOL REGEX NEWLINE:
-        self.syntax.add_named_pattern(
-            $1.sem,
-            Regex($2.sem, bindings=self.syntax.named_patterns()).ast
-        )
-
-    lexdefs SYMBOL REGEX NEWLINE:
-        self.syntax.add_named_pattern(
-            $2.sem,
-            Regex($3.sem, bindings=self.syntax.named_patterns()).ast
-        )
+    SYMBOL REGEX NEWLINE: bind_named_pattern(self, $1, $2)
+    lexdefs SYMBOL REGEX NEWLINE: bind_named_pattern(self, $2, $3)
 
 lexrules:
     %empty
@@ -334,23 +343,11 @@ lexrules:
 
 lexrule:
     lexscope
-    REGEX lexaction:
-        regex = Regex($1.sem, bindings=self.syntax.named_patterns())
-        lex_rule = LexingRule(set(), regex, $2.sem)
-        self.syntax.add_lexing_rule(lex_rule)
+    REGEX lexaction: add_lexrule(self, set(), $1, $2)
     CARET REGEX lexaction:
-        regex = Regex($2.sem, bindings=self.syntax.named_patterns())
-        lex_rule = LexingRule(set([self.syntax.initial_condition("$SOL")]),
-                              regex, $3.sem)
-        self.syntax.add_lexing_rule(lex_rule)
-
-    LANGLE condspec RANGLE REGEX lexaction:
-        regex = Regex($4.sem, bindings=self.syntax.named_patterns())
-        state = set()
-        for symb in $2.sem:
-            state.add(self.syntax.initial_condition(symb))
-        lex_rule = LexingRule(state, regex, $5.sem)
-        self.syntax.add_lexing_rule(lex_rule)
+        add_lexrule(self, set([get_initial_condition(self, $1.pos, "$SOL")]),
+                    $2, $3)
+    LANGLE condspec RANGLE REGEX lexaction: add_lexrule(self, $2.sem, $4, $5)
 
 lexscope:
     lexscopedecl INDENT lexscope_ DEDENT: self.lexscopes.pop()
@@ -359,11 +356,13 @@ lexscopedecl:
     SCOPE OPAREN scopespec CPAREN:
         state = set(self.lexscopes[-1])
         for op, cond in $3.sem:
-            cond = self.syntax.initial_condition(cond)
+            cond = get_initial_condition(self, $3.pos, cond)
             if op == '+':
                 state.add(cond)
             elif op == '-':
                 state.discard(cond)
+        if not state:
+            warning($4.pos, "Defined empty start condition scope")
         self.lexscopes.append(state)
 
 scopespec:
@@ -376,19 +375,13 @@ scopespec:
 
 lexscope_:
     lexscope
-    REGEX lexaction:
-       regex = Regex($1.sem, bindings=self.syntax.named_patterns())
-       lex_rule = LexingRule(self.lexscopes[-1], regex, $2.sem)
-       self.syntax.add_lexing_rule(lex_rule)
+    REGEX lexaction: add_lexrule(self, self.lexscopes[-1], $1, $2)
     lexscope_ lexscope
-    lexscope_ REGEX lexaction:
-       regex = Regex($2.sem, bindings=self.syntax.named_patterns())
-       lex_rule = LexingRule(self.lexscopes[-1], regex, $3.sem)
-       self.syntax.add_lexing_rule()
+    lexscope_ REGEX lexaction: add_lexrule(self, self.lexscopes[-1], $2, $3)
 
 condspec:
-    SYMBOL: $$.sem = [$1.sem]
-    condspec COMMA SYMBOL: $$.sem = $1.sem + [$3.sem]
+    SYMBOL: $$.sem = [get_initial_condition(self, $1.pos, $1.sem)]
+    condspec COMMA SYMBOL: $$.sem = $1.sem + [get_initial_condition(self, $3.pos, $3.sem)]
 
 lexaction:
     stackactions final NEWLINE: $$.sem = $1.sem; $$.sem.append($2.sem)
@@ -397,13 +390,16 @@ stackactions:
     %empty: $$.sem = List()
     stackactions PUSH OPAREN SYMBOL CPAREN COMMA:
         $$.sem = $1.sem
-        $$.sem.append(Push(self.syntax.initial_condition($4.sem)))
+        $$.sem.append(Push(get_initial_condition(self, $4.pos, $4.sem)))
     stackactions POP OPAREN CPAREN COMMA:
         $$.sem = $1.sem
         $$.sem.append(Pop())
     stackactions BEGIN OPAREN SYMBOL CPAREN COMMA:
         $$.sem = $1.sem
-        $$.sem.append(Begin(self.syntax.initial_condition($4.sem)))
+        $$.sem.append(Begin(get_initial_condition(self, $4.pos, $4.sem)))
+    stackactions BEGIN OPAREN INITIAL CPAREN COMMA:
+        $$.sem = $1.sem
+        $$.sem.append(Begin(get_initial_condition(self, $4.pos, $4.sem)))
     stackactions FUNCTION OPAREN SYMBOL CPAREN COMMA:
         $$.sem = $1.sem
         $$.sem.append(Function($4.sem))
@@ -415,7 +411,7 @@ final:
     RESTART: $$.sem = Restart()
     CONTINUE: $$.sem = Continue()
     SYMBOL:
-        self.syntax.require_terminal($1.sem)
+        self.syntax.symtable.define_terminal($1.sem)
         $$.sem = Token($1.sem)
 
 parser:
@@ -433,14 +429,10 @@ assocdef:
 
 ruleset:
     SYMBOL COLON INDENT:
-        symbol = self.syntax.require_meta($1.sem)
+        symbol = self.syntax.symtable.define_meta($1.sem)
 
-        if symbol in self.undef:
-            del self.undef[symbol]
-        self.defined.add(symbol)
-
-        if self.syntax.start_symbol is None:
-            self.syntax.start_symbol = symbol
+        if self.syntax.grammar.start_symbol is None:
+            self.syntax.grammar.start_symbol = symbol
 
         $$.sem = symbol
     ruleset parserule:
@@ -476,7 +468,20 @@ production:
 
     production PREC OPAREN SYMBOL CPAREN:
         $$.sem = $1.sem
-        $$.sem.production.assoc = self.assocDefs[$4.sem]
+        try:
+            $$.sem.production.assoc = self.assocDefs[$4.sem]
+        except KeyError:
+            errmsg = "precedence of symbol used in %prec undefined"
+            error(self, $4.pos, errmsg)
+
+    production PREC OPAREN STOKEN CPAREN:
+        $$.sem = $1.sem
+        text, normal_name = self.syntax.normalize_s_token_name($4.sem)
+        try:
+            $$.sem.production.assoc = self.assocDefs[normal_name]
+        except KeyError:
+            errmsg = "precedence of symbol used in %prec undefined"
+            error(self, $4.pos, errmsg)
 
     production SYMBOL:
         $$.sem = $1.sem
@@ -484,7 +489,6 @@ production:
 
     production SYMBOL OBRACKET SYMBOL CBRACKET:
         $$.sem = $1.sem
-
         add_meta_symbol(self, $$.sem, $2.sem, $2.pos, altname=$4.sem)
 
     production EMPTY: $$.sem = $1.sem
@@ -504,9 +508,21 @@ optfooter:
 
 footer:
     FOOTER
-    footer PYVERB: self.syntax.add_footer($2.sem)
+    footer PYVERB: self.syntax.footer.add($2.sem)
 
 %footer
+
+# overwrite the default error and warning functions
+def error(parser, pos, errmsg):
+    logger = logging.getLogger("pyLR1")
+    logger.error("{}:{}:{}: {}: {}".format(pos.file, pos.line0,
+                                           pos.col0, "error", errmsg))
+
+def warning(parser, pos, warning):
+    logger = logging.getLogger("pyLR1")
+    logger.warning("{}:{}:{}: {}: {}".format(pos.file, pos.line0,
+                                             pos.col0, "warning", errmsg))
+
 
 def indent(lexer, text, position):
     if not hasattr(lexer, 'indent_stack'):
@@ -539,13 +555,14 @@ def indent(lexer, text, position):
 
 class AnnotatedProduction(object):
 
-    def __init__(self, production):
+    def __init__(self, parser, production):
         """
         A `Production` annotated with names for the single elements.
         """
         self.production = production
         self.names = {}
         self.ambiguous = set()
+        self.parser = parser
 
     def varmap(self, var):
         """
@@ -561,12 +578,19 @@ class AnnotatedProduction(object):
         except ValueError:
             try:
                 if text in self.ambiguous:
-                    logging.getLogger('pyLR1').error("Ambiguous stack var")
+                    error(self.parser, var.position,
+                          "ambiguous stack var ${}".format(text))
 
                 num = self.names[text]
             except KeyError:
-                logging.getLogger('pyLR1').error("Undefined stack var")
+                error(self.parser, var.position,
+                      "undefined stack var ${}".format(text))
                 return ''
+
+        if num > len(self.production):
+            error(self.parser, var.position,
+                  "invalid stack var ${} value too large".format(num))
+
 
         return num
 
@@ -586,10 +610,39 @@ class AnnotatedProduction(object):
 
         self.names[name] = len(self.production) - 1
 
+
+def bind_named_pattern(self, name, regex):
+    try:
+        self.syntax.lexer.add_named_pattern(
+            name.sem,
+            Regex(regex.sem, bindings=self.syntax.lexer.named_patterns()).ast
+        )
+    except (RegexSyntaxError, SyntaxNameError) as e:
+        error(self, regex.pos,
+              "syntax error in regex def: {}".format(e.args[0]))
+
+
+def add_lexrule(self, start_conditions, regex, lexaction):
+    try:
+        regex = Regex(regex.sem, bindings=self.syntax.lexer.named_patterns())
+    except (RegexSyntaxError, SyntaxNameError) as e:
+        error(self, regex.pos,
+              "syntax error in regex: {}".format(e.args[0]))
+    lex_rule = LexingRule(start_conditions, regex, lexaction.sem)
+    self.syntax.lexer.add_lexing_rule(lex_rule)
+
+def get_initial_condition(self, pos, name):
+    try:
+        return self.syntax.lexer.initial_condition(name)
+    except SyntaxNameError as e:
+        error(self, pos, str(e))
+        self.syntax.lexer.add_inclusive_initial_condition(name)
+        return self.syntax.lexer.initial_condition(name)
+
 def setup_production(self):
     prod = Production(None, [], self.productionNumber)
     self.productionNumber += 1
-    return AnnotatedProduction(prod)
+    return AnnotatedProduction(self, prod)
 
 def set_assoc(parser, assoctype, symbols):
     assoc = assoctype, parser.assocPower
@@ -598,10 +651,7 @@ def set_assoc(parser, assoctype, symbols):
     parser.assocPower += 1
 
 def add_meta_symbol(self, prod, symbol, pos, altname=None):
-    sym = self.syntax.require_meta(symbol)
-    if self.syntax[sym.name].symtype == Syntax.META \
-            and sym not in self.defined:
-        self.undef.setdefault(sym, []).append(pos)
+    sym = self.syntax.symtable.require_symbol(symbol, pos)
 
     prod.production.assoc = self.assocDefs.get(sym.name,
                                                prod.production.assoc)
@@ -612,18 +662,21 @@ def add_meta_symbol(self, prod, symbol, pos, altname=None):
         prod.name_last(altname, explicit=True)
 
 def add_stoken(self, prod, stoken, pos):
-    sym = self.syntax.require_terminal(stoken, stoken=True)
-    # XXX: maybe we should do this by hand
-    text = bytes(stoken[1:-1], "utf-8").decode('unicode-escape')
-    self.syntax.add_inline_lexing_rule(text)
-
+    sym = self.syntax.define_s_token(stoken)
     prod.production.assoc = self.assocDefs.get(sym.name,
                                                prod.production.assoc)
     prod.production.add_sym(sym)
 
 def add_error(self, prod, pos):
-    sym = self.syntax.require_terminal("$RECOVER")
+    sym = self.syntax.symtable.require_recover()
     prod.production.add_sym(sym)
+
+def check_for_undefined_metas(parser):
+    for symbol, posis in sorted(parser.syntax.symtable.undef(),
+                                key=lambda x: x[0].name):
+        for pos in posis:
+            error(parser, pos,
+                  "used undefined symbol {}".format(symbol.name))
 
 class PyBlobBuilder(object):
     def __init__(self):
@@ -638,8 +691,8 @@ class PyBlobBuilder(object):
     def text(self, text):
         self.blob.add(PyText(text))
 
-    def stackvar(self, sv):
-        self.blob.add(PyStackvar(text=sv))
+    def stackvar(self, sv, pos):
+        self.blob.add(PyStackvar(text=sv, position=pos))
 
     def suite(self, suite):
         self.blob.add(suite)

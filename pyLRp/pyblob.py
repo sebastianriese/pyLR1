@@ -23,7 +23,8 @@ class PyText(PyBlob):
 
 class PyStackvar(PyBlob):
 
-    def __init__(self, text=None, num=None, result=False):
+    def __init__(self, text=None, num=None, result=False, position=None):
+        self.position = position
         self.text = text
         self.num = num
         self.result = result
