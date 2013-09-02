@@ -52,10 +52,10 @@ class CountingLogger(logging.getLoggerClass()):
 
 
 arg_parser = argparse.ArgumentParser(
-    version=__version__,
-    prog='pyLRp',
     formatter_class=argparse.RawDescriptionHelpFormatter,
     description="A pure python LALR(1)/LR(1) parser generator and lexer generator.")
+
+arg_parser.add_argument('--version', action='version', version='%(prog)s __version__')
 
 arg_parser.add_argument("-o", "--output-file",
                         dest="ofile",
