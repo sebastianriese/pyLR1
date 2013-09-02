@@ -2,6 +2,8 @@
 from .core import AutoAccept
 
 class LRAction(metaclass=AutoAccept):
+    _subclasses_ = []
+
     @property
     def is_shift(self):
         return False

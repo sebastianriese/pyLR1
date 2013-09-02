@@ -2,6 +2,7 @@
 from .core import AutoAccept
 
 class PyBlob(object, metaclass=AutoAccept):
+    _subclasses_ = []
 
     def accept(self, visitor):
         raise NotImplementedError()

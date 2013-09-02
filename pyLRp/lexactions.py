@@ -16,6 +16,8 @@ class LexingAction(object, metaclass=AutoAccept):
     we will make them unique, before writing them to the output file.
     """
 
+    _subclasses_ = []
+
     def __init__(self):
         pass
 

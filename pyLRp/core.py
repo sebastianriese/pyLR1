@@ -17,25 +17,30 @@ class AutoAccept(type):
         """
         Provide automagical VisitorBase and Accept generation with
         completeness checking for subclasses.
+
+        The base class of the hierarchy has to define the
+        `_subclasses_` attribute as an empty list.
         """
         if 'accept' not in dict:
             dict['accept'] = cls._make_accept(name)
 
-        # setup portable subclass tracking
-        # XXX: maybe this should be weaklist
-        # or ordered set
-        dict['_subclasses_'] = []
-
         res = super().__new__(cls, name, bases, dict)
 
-        for base in bases:
-            if isinstance(base, AutoAccept):
-                base._register_subclass(res)
+        res._regsiter_subclass_recurse(subclass, set())
 
         return res
 
-    def _register_subclass(self, subclass):
-        self._subclasses_.append(subclass)
+    def _register_subclass(cls, subclass, marked):
+        if hasattr(cls, '_subclasses_'):
+            cls._subclasses_.append(subclass)
+        else:
+            cls._register_subclass_recurse(subclass, marked)
+
+    def _register_subclass_recurse(cls, subclass, marked):
+        marked.add(cls)
+        for base in cls.__bases__:
+            if isinstance(base, AutoAccept) and base not in marked:
+                base._register_subclass(subclass, marked)
 
     @staticmethod
     def _make_accept(name):
