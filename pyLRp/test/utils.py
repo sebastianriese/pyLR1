@@ -99,7 +99,7 @@ class ParseResultTestCase(unittest.TestCase):
             parser["Parser"](parser["Lexer"](source, string=True)).Parse()
 
 
-class FailOnLogbTestCase(unittest.TestCase):
+class FailOnLogTestCase(unittest.TestCase):
 
     def compile(self, source, listing=None, trace=False):
         self.logger = unique_logger()
@@ -109,13 +109,13 @@ class FailOnLogbTestCase(unittest.TestCase):
 class MessageAssertTestCase(unittest.TestCase):
 
     def compile_checked(self, source, logcheck):
-        self.logger = utils.unique_logger()
+        self.logger = unique_logger()
         self.logger.setLevel('WARNING')
         logcheckHandler = CheckingHandler(logcheck)
         self.logger.addHandler(logcheckHandler)
         self.logger.propagate = False
 
-        return utils.compile(self.logger, source, trace=False)
+        return compile(self.logger, source, trace=False)
 
 
 def parse(logger, source, bootstrap=False):
