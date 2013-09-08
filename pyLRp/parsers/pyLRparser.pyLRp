@@ -62,6 +62,7 @@ from ..pyblob import PyBlobVisitor, PySuite, PyText, PyNewline, PyStackvar
 
 # two never matching rules to define terminal symbols
 # generated programatically (by the indent function in %footer)
+# a %token directive might be a good idea ...
 [] INDENT
 [] DEDENT
 
@@ -150,6 +151,10 @@ from ..pyblob import PyBlobVisitor, PySuite, PyText, PyNewline, PyStackvar
 <PARSER>%left     %push(FIXITYSPEC),  LEFT
 <PARSER>%right    %push(FIXITYSPEC), RIGHT
 <PARSER>%nonassoc %push(FIXITYSPEC), NONASSOC
+<PARSERMETA>{space}+ %restart
+<PARSERMETA>\[     OBRACKET
+<PARSERMETA>\]     CBRACKET
+<PARSERMETA>{name} SYMBOL
 <PARSERMETA>:{comment} %begin(PARSER), %push(PARSERULE), %push(INDENT), COLON
 
 <PARSERULE>{name}    SYMBOL
@@ -433,27 +438,36 @@ ruleset:
         if self.syntax.grammar.start_symbol is None:
             self.syntax.grammar.start_symbol = symbol
 
-        $$.sem = symbol
+        $$.sem = AnnotatedRuleset(symbol)
+    SYMBOL OBRACKET SYMBOL CBRACKET COLON INDENT:
+        symbol = self.syntax.symtable.define_meta($1.sem)
+
+        if self.syntax.grammar.start_symbol is None:
+            self.syntax.grammar.start_symbol = symbol
+
+        $$.sem = AnnotatedRuleset(symbol, $3.sem)
+
     ruleset parserule:
         $$.sem = $1.sem
         $$.sem.add_prod($2.sem)
 
 parserule:
     production COLON pyblob:
-        # map the stack vars to numbers
-        varmapper = PyBlobStackVarMapVisitor($1.sem.varmap)
-        varmapper.visit($3.sem)
-        $$.sem = $1.sem.production
+        $$.sem = $1.sem
         $$.sem.action = $3.sem
-    production NEWLINE: $$.sem = $1.sem.production
+    production NEWLINE: $$.sem = $1.sem
     production ASTACTION OPAREN SYMBOL CPAREN NEWLINE:
-        $$.sem = $1.sem.production
-        self.syntax.AST_info.bind($$.sem, $4.sem)
+        $$.sem = $1.sem
+        self.syntax.AST_info.bind($$.sem.production, $4.sem)
 
 production:
     SYMBOL:
         $$.sem = setup_production(self)
         add_meta_symbol(self, $$.sem, $1.sem, $1.pos)
+
+    SYMBOL OBRACKET SYMBOL CBRACKET:
+        $$.sem = setup_production(self)
+        add_meta_symbol(self, $$.sem, $1.sem, $1.pos, altname=$3.sem)
 
     EMPTY: $$.sem = setup_production(self)
 
@@ -552,6 +566,25 @@ def indent(lexer, text, position):
 
     lexer.nextCond.pop()
 
+class AnnotatedRuleset(object):
+
+    def __init__(self, symbol, altname=None):
+        self.symbol = symbol
+        self.altname = altname
+
+    def add_prod(self, prod):
+        # unwrap the payload and apply
+        self.symbol.add_prod(prod.production)
+
+        # run the varmapper
+        if prod.action is not None:
+            prod.name_result(self.symbol.name)
+            if self.altname is not None:
+                prod.name_result(self.altname, explicit=True)
+
+            varmapper = PyBlobStackVarMapVisitor(prod.varmap)
+            varmapper.visit(prod.action)
+
 class AnnotatedProduction(object):
 
     def __init__(self, parser, production):
@@ -562,6 +595,14 @@ class AnnotatedProduction(object):
         self.names = {}
         self.ambiguous = set()
         self.parser = parser
+
+    @property
+    def action(self):
+        return self.production.action
+
+    @action.setter
+    def action(self, value):
+        self.production.action = value
 
     def varmap(self, var):
         """
@@ -574,6 +615,10 @@ class AnnotatedProduction(object):
 
         try:
             num = int(text)
+
+            if num > len(self.production):
+                error(self.parser, var.position,
+                      "invalid stack var ${} value too large".format(num))
         except ValueError:
             try:
                 if text in self.ambiguous:
@@ -586,28 +631,25 @@ class AnnotatedProduction(object):
                       "undefined stack var ${}".format(text))
                 return ''
 
-        if num > len(self.production):
-            error(self.parser, var.position,
-                  "invalid stack var ${} value too large".format(num))
-
-
         return num
 
-
-    def name_last(self, name, explicit=False):
-        # TODO: handle ambiguity (with warnings/errors)
-        # TODO: do we want the $$ renaming feature of bison
-        # I personally feel, that $$ does not lead to the
-        # kind of unreadability and to the difficulties of
-        # $N
+    def _name_check(self, name, value, explicit, collision_msg):
         if name in self.names:
             if explicit:
                 log = logging.getLogger('pyLR1')
-                log.error("Explicitely redefined symbol name")
+                log.error(collision_msg)
             else:
                 self.ambiguous.add(name)
 
-        self.names[name] = len(self.production) - 1
+        self.names[name] = value
+
+    def name_result(self, name, explicit=False):
+        err_msg = "Explicite result var name already taken"
+        self._name_check(name, None, explicit, err_msg)
+
+    def name_last(self, name, explicit=False):
+        err_msg = "Explicitely redefined symbol name"
+        self._name_check(name, len(self.production), explicit, err_msg)
 
 class PyBlobStackVarMapVisitor(PyBlobVisitor):
 
@@ -625,10 +667,11 @@ class PyBlobStackVarMapVisitor(PyBlobVisitor):
         pass
 
     def visit_PyStackvar(self, stackvar):
-        if stackvar.text == '$$':
+        num = self.varmap(stackvar.text)
+        if num is None:
             stackvar.result = True
         else:
-            stackvar.num = self.varmap(stackvar.text)
+            stackvar.num = num
 
 
 def bind_named_pattern(self, name, regex):
