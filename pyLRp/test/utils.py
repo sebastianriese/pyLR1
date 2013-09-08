@@ -99,34 +99,55 @@ class ParseResultTestCase(unittest.TestCase):
             parser["Parser"](parser["Lexer"](source, string=True)).Parse()
 
 
-class FailOnLogTestCase(unittest.TestCase):
+class FailOnLogbTestCase(unittest.TestCase):
 
     def compile(self, source, listing=None, trace=False):
         self.logger = unique_logger()
         self.logger.addHandler(FailOnLogHandler(self))
         return compile(self.logger, source, listing=listing, trace=trace)
 
+class MessageAssertTestCase(unittest.TestCase):
 
-def compile(logger, source, listing=None, trace=False):
+    def compile_checked(self, source, logcheck):
+        self.logger = utils.unique_logger()
+        self.logger.setLevel('WARNING')
+        logcheckHandler = CheckingHandler(logcheck)
+        self.logger.addHandler(logcheckHandler)
+        self.logger.propagate = False
+
+        return utils.compile(self.logger, source, trace=False)
+
+
+def parse(logger, source, bootstrap=False):
+    """
+    Parse a given parser spec to the internal representation.
+    """
+    if bootstrap:
+        codelines = source.split('\n')
+        parser = Parser(codelines, logger)
+        syn = parser.parse()
+        del parser
+    else:
+        lexer = pyLRparser.Lexer(source.encode('utf-8'), filename='<string>',
+                                 string=True)
+        parser = pyLRparser.Parser(lexer)
+        parser.Parse()
+        pyLRparser.check_for_undefined_metas(parser)
+        syn = parser.syntax
+        del parser
+        del lexer
+    return syn
+
+def compile(logger, source, listing=None, trace=False, debug=True,
+            bootstrap=False):
     """
     Compile the given parser spec down to a python module
 
     We might want to code this sequence in pyLRp, because anyone
     using the lib from code wants this! Break up the Syntax class.
     """
-    codelines = source.split('\n')
 
-    lexer = pyLRparser.Lexer(source.encode('utf-8'), filename='<string>', string=True)
-    parser = pyLRparser.Parser(lexer)
-    parser.Parse()
-    pyLRparser.check_for_undefined_metas(parser)
-    syn = parser.syntax
-    del parser
-    del lexer
-
-    # parser = Parser(codelines, logger)
-    # syn = parser.parse()
-    # del parser
+    syn = parse(logger, source, bootstrap=bootstrap)
 
     parse_table = None
     if syn.grammar.start_symbol is not None:
@@ -154,7 +175,7 @@ def compile(logger, source, listing=None, trace=False):
 
     code = io.StringIO()
     w = Writer(code, logger,
-                     lines=False, trace=trace, debug=trace,
+                     lines=False, trace=trace, debug=debug,
                      deduplicate=True, python3=True)
     w.write(syn, parse_table, lexer)
     result = {}

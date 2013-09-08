@@ -5,16 +5,8 @@ import logging
 
 from . import utils
 
-class CompilationMessagesTestCase(utils.ParseResultTestCase):
-
-    def compile_checked(self, source, logcheck):
-        self.logger = utils.unique_logger()
-        self.logger.setLevel('WARNING')
-        logcheckHandler = utils.CheckingHandler(logcheck)
-        self.logger.addHandler(logcheckHandler)
-        self.logger.propagate = False
-
-        return utils.compile(self.logger, source, trace=False)
+class CompilationMessagesTestCase(utils.ParseResultTestCase,
+                                  utils.MessageAssertTestCase):
 
     def test_shift_reduce(self):
         source = r"""%lexer
