@@ -388,7 +388,8 @@ lexscope_:
 
 condspec:
     SYMBOL: $$.sem = [get_initial_condition(self, $1.pos, $1.sem)]
-    condspec COMMA SYMBOL: $$.sem = $1.sem + [get_initial_condition(self, $3.pos, $3.sem)]
+    condspec COMMA SYMBOL:
+        $$.sem = $1.sem + [get_initial_condition(self, $3.pos, $3.sem)]
 
 lexaction:
     stackactions final NEWLINE: $$.sem = $1.sem; $$.sem.append($2.sem)
