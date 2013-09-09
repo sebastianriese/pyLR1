@@ -52,9 +52,9 @@ class InitialCondition(object):
 
 class InclusiveInitialCondition(InitialCondition):
 
-    def __init__(self, name, number, *conditions):
+    def __init__(self, name, number, *included_conditions):
         super().__init__(name, number)
-        self._conditions = conditions
+        self._included_conditions = included_conditions
 
     @property
     def includes_s_token(self):
@@ -63,7 +63,8 @@ class InclusiveInitialCondition(InitialCondition):
     def match(self, conditions):
         if not conditions or \
                 self in conditions or \
-                any(cond.match(conditions) for cond in self._conditions):
+                any(cond.match(conditions)
+                    for cond in self._included_conditions):
             return True
         return False
 
