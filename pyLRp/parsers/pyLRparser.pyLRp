@@ -187,7 +187,7 @@ from ..pyblob import PyBlobVisitor, PySuite, PyText, PyNewline, PyStackvar
 <PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[bu]?r?\"\"\" %push(MLSTRD), PYBLOB
 <PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[bu]?r?"([^\"\n]|\"|\\\n)*" PYBLOB
 <PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[bu]?r?\'\'\' %push(MLSTRS), PYBLOB
-<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[bu]?r?'([^\']|\\\'|\\\n)*' PYBLOB
+<PYBLOB,PYBLOBNOSPC,PYBLOBSINGLE>[bu]?r?'([^\'\n]|\\\'|\\\n)*' PYBLOB
 
 <MLSTRD>(\"|\"\"|[^\"\\]*)(\\\"|\\[^\"])? PYBLOB
 <MLSTRD>\"\"\" %pop(), PYBLOB
