@@ -4,6 +4,7 @@ import sys
 import logging
 
 from . import utils
+from ..lexer import InclusiveInitialCondition, ExclusiveInitialCondition
 
 class DefaultConditionsTestCase(utils.FailOnLogTestCase,
                                 utils.ParseResultTestCase):
@@ -168,6 +169,19 @@ doc:
 """, ["quot", "symb"])
 
 
-    def test_inclusive_and_sof(self):
-        pass
+class ConditionAlgebraTest(unittest.TestCase):
 
+    def test_match(self):
+        cond1 = InclusiveInitialCondition("cond1", 0)
+        cond2 = InclusiveInitialCondition("cond2", 1, cond1)
+        cond3 = ExclusiveInitialCondition("cond3", 2)
+
+        self.assertTrue(cond1.match([cond1]))
+        self.assertTrue(cond1.match([cond1, cond3]))
+        self.assertTrue(cond2.match([cond2]))
+        self.assertTrue(cond3.match([cond3]))
+        self.assertTrue(cond3.match([cond1, cond3]))
+        self.assertTrue(cond2.match([cond1]))
+        self.assertFalse(cond1.match([cond2, cond3]))
+        self.assertFalse(cond3.match([cond1, cond2]))
+        self.assertFalse(cond2.match([cond3]))
