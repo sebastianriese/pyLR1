@@ -87,6 +87,8 @@ from ..pyblob import PyBlobVisitor, PySuite, PyText, PyNewline, PyStackvar
 <SYMBOLLIST,FIXITYSPEC>{name}      SYMBOL
 
 # fixityspecs allow stokens to appear in the list
+# they are otherwise paresed by the same grammar
+# in the grammar description
 <FIXITYSPEC>{stoken}               STOKEN
 
 #######################################################
@@ -102,7 +104,7 @@ from ..pyblob import PyBlobVisitor, PySuite, PyText, PyNewline, PyStackvar
 <LEXER>[^\^\<\%\s]({regexchar}|(\\\ ))* %push(LEXACTION), REGEX
 
 <DEF>{name} SYMBOL
-# this is the space separating the name and the newline
+# this is the space separating the name and the regex
 <DEF>{space}+ %begin(DEFNEWLINE), %push(REGEX), %restart
 <DEFNEWLINE>{comment}\n %begin(DEF), %push(DEF), %push(INDENT), NEWLINE
 
@@ -259,8 +261,9 @@ symbollist_:
     symbollist_ SYMBOL:       $$.sem = $1.sem + [$2.sem]
     symbollist_ %error COMMA: $$.sem = $1.sem
 
-    # this can only occur in fixity spec lists!
-    # there we want normalizes stoken names!
+    # this can only occur in fixity spec lists,
+    # because only there the lexer-states allow STOKEN.
+    # in fixity specs we want normalizes stoken names.
     STOKEN:
         text, normal_name = self.syntax.normalize_s_token_name($1.sem)
         $$.sem = [normal_name]
