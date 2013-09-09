@@ -442,14 +442,14 @@ ruleset:
         if self.syntax.grammar.start_symbol is None:
             self.syntax.grammar.start_symbol = symbol
 
-        $$.sem = AnnotatedRuleset(symbol)
+        $$.sem = AnnotatedRuleset(symbol, $1.pos)
     SYMBOL OBRACKET SYMBOL CBRACKET COLON INDENT:
         symbol = self.syntax.symtable.define_meta($1.sem)
 
         if self.syntax.grammar.start_symbol is None:
             self.syntax.grammar.start_symbol = symbol
 
-        $$.sem = AnnotatedRuleset(symbol, $3.sem)
+        $$.sem = AnnotatedRuleset(symbol, $3.pos, $3.sem)
 
     ruleset parserule:
         $$.sem = $1.sem
@@ -572,8 +572,9 @@ def indent(lexer, text, position):
 
 class AnnotatedRuleset(object):
 
-    def __init__(self, symbol, altname=None):
+    def __init__(self, symbol, pos, altname=None):
         self.symbol = symbol
+        self.position = pos
         self.altname = altname
 
     def add_prod(self, prod):
@@ -582,9 +583,9 @@ class AnnotatedRuleset(object):
 
         # run the varmapper
         if prod.action is not None:
-            prod.name_result(self.symbol.name)
+            prod.name_result(self.symbol.name, self.position)
             if self.altname is not None:
-                prod.name_result(self.altname, explicit=True)
+                prod.name_result(self.altname, self.position, explicit=True)
 
             varmapper = PyBlobStackVarMapVisitor(prod.varmap)
             varmapper.visit(prod.action)
@@ -610,9 +611,9 @@ class AnnotatedProduction(object):
 
     def varmap(self, var):
         """
-        A varmap function for the PyBlobMapStackVarVisitor
+        A varmap function for the PyBlobStackVarMapVisitor
         """
-        text = var[1:]
+        text = var.text[1:]
 
         if text == '$':
             return None
@@ -622,7 +623,7 @@ class AnnotatedProduction(object):
 
             if num > len(self.production):
                 error(self.parser, var.position,
-                      "invalid stack var ${} value too large".format(num))
+                      "invalid stack var ${}: value too large".format(num))
         except ValueError:
             try:
                 if text in self.ambiguous:
@@ -633,27 +634,26 @@ class AnnotatedProduction(object):
             except KeyError:
                 error(self.parser, var.position,
                       "undefined stack var ${}".format(text))
-                return ''
+                return -1
 
         return num
 
-    def _name_check(self, name, value, explicit, collision_msg):
+    def _name_check(self, name, value, explicit, collision_msg, pos):
         if name in self.names:
             if explicit:
-                log = logging.getLogger('pyLR1')
-                log.error(collision_msg)
+                error(self.parser, pos, collision_msg)
             else:
                 self.ambiguous.add(name)
 
         self.names[name] = value
 
-    def name_result(self, name, explicit=False):
-        err_msg = "Explicite result var name already taken"
-        self._name_check(name, None, explicit, err_msg)
+    def name_result(self, name, pos, explicit=False):
+        err_msg = "explicite result var name already taken"
+        self._name_check(name, None, explicit, err_msg, pos)
 
-    def name_last(self, name, explicit=False):
-        err_msg = "Explicitely redefined symbol name"
-        self._name_check(name, len(self.production), explicit, err_msg)
+    def name_last(self, name, pos, explicit=False):
+        err_msg = "explicitly redefined symbol name"
+        self._name_check(name, len(self.production), explicit, err_msg, pos)
 
 class PyBlobStackVarMapVisitor(PyBlobVisitor):
 
@@ -671,7 +671,7 @@ class PyBlobStackVarMapVisitor(PyBlobVisitor):
         pass
 
     def visit_PyStackvar(self, stackvar):
-        num = self.varmap(stackvar.text)
+        num = self.varmap(stackvar)
         if num is None:
             stackvar.result = True
         else:
@@ -724,9 +724,9 @@ def add_meta_symbol(self, prod, symbol, pos, altname=None):
                                                prod.production.assoc)
     prod.production.add_sym(sym)
 
-    prod.name_last(symbol)
+    prod.name_last(symbol, pos)
     if altname is not None:
-        prod.name_last(altname, explicit=True)
+        prod.name_last(altname, pos, explicit=True)
 
 def add_stoken(self, prod, stoken, pos):
     sym = self.syntax.define_s_token(stoken)
