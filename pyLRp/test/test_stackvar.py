@@ -52,10 +52,10 @@ value:
         self.verify_parse_result(parser, b"2-3", -1)
         self.verify_parse_result(parser, b"(2)", 2)
 
-    def test_num_gt_10(self):
+    def test_num_ge_10(self):
         """
         Test for correct handling of numeric references with numbers
-        greater than 10.
+        greater than or equal to 10.
         """
         self.logger = utils.unique_logger()
         parser, syntax = self.compile(r"""
@@ -154,4 +154,32 @@ c[res]:
 
 
     def test_ambiguous_ref(self):
-        pass
+        source = r"""%lexer
+a A
+b B
+c C
+
+%parser
+
+a:
+    A a: print($a.sem)
+    b
+
+b:
+    B: print($B.sem)
+    B B: print($B.sem)
+    c: print($c.sem)
+
+c[C]:
+    %empty
+    C: print($C.sem)
+"""
+        def logmessages():
+            msg = yield
+            self.assertTegex(msg.getMessage(), r'')
+
+            while True:
+                msg = yield
+                sefl.fail("superfluous log message")
+
+        parser, syntax = self.compile_checked(source, logmessages())
