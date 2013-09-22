@@ -154,7 +154,7 @@ class LexerConstructor(object):
     def construct_equivalence_classes(self):
         self._mapping = True
         for lextable in self._lextables:
-            lextable.construct_equivalence_classes()
+            lextable.construct_equivalence_classes(self._alphabet)
 
     @property
     def mapping(self):

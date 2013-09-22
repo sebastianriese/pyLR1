@@ -11,9 +11,9 @@ class Lextable(object):
     def get(self):
         return self._table, self._start, self._actions, self._mapping
 
-    def construct_equivalence_classes(self):
+    def construct_equivalence_classes(self, alphabet):
         i = 0
-        classes = [[char for char in range(0,256)]]
+        classes = [list(range(0, len(alphabet)))]
 
         # determine the equivalence classes
         for line in self._table:
@@ -28,8 +28,8 @@ class Lextable(object):
                 newclasslist += list(newclasses.values())
             classes = newclasslist
 
-        # construct the mapping from chars to classes
-        self._mapping = [None for j in range(0,256)]
+        # construct the mapping from old alphabet to equivalence classes
+        self._mapping = [None] * len(alphabet)
         mapping = self._mapping
         i = 0
         for cls in classes:
