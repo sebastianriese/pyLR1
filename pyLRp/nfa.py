@@ -1,6 +1,7 @@
 
 from .dfa import DFAState, LexingDFA
 from .lexactions import GetMatch
+from .alphabet import Epsilon
 
 class NFAState(object):
 
@@ -42,7 +43,7 @@ class NFAState(object):
         if self in visited:
             return closure
 
-        closure |= self._transitions.get('', set())
+        closure |= self._transitions.get(Epsilon(), set())
 
         nc = set(closure)
         for elem in closure:
@@ -63,7 +64,7 @@ class NFAState(object):
             self.add_transition(chr, state)
 
     def add_epsilon_transition(self, state):
-        self.add_transition('', state)
+        self.add_transition(Epsilon(), state)
 
     def add_transition(self, char, state):
         """
