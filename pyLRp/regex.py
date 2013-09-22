@@ -7,6 +7,21 @@ class RegexAST(object):
     def NFA(self):
         raise NotImplementedError()
 
+class EmptyRegex(RegexAST):
+    """
+    An regex matching zero characters
+    """
+
+    def __str__(self):
+        return "EmptyRegex()"
+
+    def NFA(self):
+        start = NFAState()
+        end = NFAState()
+
+        start.add_epsilon_transition(end)
+
+        return start, end
 
 class CharacterRegex(RegexAST):
 
@@ -39,7 +54,7 @@ class SequenceRegex(RegexAST):
 
         # chain the end of the first automaton to the start of the
         # second one with an epsilon transition
-        nfa1e.add_transition('', nfa2s)
+        nfa1e.add_epsilon_transition(nfa2s)
 
         return nfa1s, nfa2e
 
@@ -55,7 +70,7 @@ class OptionRegex(RegexAST):
     def NFA(self):
         nfas, nfae = self._regex.NFA()
 
-        nfas.add_transition('', nfae)
+        nfas.add_epsilon_transition(nfae)
 
         return nfas, nfae
 
@@ -72,10 +87,10 @@ class RepeatorRegex(RegexAST):
         nfas, nfae = NFAState(), NFAState()
         nfars, nfare = self._regex.NFA()
 
-        nfas.add_transition('', nfae)
-        nfas.add_transition('', nfars)
-        nfare.add_transition('', nfars)
-        nfare.add_transition('', nfae)
+        nfas.add_epsilon_transition(nfae)
+        nfas.add_epsilon_transition(nfars)
+        nfare.add_epsilon_transition(nfars)
+        nfare.add_epsilon_transition(nfae)
 
         return nfas, nfae
 
@@ -93,11 +108,11 @@ class OrRegex(RegexAST):
         nfa2s, nfa2e = self._regex2.NFA()
         start, end = NFAState(), NFAState()
 
-        start.add_transition('', nfa1s)
-        start.add_transition('', nfa2s)
+        start.add_epsilon_transition(nfa1s)
+        start.add_epsilon_transition(nfa2s)
 
-        nfa1e.add_transition('', end)
-        nfa2e.add_transition('', end)
+        nfa1e.add_epsilon_transition(end)
+        nfa2e.add_epsilon_transition(end)
 
         return start, end
 
@@ -258,7 +273,7 @@ class Regex(object):
 
             first = parse_chain()
             if first is None:
-                first = CharacterRegex([''])
+                first = EmptyRegex()
 
             if current_token[0] == 3:
                 current_token = next(tokens)
@@ -325,7 +340,7 @@ class Regex(object):
                                 res = SequenceRegex(basic, res)
 
                             if stop > start:
-                                opt_basic = OrRegex(basic, CharacterRegex(['']))
+                                opt_basic = OrRegex(basic, EmptyRegex())
                                 for i in range(start, stop):
                                     res = SequenceRegex(res, opt_basic)
                             elif start == stop:

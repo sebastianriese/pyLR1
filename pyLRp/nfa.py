@@ -62,6 +62,9 @@ class NFAState(object):
         for chr in chrs:
             self.add_transition(chr, state)
 
+    def add_epsilon_transition(self, state):
+        self.add_transition('', state)
+
     def add_transition(self, char, state):
         """
         Add a transition of `char` to `state.
@@ -83,7 +86,7 @@ class LexingNFA(object):
         self._start = NFAState()
 
         if condition.includes_s_token:
-            self._start.add_transition('', inline_token_NFA)
+            self._start.add_epsilon_transition(inline_token_NFA)
 
         self.nullmatch = False
         if condition.nullmatch:
@@ -94,7 +97,7 @@ class LexingNFA(object):
             if condition.match(lexing_rule.conditions):
                 start, end = lexing_rule.regex.NFA()
 
-                self._start.add_transition('', start)
+                self._start.add_epsilon_transition(start)
                 end.priority = i
                 end.action = lexing_rule.action
             i -= 1

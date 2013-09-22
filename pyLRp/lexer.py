@@ -109,7 +109,7 @@ class LexerConstructor(object):
         for name, text in inline_token_list:
 
             previous = NFAState()
-            inline_tokens.add_transition('', previous)
+            inline_tokens.add_epsilon_transition(previous)
 
             for char in text:
                 new = NFAState()
