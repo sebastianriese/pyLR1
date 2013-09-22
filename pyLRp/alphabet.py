@@ -9,6 +9,10 @@ class Alphabet(metaclass=ABCMeta):
         return 0
 
     @abstractmethod
+    def __getitem__(self, index):
+        raise NotImplementedError
+
+    @abstractmethod
     def __iter__(self):
         raise StopIteration
 
@@ -23,3 +27,7 @@ class ByteAlphabet(Alphabet):
     def __iter__(self):
         for i in range(0, 256):
             yield chr(i)
+
+    def __getitem__(self, index):
+        if 0 <= index < 256:
+            return chr(index)

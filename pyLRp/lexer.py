@@ -1,6 +1,7 @@
 
 from .nfa import *
 from .lexactions import Token
+from .alphabet import ByteAlphabet
 
 class LexingRule(object):
 
@@ -86,6 +87,8 @@ class LexerConstructor(object):
     def __init__(self, lexer_spec, logger):
         self.logger = logger
 
+        self._alphabet = ByteAlphabet()
+
         # sort initial conditions by number to create a reference
         # order for the other item lists
         self._initial_conditions = list(sorted(lexer_spec.initial_conditions.values(),
@@ -124,7 +127,7 @@ class LexerConstructor(object):
     def construct_DFAs(self):
         self._dfas = []
         for nfa in self._nfas:
-            self._dfas.append(nfa.create_DFA())
+            self._dfas.append(nfa.create_DFA(self._alphabet))
 
     def drop_NFA(self):
         """

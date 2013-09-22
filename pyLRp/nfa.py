@@ -103,7 +103,7 @@ class LexingNFA(object):
                 end.action = lexing_rule.action
             i -= 1
 
-    def create_DFA(self):
+    def create_DFA(self, alphabet):
         """
         Create a DFA from the NFA.
         """
@@ -129,9 +129,7 @@ class LexingNFA(object):
 
         while todo:
             cur = todo.pop()
-            for i in range(0,256):
-                char = chr(i)
-
+            for char in alphabet:
                 move = set()
                 for c in cur:
                     for m in c.move(char):
