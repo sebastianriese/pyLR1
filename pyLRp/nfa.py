@@ -118,7 +118,7 @@ class LexingNFA(object):
             return curaction
 
         si = frozenset(self._start.epsilon_closure())
-        dfa_states = {si : DFAState()}
+        dfa_states = {si: DFAState()}
         todo = [si]
 
         # XXX: add feature to warn when there are nullmatches

@@ -123,14 +123,14 @@ class Regex(object):
     """A regular expression with an NFA representation."""
 
     ESCAPES = {
-        'n' : '\n',
-        't' : '\t',
-        'f' : '\f',
-        'v' : '\v',
-        'r' : '\r',
-        's' : ' \n\t\v\r\f',
-        'd' : '0123456789',
-        'w' : 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ013456789_'
+        'n': '\n',
+        't': '\t',
+        'f': '\f',
+        'v': '\v',
+        'r': '\r',
+        's': ' \n\t\v\r\f',
+        'd': '0123456789',
+        'w': 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ013456789_'
         }
 
     def parse_escape(self, iterator):
