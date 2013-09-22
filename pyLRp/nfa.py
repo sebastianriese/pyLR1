@@ -30,6 +30,9 @@ class NFAState(object):
         the NFA reachable when the epsilon closure was constructed is
         safe. Adding epsilon transitions from the reachable NFA will
         cause trouble.
+
+        TODO: calculate the epsilon closures once and efficiently (for
+        example by using a typical iterative algorithm).
         """
 
         if self._closure is not None:
@@ -86,6 +89,8 @@ class LexingNFA(object):
         self._logger = logger
         self._start = NFAState()
 
+        # XXX: move the selection and NFA assembly code to an
+        # appropriate place
         if condition.includes_s_token:
             self._start.add_epsilon_transition(inline_token_NFA)
 
@@ -123,7 +128,7 @@ class LexingNFA(object):
         todo = [si]
 
         # XXX: add feature to warn when there are nullmatches
-        # but they are ignored
+        # but they are ignored (?)
         if self.nullmatch:
             dfa_states[si].action = select_action(si)
 
