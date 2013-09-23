@@ -73,9 +73,12 @@ class Intersection(CharacterFilter):
             else:
                 new_children.append(child)
 
+        if not new_children:
+            return All()
+
         result = Intersection(*new_children)
         if result.empty:
-            return All()
+            return Empty()
         return result
 
     def match(self, char):
