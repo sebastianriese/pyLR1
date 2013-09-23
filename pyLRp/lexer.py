@@ -62,20 +62,15 @@ class InclusiveInitialCondition(InitialCondition):
         return True
 
     def match(self, conditions):
-        if not conditions or \
+        return not conditions or \
                 self in conditions or \
                 any(cond.match(conditions)
-                    for cond in self._included_conditions):
-            return True
-        return False
+                    for cond in self._included_conditions)
 
 class ExclusiveInitialCondition(InitialCondition):
 
     def match(self, conditions):
-        if self in conditions:
-            return True
-        return False
-
+        return self in conditions
 
 class LexerConstructor(object):
     """
