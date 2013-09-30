@@ -22,6 +22,22 @@ class RegexParserTestCase(unittest.TestCase):
                                 " OrRegex(CharacterRegex(['a']), EmptyRegex()))")]:
             self.assertEqual(str(Regex.Regex(regex).ast), str_rep)
 
+    def test_char_class_operators(self):
+        for regex, str_rep in [
+            # basic function
+            (r'[a-f]{&}[c-z]', "CharacterRegex(['c', 'd', 'e', 'f'])"),
+            (r'[a-k]{-}[d-z]', "CharacterRegex(['a', 'b', 'c'])"),
+            (r'[abc]{|}[efg]',
+             "CharacterRegex(['a', 'b', 'c', 'e', 'f', 'g'])"),
+            # associativity and precedence
+            (r'a{|}a{-}a', "CharacterRegex([])"),
+            (r'a{-}a{&}a', "CharacterRegex([])"),
+            (r'a{|}b{&}a', "CharacterRegex(['a'])"),
+            (r'[abc]{-}([abc]{&}[cde])', "CharacterRegex(['a', 'b'])")
+            ]:
+            self.assertEqual(str(Regex.Regex(regex).ast), str_rep)
+
+
     def test_regex_parser_errors(self):
         for regex, text in [(r'[', r'unclosed character class'),
                             (r']', r'single closing bracket'),

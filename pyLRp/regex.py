@@ -29,7 +29,11 @@ class CharacterRegex(RegexAST):
         self._chars = frozenset(chars)
 
     def __str__(self):
-        return "CharacterRegex({})".format(list(self._chars))
+        return "CharacterRegex({})".format(list(sorted(self._chars)))
+
+    @property
+    def chars(self):
+        return self._chars
 
     def NFA(self):
         start = NFAState()
@@ -208,13 +212,20 @@ class Regex(object):
     def parse_brace(self, iterator):
         res = ['']
         # we rely on the fact, that (iter(iterator) is iterator)
-        # which is specified in the python stdlib docs
+        # is True, which is specified in the python stdlib docs
         for chr in iterator:
             if chr == '}':
                 res[-1] = res[-1].strip()
                 try:
                     res = [int(entry) if entry else None for entry in res]
                 except ValueError:
+                    if res == ['|']:
+                        return (8, res[0])
+                    elif res == ['-']:
+                        return (9, res[0])
+                    elif res == ['&']:
+                        return (10, res[0])
+
                     if len(res) != 1:
                         raise RegexSyntaxError("comma in named regex reference")
                     return (6, res[0])
@@ -229,7 +240,8 @@ class Regex(object):
         raise RegexSyntaxError("unclosed brace expression")
 
     def lex(self):
-        # tokens: CHR ([...], \...,.) - 0, OP (+ ? *) - 1, ( - 2, | - 3, ) - 4
+        # tokens: CHR (\...,.) - 0, OP (+ ? *) - 1, ( - 2, | - 3, ) - 4
+        # EOF - 5, named ref - 6, range - 7, {|} - 8, {-} - 9, {&} 10
         tokens = []
 
         iterator = iter(self._regex)
@@ -297,7 +309,7 @@ class Regex(object):
         def parse_op():
             nonlocal current_token
 
-            basic = parse_basic()
+            basic = parse_setop()
             if basic is None:
                 return None
 
@@ -366,6 +378,36 @@ class Regex(object):
                 res = basic
 
             return res
+
+        def parse_setop():
+            nonlocal current_token
+
+            lhs = parse_basic()
+
+            while True:
+                token, lexeme = current_token
+                if token not in  (8, 9, 10):
+                    return lhs
+
+                op = token
+                current_token = next(tokens)
+                rhs = parse_basic()
+
+                err_msg = "{} of char class operation is no char class"
+                if not isinstance(rhs, CharacterRegex):
+                    raise RegexSyntaxError(err_msg.format('rhs'))
+
+                if not isinstance(lhs, CharacterRegex):
+                    raise RegexSyntaxError(err_msg.format('lhs'))
+
+                if op == 8:
+                    lhs = CharacterRegex(lhs.chars | rhs.chars)
+                elif op == 9:
+                    lhs = CharacterRegex(lhs.chars - rhs.chars)
+                elif op == 10:
+                    lhs = CharacterRegex(lhs.chars & rhs.chars)
+            else:
+                raise CantHappen()
 
         def parse_basic():
             nonlocal current_token
