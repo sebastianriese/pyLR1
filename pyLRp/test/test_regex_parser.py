@@ -7,19 +7,21 @@ class RegexParserTestCase(unittest.TestCase):
 
     def test_regex_parser(self):
 
-        for regex, str_rep in [(r'[]', "CharacterRegex([])"),
-                               (r'', "EmptyRegex()"),
-                               (r'|a', "OrRegex(EmptyRegex(), CharacterRegex(['a']))"),
-                               (r'a|', "OrRegex(CharacterRegex(['a']), EmptyRegex())"),
-                               (r'a|b*', "OrRegex(CharacterRegex(['a']),"
-                                " RepeatorRegex(CharacterRegex(['b'])))"),
-                               (r'a{3}', "SequenceRegex(CharacterRegex(['a']),"
-                                " SequenceRegex(CharacterRegex(['a']), CharacterRegex(['a'])))"),
-                               (r'a{3,}', "SequenceRegex(CharacterRegex(['a']),"
-                                " SequenceRegex(CharacterRegex(['a']), SequenceRegex(CharacterRegex(['a']),"
-                                " RepeatorRegex(CharacterRegex(['a'])))))"),
-                               (r'a{1,2}', "SequenceRegex(CharacterRegex(['a']),"
-                                " OrRegex(CharacterRegex(['a']), EmptyRegex()))")]:
+        for regex, str_rep in [
+            (r'[]', "CharacterRegex([])"),
+            (r'', "EmptyRegex()"),
+            (r'|a', "OrRegex(EmptyRegex(), CharacterRegex(['a']))"),
+            (r'a|', "OrRegex(CharacterRegex(['a']), EmptyRegex())"),
+            (r'a|b*', "OrRegex(CharacterRegex(['a']),"
+             " RepeatorRegex(CharacterRegex(['b'])))"),
+            (r'a{3}', "SequenceRegex(CharacterRegex(['a']),"
+             " SequenceRegex(CharacterRegex(['a']), CharacterRegex(['a'])))"),
+            (r'a{3,}', "SequenceRegex(CharacterRegex(['a']),"
+             " SequenceRegex(CharacterRegex(['a']), "
+             "SequenceRegex(CharacterRegex(['a']),"
+             " RepeatorRegex(CharacterRegex(['a'])))))"),
+            (r'a{1,2}', "SequenceRegex(CharacterRegex(['a']),"
+             " OrRegex(CharacterRegex(['a']), EmptyRegex()))")]:
             self.assertEqual(str(Regex.Regex(regex).ast), str_rep)
 
     def test_char_class_operators(self):
@@ -66,5 +68,3 @@ class RegexParserTestCase(unittest.TestCase):
 
         self.assertRaisesRegex(Regex.RegexSyntaxError, "comma in named regex reference",
                                Regex.Regex, r'{baz,}', bindings={'baz': None})
-
-
