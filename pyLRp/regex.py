@@ -222,9 +222,11 @@ class Regex(object):
                     if res == ['|']:
                         return (8, res[0])
                     elif res == ['-']:
-                        return (9, res[0])
+                        return (8, res[0])
                     elif res == ['&']:
-                        return (10, res[0])
+                        return (8, res[0])
+                    elif res == ['^']:
+                        return (8, res[0])
 
                     if len(res) != 1:
                         raise RegexSyntaxError("comma in named regex reference")
@@ -241,7 +243,8 @@ class Regex(object):
 
     def lex(self):
         # tokens: CHR (\...,.) - 0, OP (+ ? *) - 1, ( - 2, | - 3, ) - 4
-        # EOF - 5, named ref - 6, range - 7, {|} - 8, {-} - 9, {&} 10
+        # EOF - 5, named ref - 6, range - 7,
+        # char class op ({|}, {&}, {-}, {^}) - 8
         tokens = []
 
         iterator = iter(self._regex)
@@ -386,10 +389,10 @@ class Regex(object):
 
             while True:
                 token, lexeme = current_token
-                if token not in  (8, 9, 10):
+                if token != 8:
                     return lhs
 
-                op = token
+                op = lexeme
                 current_token = next(tokens)
                 rhs = parse_basic()
 
@@ -400,14 +403,16 @@ class Regex(object):
                 if not isinstance(lhs, CharacterRegex):
                     raise RegexSyntaxError(err_msg.format('lhs'))
 
-                if op == 8:
+                if lexeme == '|':
                     lhs = CharacterRegex(lhs.chars | rhs.chars)
-                elif op == 9:
+                elif lexeme == '-':
                     lhs = CharacterRegex(lhs.chars - rhs.chars)
-                elif op == 10:
+                elif lexeme == '&':
                     lhs = CharacterRegex(lhs.chars & rhs.chars)
-            else:
-                raise CantHappen()
+                elif lexeme == '^':
+                    lhs = CharacterRegex(lhs.chars ^ rhs.chars)
+                else:
+                    raise CantHappen()
 
         def parse_basic():
             nonlocal current_token
