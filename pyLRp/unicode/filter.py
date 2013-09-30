@@ -9,139 +9,141 @@ unicode strings or numbers.
 # TODO: use more datasources/compile your own database
 import unicodedata
 from itertools import chain, product
+from functools import partial
 
-from ..core import AutoAccept
 from ..alphabet import Alphabet
 
 
-# DRAFT IDEA:
+# How the filters are represented:
 #
-# Keep the filter always in normal form, on addition
-# of a new constraint, just juggle the code
-# this greatly reduces complexity!
-# There is only one container: the normalized expression
-# which allows operations to roll in conditions
-# the normalized expression is of the form:
+# Keep the filter always in normal form, on addition of a new
+# constraint, just juggle back to normal form this greatly reduces
+# complexity!
+#
+# There is only one container: the normalized expression which allows
+# operations to roll in conditions the normalized expression is of the
+# form:
 # (a & b & c) | (a & d & c)
-# where a, b, c, d is a simple predicate or it's negation
-# any Boolean expression may be brought to this form which
-# is very useful for our purposes.
+# where a, b, c, d is a simple predicate or its negation any Boolean
+# expression may be brought to this form which is very useful for our
+# purposes.
 
-class CharacterFilter(metaclass=AutoAccept):
+class CharacterFilter:
 
-    _subclasses_ = []
+    def __init__(self, groups):
+        self._matchers = frozenset(frozenset(group) for group in groups)
+
+    def __str__(self):
+        return "CharacterFilter({})".format(str(self._matchers))
+
+    def __eq__(self, other):
+        return isinstance(other, CharacterFilter) and \
+            self._matchers == other._matchers
+
+    def __or__(self, other):
+        if isinstance(other, CharacterFilter):
+            return CharacterFilter(self._matchers | other._matchers)
+        elif isinstance(other, CharaterMatcher):
+            return CharacterFilter(self._matchers | set(set([other])))
+        else:
+            raise TypeError
+
+    def __and__(self, other):
+        # multiply out the or operations
+        if isinstance(other, CharacterFilter):
+            return CharacterFilter(a | b for a, b in product(self._matchers,
+                                                             other._matchers))
+        elif isinstance(other, CharacterMatcher):
+            other_set = frozenset([other])
+            return ChararacterFilter(mine | other_set
+                                     for mine in self._matchers)
+
+    def __sub__(self, other):
+        return self & ~other
+
+    def __xor__(self, other):
+        return (self | other) - (self & other)
+
+    def __invert__(self):
+        # use de morgan's rules to flip the operations
+        # then multiply out the or-operations
+        negated = map(partial(map, lambda x: ~x), self._matchers)
+        return CharacterFilter(product(*negated))
+
+    @property
+    def empty(self):
+        return all(any(m.empty for m in a) for a in self._matchers)
+
+    def match(self, char):
+        return any(all(m.match(char) for m in a) for a in self._matcher)
+
+
+class CharacterMatcher:
 
     def __eq__(self, other):
         return isinstance(other, type(self))
 
     def __hash__(self):
-        return id(type(self))
+        return hash(type(self))
+
+    def __invert__(self):
+        return Negation(self)
+
+    def __and__(self, other):
+        if isinstance(other, CharacterMatcher):
+            return CharacterFilter([[self, other]])
+        elif isinstance(other, CharacterFilter):
+            return other & self
+
+    def __or__(self, other):
+        if isinstance(other, CharacterMatcher):
+            return CharacterFilter([[self], [other]])
+        elif isinstance(other, CharacterFilter):
+            return other | self
+
+    def __sub__(self, other):
+        return self & ~other
+
+    def __xor__(self, other):
+        return (self | other) - (self & other)
 
     @property
     def empty(self):
         return False
 
-    def normalize(self):
-        return self
-
-    def simplify(self):
-        return self
-
     def match(self, char):
-        return False
+        raise NotImplementedError
 
-class Union(CharacterFilter):
 
-    def __init__(self, *children):
-        self._children = frozenset(children)
+class Negation(CharacterMatcher):
 
-    def __eq__(self, other):
-        return isinstance(other, Union) and \
-            self._children == other._children
-
-    def __hash__(self):
-        return id(type(self)) ^ hash(self._children)
+    def __init__(self, matcher):
+        self._matcher = matcher
 
     def __str__(self):
-        return "Union({})".format(', '.join(map(str, self._children)))
-
-    @property
-    def empty(self):
-        return all(child.empty for child in self._children)
-
-    def normalize(self):
-        normalized_children = (child.normalize() for child in self._children)
-
-        new_children = []
-        for child in normalized_children:
-            if isinstance(child, Union):
-                new_children += child._children
-            else:
-                new_children.append(child)
-
-        result = Union(*new_children)
-        if result.empty:
-            return Empty()
-        return result
-
-    def match(self, char):
-        return any(child.match(char) for child in self._children)
-
-class Intersection(CharacterFilter):
-
-    def __init__(self, *children):
-        self._children = frozenset(children)
+        return "Negation({})".format(str(self._matcher))
 
     def __eq__(self, other):
-        return isinstance(other, Instance) and \
-            self._children == other._children
+        return isinstance(other, type(self))
 
     def __hash__(self):
-        return id(type(self)) ^ hash(self._children)
+        return hash(super()) ^ hash(self._matcher)
 
-    def __str__(self):
-        return "Intersection({})".format(', '.join(map(str, self._children)))
-
-    @property
-    def empty(self):
-        return any(child.empty for child in self._children)
-
-    def normalize(self):
-        normalized_children = (child.normalize() for child in self._children)
-
-        new_children = []
-        for child in normalized_children:
-            if isinstance(child, Intersection):
-                new_children += child._children
-            else:
-                new_children.append(child)
-
-        if not new_children:
-            return All()
-
-        result = Intersection(*new_children)
-        if result.empty:
-            return Empty()
-        return result
-
-    def simplify(self):
-        # this is O(n^2) but it is short circuiting
-        # and as A contradicts B is not transitive it
-        # can not be optimized
-        if any(chain(contradicts(a, b)
-                     for (a, b) in product(self._children, repeat=2))):
-            return Empty()
-        else:
-            return self
+    def __invert__(self):
+        return self._matcher
 
     def match(self, char):
-        return all(child.match(char) for child in self._children)
+        return not self._matcher.match(char)
 
-class Empty(CharacterFilter):
+
+class Empty(CharacterMatcher):
 
     def __str__(self):
         return "Empty()"
 
+    def __invert__(self):
+        return All()
+
     @property
     def empty(self):
         return True
@@ -149,19 +151,20 @@ class Empty(CharacterFilter):
     def match(self, char):
         return False
 
-class All(CharacterFilter):
+
+class All(CharacterMatcher):
 
     def __str__(self):
         return "All()"
 
-    @property
-    def empty(self):
-        return False
+    def __invert__(self):
+        return Empty()
 
     def match(self, char):
         return True
 
-class Range(CharacterFilter):
+
+class Range(CharacterMatcher):
 
     def __init__(self, from_, to):
         self._from = from_
@@ -172,7 +175,7 @@ class Range(CharacterFilter):
             self._from == other._from and self._to == other._to
 
     def __hash__(self):
-        return id(type(self)) ^ hash(self._from) ^ hash(self._to)
+        return hash(super()) ^ hash(self._from) ^ hash(self._to)
 
     def __str__(self):
         return "Range({}, {})".format(self._from, self._to)
@@ -184,7 +187,8 @@ class Range(CharacterFilter):
     def match(self, char):
         return self._from <= char <= self._to
 
-class Character(CharacterFilter):
+
+class Character(CharacterMatcher):
 
     def __init__(self, char):
         self._char = char
@@ -194,7 +198,7 @@ class Character(CharacterFilter):
             self._char == other._char
 
     def __hash__(self):
-        return id(type(self)) ^ hash(self._char)
+        return hash(super()) ^ hash(self._char)
 
     def __str__(self):
         return "Character({})".format(repr(self._char))
@@ -202,7 +206,8 @@ class Character(CharacterFilter):
     def match(self, char):
         return char == self._char
 
-class Category(CharacterFilter):
+
+class Category(CharacterMatcher):
 
     def __init__(self, category):
         self._category = category
@@ -212,7 +217,7 @@ class Category(CharacterFilter):
             self._category == other._category
 
     def __hash__(self):
-        return id(type(self)) ^ hash(self._category)
+        return hash(super()) ^ hash(self._category)
 
     def __str__(self):
         return "Category({})".format(repr(self._category))
@@ -220,75 +225,26 @@ class Category(CharacterFilter):
     def match(self, char):
         return self._category == unicodedata.category(char)
 
-class Negation(CharacterFilter):
 
-    def __new__(cls, child):
-        """
-        Directly dissolve double negations
-        """
-        if isinstance(child, Negation):
-            # this is only safe, if there are no double negations
-            # in existence: this is assured by this __new__ method
-            # if there is no modification of self._child
-            # otherwise the __init__ method of the returned
-            # negation will be called
-            return child._child
-        else:
-            return super().__new__(cls)
+class Property(CharacterMatcher):
 
-    def __init__(self, child):
-        self._child = child
+    def __init__(self, prop, value):
+        self._property = prop
+        self._value = value
 
     def __eq__(self, other):
-        return isinstance(other, Negation) and self._child == other._child
+        return isinstance(other, Property) and \
+            self._property == other._property and \
+            self._value == other._value
 
     def __hash__(self):
-        return id(type(self)) ^ hash(self._child)
+        return hash(super()) ^ hash(self._property) ^ hash(self._value)
 
     def __str__(self):
-        return "Negation({})".format(str(self._child))
-
-    def normalize(self):
-        normal_child = self._child.normalize()
-
-        if isinstance(normal_child, Intersection):
-            return Union(*(Negation(subchild)
-                for subchild in normal_child._children))
-        elif isinstance(normal_child, Union):
-            return Intersection(*(Negation(subchild)
-                for subchild in normal_child._children))
-        else:
-            return Negation(normal_child)
+        return "Property({}, {})".format(self._property, self._value)
 
     def match(self, char):
-        return not self._child.match(char)
-
-CharacterFilterVisitor = CharacterFilter.base_visitor()
-
-CONTRADICTIONS = {
-    (Union, None): lambda a, b: all(contradicts(A, b) for A in a._children),
-    (Intersection, None): lambda a, b: any(contradicts(A, b)
-                                           for A in a._children),
-    (Character, Character): lambda a, b: a._char != b._char,
-    (Character, Range): lambda a, b: not (b._from <= a._char <= b._to),
-    (Range, Range): lambda a, b: b._to < a._from or a._to < b._from,
-    (Category, Category): lambda a, b: a._category != b._category,
-    (All, Empty): lambda a, b: True,
-    (All, None): lambda a, b: False,
-    (Empty, None): lambda a, b: True
-}
-
-def contradicts(a, b):
-    if (a, b) in CONTRADICTIONS:
-        return CONTRADICTIONS[a, b](a, b)
-    elif (b, a) in CONTRADICTIONS:
-        return CONTRADICTIONS[b, a](b, a)
-    elif (a, None) in CONTRADICTIONS:
-        return CONTRADICTIONS[a, None](a, b)
-    elif (b, None) in CONTRADICTIONS:
-        return CONTRADICTIONS[b, None](b, a)
-    else:
-        return False
+        raise NotImplementedError
 
 class UnicodeFilterAlphabet(Alphabet):
 
