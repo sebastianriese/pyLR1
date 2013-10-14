@@ -20,6 +20,48 @@ class NFAState(object):
         """
         return self._transitions.get(char, set())
 
+    def traverse(self, f):
+        self._traverse(f, set())
+
+    def _traverse(self, f, visited):
+        """
+        Do a depth-first, in-order search through the NFA.
+        """
+        if self in visited:
+            return
+
+        visited.add(self)
+        for cond, node in self._transitions.items():
+            f(self, cond, node)
+            node._traverse(f, visited)
+
+    def map_labels(self, f):
+        """
+        Create a structure equivalent NFA with mapped edge labels.
+        ``f`` maps each original label to an iterable of new labels.
+        """
+        root_node = NFAState()
+        root_node.action = self.action
+        root_node.priority = self.priority
+        node_map = {self: root_node}
+
+        def traverse_function(from_, cond, to):
+            if to not in node_map:
+                to_node = NFAState()
+                to_node.action = to.action
+                to_node.priority = to.priority
+            else:
+                to_node = node_map[to]
+
+            # from node is guaranteed to be there, as
+            # we traverse in-order
+            from_node = node_map[from_]
+            from_node.add_transitions(f(cond), to_node)
+
+        self.traverse(traverse_function)
+
+        return root_node
+
     def epsilon_closure(self, visited=None):
         """
         Return the epsilon closure of the state.
