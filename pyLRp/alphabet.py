@@ -31,3 +31,5 @@ class ByteAlphabet(Alphabet):
     def __getitem__(self, index):
         if 0 <= index < 256:
             return chr(index)
+        else:
+            raise IndexError
