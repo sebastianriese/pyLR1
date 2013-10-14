@@ -1,5 +1,6 @@
 
 from .nfa import NFAState
+from .unicode import filter as f
 
 class RegexAST(object):
     """An AST representing a regular expression."""
@@ -24,12 +25,12 @@ class EmptyRegex(RegexAST):
         return start, end
 
 class CharacterRegex(RegexAST):
-
+    # TODO: rename this AST element as it now is a filter
     def __init__(self, chars):
-        self._chars = frozenset(chars)
+        self._chars = chars
 
     def __str__(self):
-        return "CharacterRegex({})".format(list(sorted(self._chars)))
+        return "CharacterRegex({})".format(str(self._chars))
 
     @property
     def chars(self):
@@ -39,7 +40,7 @@ class CharacterRegex(RegexAST):
         start = NFAState()
         end = NFAState()
 
-        start.add_transitions(self._chars, end)
+        start.add_transition(self._chars, end)
 
         return start, end
 
@@ -127,31 +128,72 @@ class Regex(object):
     """A regular expression with an NFA representation."""
 
     ESCAPES = {
-        'n': '\n',
-        't': '\t',
-        'f': '\f',
-        'v': '\v',
-        'r': '\r',
-        's': ' \n\t\v\r\f',
-        'd': '0123456789',
-        'w': 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ013456789_'
+        'n': f.Character('\n'),
+        't': f.Character('\t'),
+        'f': f.Character('\f'),
+        'v': f.Character('\v'),
+        'r': f.Character('\r'),
+        's': f.CharacterFilter.any_from_string(' \n\t\v\r'),
+        'd': f.CharacterFilter.any_from_string('0123456789'),
+        'w': f.CharacterFilter.any_from_string(
+            'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ013456789_')
         }
+
+    def parse_hex_escape(self, iterator, N):
+        string = ''
+        for i in range(N):
+            string += next(iterator)
+        return f.Character(int(string, base=16))
+
+    def parse_in_braces(self, iterator):
+        if next(iterator) != '{':
+            raise RegexSyntaxError('{ is required after \p')
+
+        string = ''
+        cur = next(iterator)
+        while cur != '}':
+            string += cur
+
+        return string
+
+    def parse_property_match(self, text):
+        parts = text.split('=')
+        if len(parts) >= 3:
+            raise RegexSyntaxError('too many = in property match')
+
+        if len(pars) == 1:
+            if self._ucd.is_property_name(parts[0]):
+                return f.Property(self._ucd, parts[0], True)
+            else:
+                return f.Property(self._ucd, 'gc',
+                                  self._ucd.normal_gc(parts[0]))
+        else:
+            return f.Property(self._ucd, parts[0], parts[1])
 
     def parse_escape(self, iterator):
         char = next(iterator)
 
         if char == 'x':
-            string = ''
-            string += next(iterator)
-            string += next(iterator)
-            return set(chr(int(string, base=16)))
+            return self.parse_hex_escape(2)
+        elif char == 'u':
+            return self.parse_hex_escape(4)
+        elif char == 'U':
+            return self.parse_hex_escape(8)
+        elif char == 'N':
+            name = self.parse_in_braces(iterator)
+            return f.Character(self._ucd.get_by_name(name))
+        elif char == 'p':
+            return self.parse_property_match(self.parse_in_braces(iterator))
+        elif char == 'P':
+            pmatch = self.parse_property_match(self.parse_in_braces(iterator))
+            return f.Negated(pmatch)
 
-        return set(self.ESCAPES.get(char, char))
+        return self.ESCAPES.get(char, f.Character(char))
 
     def parse_char_class(self, iterator):
         try:
             first = True
-            chars = set()
+            chars = f.Empty()
             prev = None
             group = False
             negate = False
@@ -162,7 +204,7 @@ class Regex(object):
                     first = False
                     if char == '^':
                         negate = True
-                        chars = set(chr(i) for i in range(256))
+                        chars = f.All()
                         continue
 
                 if char == ']':
@@ -179,24 +221,24 @@ class Regex(object):
                         group = True
                     continue
 
-                cset = set()
+                cset = f.Empty()
                 if char == '\\':
                     cset |= self.parse_escape(iterator)
                 else:
-                    cset |= set(char)
+                    cset |= f.Character(char)
 
                 if group:
-                    if len(cset) != 1:
-                        raise StopIteration()
+                    if cset.single is None:
+                        err_msg = ('the to value in a range is '
+                                   'not a single codepoint')
+                        raise RegexSyntaxError(err_msg)
 
-                    if len(prev) != 1:
-                        raise StopIteration()
+                    if prev.single is None:
+                        err_msg = ('the from value in a range is '
+                                   'not a single codepoint')
+                        raise RegexSyntaxError(err_msg)
 
-                    # use tuple unpacking to elegantly extract the
-                    # single values from the sets
-                    c, = cset
-                    p, = prev
-                    cset |= set(chr(char) for char in range(ord(p) + 1, ord(c)))
+                    cset |= f.Range(prev.single, cset.single)
                     group = False
 
                 prev = cset
@@ -266,13 +308,13 @@ class Regex(object):
                 elif char == ')':
                     tokens.append((4, ')'))
                 elif char == '.':
-                    tokens.append((0, set(chr(i) for i in range(0,256)) - set('\n')))
+                    tokens.append((0, f.Dot()))
                 elif char == '{':
                     tokens.append(self.parse_brace(iterator))
                 elif char == '}':
                     raise RegexSyntaxError("single closing brace")
                 else:
-                    tokens.append((0, set(char)))
+                    tokens.append((0, f.Character(char)))
 
         except StopIteration:
             tokens.append((5, ''))
@@ -455,8 +497,9 @@ class Regex(object):
         else:
             raise CantHappen()
 
-    def __init__(self, regex, bindings=None):
+    def __init__(self, regex, bindings=None, ucd=None):
         self._regex = regex
+        self._ucd = ucd
         self._ast = self.parse(bindings or {})
 
     @property
