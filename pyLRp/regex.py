@@ -159,7 +159,7 @@ class Regex(object):
     def parse_property_match(self, text):
         parts = text.split('=')
         if len(parts) >= 3:
-            raise RegexSyntaxError('too many = in property match')
+            raise RegexSyntaxError('more than one "=" in property spec')
 
         if len(pars) == 1:
             if self._ucd.is_property_name(parts[0]):
