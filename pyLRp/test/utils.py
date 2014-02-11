@@ -138,7 +138,7 @@ def parse(logger, source, bootstrap=False):
         syn = parser.parse()
         del parser
     else:
-        lexer = pyLRparser.Lexer(StringInputBuffer(source))
+        lexer = pyLRparser.Lexer(StringInputBuffer(source.encode('utf-8')))
         parser = pyLRparser.Parser(lexer)
         # XXX: this works only as long as no \p and \P is used in the
         # regexen
