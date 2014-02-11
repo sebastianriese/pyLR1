@@ -109,3 +109,5 @@ class Singleton(type):
 
         if cls._instance_ is None:
             cls._instance_ = super().__call__()
+
+        return cls._instance_
