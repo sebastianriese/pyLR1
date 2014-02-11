@@ -10,7 +10,10 @@ from . import __version__
 from .lr import LALR1StateTransitionGraph, LR1StateTransitionGraph
 from .syntax import Syntax
 from .lexer import *
+from .unicode import filter as f
 from .writers.pywriter import Writer
+
+from .runtime.input import MmapInputBuffer
 
 class CountingLogger(logging.getLoggerClass()):
 
@@ -169,8 +172,8 @@ except IOError as e:
 
 if args.self_hosting:
     from .parsers.pyLRparser import Parser, Lexer, check_for_undefined_metas
-    p = Parser(Lexer(infile, filename=args.infile))
-    p.Parse()
+    p = Parser(Lexer(MmapInputBuffer(infile, slurp=True)))
+    p.parse()
     check_for_undefined_metas(p)
     syn = p.syntax
     del p

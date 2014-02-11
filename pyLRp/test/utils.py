@@ -10,6 +10,11 @@ from ..lexer import *
 from ..writers.pywriter import Writer
 from ..parsers.bootstrap import Parser
 from ..parsers import pyLRparser
+from ..pyblob import PyBlobVisitor
+from ..unicode.filter import FoldASCIIAlphabetStrategy
+
+from ..runtime.input import StringInputBuffer
+from ..runtime.parser import SyntaxError as PyLRpSyntaxError
 
 # perhaps I should just use logging.shutdown
 # and reinitialize afterwards, I am afraid
@@ -87,7 +92,7 @@ class ParseResultTestCase(unittest.TestCase):
         Verify the result of parsing `source` with the generated
         module `parser` produces `result`
         """
-        ast = parser["Parser"](parser["Lexer"](source, string=True)).Parse()
+        ast = parser["Parser"](parser["Lexer"](StringInputBuffer(source))).parse()
         self.assertEqual(ast, result)
 
     def verify_syntax_error(self, parser, source):
@@ -95,8 +100,8 @@ class ParseResultTestCase(unittest.TestCase):
         Verify the result of parsing `source` with the generated
         module `parser` raises `parser["SyntaxError"]`
         """
-        with self.assertRaises(parser["SyntaxError"]):
-            parser["Parser"](parser["Lexer"](source, string=True)).Parse()
+        with self.assertRaises(PyLRpSyntaxError):
+            parser["Parser"](parser["Lexer"](StringInputBuffer(source))).parse()
 
 
 class FailOnLogTestCase(unittest.TestCase):
@@ -105,6 +110,11 @@ class FailOnLogTestCase(unittest.TestCase):
         self.logger = unique_logger()
         self.logger.addHandler(FailOnLogHandler(self))
         return compile(self.logger, source, listing=listing, trace=trace)
+
+    def parse(self, source):
+        self.logger = unique_logger()
+        self.logger.addHandler(FailOnLogHandler(self))
+        return parse(self.logger, source)
 
 class MessageAssertTestCase(unittest.TestCase):
 
@@ -128,10 +138,12 @@ def parse(logger, source, bootstrap=False):
         syn = parser.parse()
         del parser
     else:
-        lexer = pyLRparser.Lexer(source.encode('utf-8'), filename='<string>',
-                                 string=True)
+        lexer = pyLRparser.Lexer(StringInputBuffer(source))
         parser = pyLRparser.Parser(lexer)
-        parser.Parse()
+        # XXX: this works only as long as no \p and \P is used in the
+        # regexen
+        parser._ucd = None
+        parser.parse()
         pyLRparser.check_for_undefined_metas(parser)
         syn = parser.syntax
         del parser
@@ -165,7 +177,8 @@ def compile(logger, source, listing=None, trace=False, debug=True,
     else:
         syn.symtable.require_EOF()
 
-    lexer = LexerConstructor(syn.lexer, logger)
+    alphabetizer = FoldASCIIAlphabetStrategy()
+    lexer = LexerConstructor(syn.lexer, alphabetizer, logger)
     lexer.construct_DFAs()
     lexer.drop_NFA()
     lexer.optimize()

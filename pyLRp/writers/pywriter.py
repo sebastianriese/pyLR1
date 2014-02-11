@@ -83,13 +83,13 @@ class LexActionToCode(lexactions.LexingActionVisitor):
         self._emit("pass")
 
     def visit_Begin(self, action):
-        self._emit("self.nextCond[-1] = {:d}".format(action.state.number))
+        self._emit("self.next_cond[-1] = {:d}".format(action.state.number))
 
     def visit_Push(self, action):
-        self._emit("self.nextCond.append({:d})".format(action.state.number))
+        self._emit("self.next_cond.append({:d})".format(action.state.number))
 
     def visit_Pop(self, action):
-        self._emit("self.nextCond.pop()")
+        self._emit("self.next_cond.pop()")
 
     def visit_List(self, actionList):
         added = False
@@ -143,14 +143,20 @@ class Writer(object):
         self._trace = trace
         self._deduplicate = deduplicate
         self._python3 = python3
-        self._debug = debug
+        self._debug = True
+        self._standalone = False
 
     def write_header(self, header):
-        self._parser_file.write(
+        if self._standalone:
+            raise NotImplementedError("Can't do that yet")
+        else:
+            self._parser_file.write(
 """# this file was generated automagically by pyLR1
 # do not edit, if you want to modify the parser, adapt the grammar file
 
-import mmap
+from pyLRp.runtime.lexer import Lexer as BaseLexer
+from pyLRp.runtime.parser import Parser as BaseParser
+from pyLRp.runtime.parser import Accept
 """)
 
         for headline in header:
@@ -317,31 +323,50 @@ class %s(AST):
         return visitor.Visit%s(self)
 """ % (name,))
 
-    def write_lexer(self, lexer, symtable, initial_conditions):
+    def compile_lexer_symtable(self, symtable, initial_conditions):
+        lexer_debug_data = ""
 
-        if self._python3:
-            extract = '.decode("UTF-8")'
-            baccess = "buffer[cur_pos]"
-        else:
-            extract = ''
-            baccess = "ord(buffer[cur_pos])"
+        token_names = []
+        token_numbers = []
+        symtypes = frozenset([Symtable.TERMINAL, Symtable.EOF, Symtable.ERROR])
+        for key in symtable:
+            value = symtable[key]
+            if value.symtype in symtypes:
+                token_spec = dict(key=repr(key), token=value.number)
+                token_names.append("{token}: {key}".format(**token_spec))
+                token_numbers.append("{key}: {token}".format(**token_spec))
+
+        condition_names = []
+        condition_numbers = []
+        for name, cond in initial_conditions.items():
+            condition_spec = dict(name=repr(name), num=cond.number)
+            condition_names.append("{num}: {name}".format(**condition_spec))
+            condition_numbers.append("{name}: {num}".format(**condition_spec))
+
+        lexer_debug_data = r"""
+    TOKEN_NAMES = {{{}}}
+    TOKEN_NUMBERS = {{{}}}
+    CONDITION_NAMES = {{{}}}
+    CONDITION_NUMBERS = {{{}}}
+""".format(','.join(token_names), ','.join(token_numbers),
+           ','.join(condition_names), ','.join(condition_numbers))
+
+        return lexer_debug_data
+
+    def write_lexer(self, lexer, symtable, initial_conditions):
 
         data = []
         action_table = {}
 
-        lookup = baccess
-        if lexer.mapping:
-            lookup = "mapping[" + baccess + "]"
-
-        for cond, table, start, actions, mapping in lexer.get():
+        for cond, lextable in lexer.lextables():
 
             lextablehelper, lextablestr = \
                 self.table_strings("ltd%d" % cond.number,
-                  tuple(tuple(state) for state in table))
+                  tuple(tuple(state) for state in lextable.table))
 
             # create the string representing the actions
             action_vector = []
-            for action in actions:
+            for action in lextable.actions:
                 if action is None:
                     action_vector.append('None')
                 elif action == lexactions.GetMatch():
@@ -352,15 +377,20 @@ class %s(AST):
                     action_vector.append('{}'.format(action_table[action]))
             actionmapstr = "({})".format(','.join(action_vector))
 
+            # create the data for the character mapping
             mappingstr = ""
             if lexer.mapping:
                 # create the string mapping
-                mappingstr = '({})'.format(','.join(map(str, mapping)))
+                mappingstr = '({})'.format(','.join(map(str,
+                    lextable.alphabetizer.mapping)))
 
-            data.append((cond, start, actionmapstr, mappingstr, lextablehelper, lextablestr))
+            data.append((cond, lextable.start, actionmapstr, mappingstr,
+                         lextablehelper, lextablestr))
 
-        actionstr = ','.join('self.action{:d}'.format(i) for i in range(len(action_table)))
-        actionstr = ('({},)' if len(action_table) == 1 else '({})').format(actionstr)
+        actionstr = ','.join('self.action{:d}'.format(i)
+                             for i in range(len(action_table)))
+        actionstr = ('({},)' if len(action_table) == 1
+                             else '({})').format(actionstr)
 
         startstr = '('
         mappingstr = '('
@@ -380,204 +410,31 @@ class %s(AST):
         mappingstr += ')'
         startstr += ')'
 
+        mappinghelper = ''
+
         lines_position_class = ''
         lines_count = "position = None"
         eof_position = "None"
 
-        lexer_debug_data = ""
-        if self._debug:
-            token_names = []
-            token_numbers = []
-            symtypes = frozenset([Symtable.TERMINAL, Symtable.EOF, Symtable.ERROR])
-            for key in symtable:
-                value = symtable[key]
-                if value.symtype in symtypes:
-                    token_spec = dict(key=repr(key), token=value.number)
-                    token_names.append("{token}: {key}".format(**token_spec))
-                    token_numbers.append("{key}: {token}".format(**token_spec))
+        lexer_debug_data = self.compile_lexer_symtable(symtable,
+                                                       initial_conditions)
 
-            condition_names = []
-            condition_numbers = []
-            for name, cond in initial_conditions.items():
-                condition_spec = dict(name=repr(name), num=cond.number)
-                condition_names.append("{num}: {name}".format(**condition_spec))
-                condition_numbers.append("{name}: {num}".format(**condition_spec))
 
-            lexer_debug_data = r"""
-    TOKEN_NAMES = {{{}}}
-    TOKEN_NUMBERS = {{{}}}
-    CONDITION_NAMES = {{{}}}
-    CONDITION_NUMBERS = {{{}}}
-""".format(','.join(token_names), ','.join(token_numbers),
-           ','.join(condition_names), ','.join(condition_numbers))
 
-        if self._lines:
-            lines_position_class = """class Position(object):
-    def __init__(self, file, line0, col0, line1, col1):
-        self.file  = file
-        self.line0 = line0
-        self.col0  = col0
-        self.line1 = line1
-        self.col1  = col1
+        self._parser_file.write(r"""
 
-    def Add(self, oth):
-        return Position(self.file, self.line0, self.col0, oth.line1, oth.col1)
-
-    def __str__(self):
-        return "{:s} Line {:d}:{:d} - {:d}:{:d}".format(
-            self.file, self.line0, self.col0, self.line1, self.col1)
-"""
-
-            lines_count = r"""
-            line0 = self.line
-            sol0 = self.start_of_line
-            self.line += text.count('\n')
-            sol1 = text.rfind('\n')
-            if sol1 != -1:
-                self.start_of_line = self.root + sol1 + 1
-            position = Position(self.filename,
-                                line0,
-                                self.root - sol0,
-                                self.line,
-                                pos - self.start_of_line)
-"""
-            eof_position = \
-                r"""Position(self.filename, self.line, 0, self.line, 0)"""
-
-        self._parser_file.write(r"""class GotToken(Exception):
-    pass
-
-""" + lines_position_class + r"""
-
-class Lexer(object):
+class Lexer(BaseLexer):
 
     starts = """ + startstr + r"""
+""" + mappinghelper + r"""
     mappings = """ + (mappingstr if lexer.mapping else "()") + r"""
 """ + (lextablehelper if self._deduplicate else "") + r"""
     tables  = """ + lextablestr + lexer_debug_data + r"""
-    actionmap = """ + actionmapstr + """
+    actionmap = """ + actionmapstr + r"""
 
-    @classmethod
-    def from_filename(cls, codefile, **kwargs):
-        code = open(codefile, 'rb')
-        res = cls(code, filename=codefile, **kwargs)
-        code.close()
-        return res
-
-    def __init__(self, code, mmap_file=True, filename='<>', string=False):
-        '''
-        A DFA-based Lexer.
-
-        The `lex` method returns the tokens from `code`, if
-        `mmap_file` is *True* (the default) the lexer will try to
-        `mmap` the file for lexing.
-
-        `filename` gives the file name to display on errors.
-
-        If `string` is *True* `code` is considered to be the string of
-        input to parse. (py3 note: this should be a buffer)
-        '''
-
-        self.filename = filename
-
-        if string:
-            self.buffer = code
-            self.size = len(self.buffer)
-        else:
-            if mmap_file:
-                try:
-                    self.buffer = mmap.mmap(code.fileno(), 0, access=mmap.ACCESS_READ)
-                    self.size = self.buffer.size()
-                except mmap.error:
-                    # we could not mmap the file: perhaps warn, but open it
-                    # through a FileBuffer
-                    mmap_file = False
-
-            if not mmap_file:
-                # for now: just slurp the file, sorry if it is large,
-                # a tty or a pipe -> TODO
-                self.buffer = code.read()
-                self.size = len(self.buffer)
-
-        self.root = 0
-        self.nextCond = [""" + repr(initial_conditions["$SOF"].number) + r"""]
-        self.token_push_back = []
-        self.line = 1
-        self.start_of_line = 0
-        self.actions = """ + actionstr + r"""
-
-    def push_back(self, token):
-        self.token_push_back.append(token)
-
-    def lexAll(self):
-        tokens = []
-        while True:
-            type, text, pos = self.lex()
-            if type == """ + str(symtable["$EOF"].number) + r""":
-                return tokens
-            tokens.append((type, text, pos))
-
-    def lex(self):
-        if self.token_push_back:
-            return self.token_push_back.pop()
-
-        cond = self.nextCond[-1]
-        state = self.starts[cond]
-        """ + (r"size, table, cactions, mapping, buffer = self.size, self.tables[cond], self.actionmap[cond], self.mappings[cond], self.buffer" if lexer.mapping else
-        r"size, table, cactions, buffer = self.size, self.tables[cond], self.actionmap[cond], self.buffer") + r"""
-        actionvec = self.actions
-        cur_pos = self.root
-        if cactions[state] is not None:
-            action = cur_pos, actionvec[cactions[state]]
-        else:
-            action = None
-        try:
-            while cur_pos != size:
-                state = table[state][""" + lookup + """]
-                cur_pos += 1
-                if cactions[state] is None:
-                    pass
-                elif cactions[state] < 0:
-                    raise GotToken
-                else:
-                    action = (cur_pos, actionvec[cactions[state]])
-            raise GotToken
-        except GotToken:
-            if action is None:
-                if cur_pos == self.root:
-                    return ("""
-           + "{0}, {1}, {2}".format(symtable["$EOF"].number, "''", eof_position) +
-                               r""")
-                else:
-                    action = cur_pos, self.error_action
-            pos, faction = action
-
-            text = self.buffer[self.root:pos]""" + extract + r"""
-
-            """ + lines_count + r"""
-            name = faction(text, position)
-
-            if self.nextCond[-1] == """ + repr(initial_conditions["$SOF"].number) + r""":
-                self.nextCond[-1] = """ + repr(initial_conditions["$INITIAL"].number) + r"""
-
-            if self.nextCond[-1] == """
-                        + repr(initial_conditions["$INITIAL"].number) +
-                               r""" and text and text[-1] == '\n':
-                self.nextCond[-1] = """
-                               + repr(initial_conditions["$SOL"].number) +
-                               r"""
-            elif self.nextCond[-1] == """
-                               + repr(initial_conditions["$SOL"].number) +
-                               r""" and text and text[-1] != '\n':
-                self.nextCond[-1] = """
-                               + repr(initial_conditions["$INITIAL"].number) +
-                               r"""
-            self.root = pos
-
-            if name is None:
-                return self.lex()
-            else:
-                return (name, text, position)
+    def __init__(self, input_buffer):
+        super(Lexer, self).__init__(input_buffer)
+        self.actions = """ + actionstr  + r"""
 """)
 
         for action, number in sorted(action_table.items(), key=lambda x: x[1]):
@@ -601,49 +458,8 @@ class Lexer(object):
         if parse_table is None:
             return
 
-        lines_pos_addition = ""
-        lines_null_pos = ""
-
-        if self._lines:
-            lines_pos_addition = """new.pos = stack[-size].pos.Add(stack[-1].pos)"""
-            lines_null_pos = "stack[-1].pos = Position('', 0,0,0,0)"
-
-        state_trace = ""
-
-        if self._trace:
-            if self._python3:
-                state_trace = "print(' '.join(str(entry.state) for entry in stack), '#', str((t,d)) ," + ("self.lexer.TOKEN_NAMES[token]" if self._debug else "token") + ", '\"' + lexeme + '\"')"
-            else:
-                state_trace = "print stack[-1].state, token lexeme"
-
         self._parser_file.write("""
-class Accept(Exception):
-    pass
-
-class StackObject(object):
-    def __init__(self, state):
-        self.state = state
-        self.pos = None
-        self.sem = None
-
-class SyntaxError(Exception):
-    def __init__(self, message='', position=None):
-        self.message = message
-        self.position = position
-
-    def __str__(self):
-        return '{}:{}'.format(str(self.position), self.message)
-
-# default definitions of the error reporting functions there are
-# usually overwritten by the parser
-def error(parser, pos, msg):
-    raise SyntaxError(message=msg, position=pos)
-
-def warning(parser, pos, msg):
-    pass
-
-class Parser(object):
-    # actions from the grammar
+class Parser(BaseParser):
 """)
 
         translator = LRActionToLRTableEntry(symtable)
@@ -669,74 +485,8 @@ class Parser(object):
 
     # auto generated methods
     def __init__(self, lexer):
-        self.lexer = lexer
-        self.stack = []
+        super(Parser, self).__init__(lexer)
         self.reductions = """ + reduction_str + """
-
-    def Parse(self):
-        lexer = self.lexer
-        atable = self.atable
-        gtable = self.gtable
-        stack = self.stack
-        reductions = self.reductions
-        stack.append(StackObject(self.start))
-        recovering = False
-        """ + lines_null_pos + """
-
-        try:
-            while True:
-                token, lexeme, pos = lexer.lex()
-                t, d = atable[stack[-1].state][token]
-                """ + state_trace + """
-                while t == 1:
-                    recovering = False
-                    size, sym, action = reductions[d]
-                    state = gtable[stack[-size-1].state][sym]
-                    new = StackObject(state)
-                    """ + lines_pos_addition  + r"""
-                    action(new)
-                    if size > 0:
-                        del stack[-size:]
-                    stack.append(new)
-                    t, d = atable[stack[-1].state][token]
-                    """ + state_trace + """
-                if t == 0:
-                    new = StackObject(d)
-                    new.sem = lexeme
-                    new.pos = pos
-                    stack.append(new)
-
-                else: # t == 2
-                    if recovering:
-                        # just skip unfit tokens during recovery
-                        pass
-                    else:
-                        # setup error recovery by shifting the $RECOVER token
-                        recovering = True
-                        rec = """ + str(symtable["$RECOVER"].number) + r"""
-
-                        error(self, pos, "syntax error")
-
-                        # pop tokens until error can be shifted
-                        t, d = atable[stack[-1].state][rec]
-                        errstates = []
-                        while t != 0:
-                            errstates.append(stack.pop())
-                            if not stack:
-                                raise SyntaxError(position=errstates[0].pos)
-                            t, d = atable[stack[-1].state][rec]
-                        new = StackObject(d)
-                        new.sem = lexeme
-                        new.pos = pos
-                        stack.append(new)
-                        # TODO: emit error message ... or should this
-                        # be done on reduction of the error rule? what
-                        # error sink should we use?  perhaps do some
-                        # inspection to get a list of acceptable
-                        # tokens
-
-        except Accept:
-            return stack[-1].sem
 """)
         redNum = 0
         for red in parse_table.rules():

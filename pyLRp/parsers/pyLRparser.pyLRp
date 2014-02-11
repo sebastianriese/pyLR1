@@ -547,12 +547,12 @@ def indent(lexer, text, position):
 
     if len(text) > lexer.indent_stack[-1]:
         lexer.indent_stack.append(len(text))
-        lexer.nextCond.pop()
+        lexer.next_cond.pop()
         lexer.push_back((lexer.TOKEN_NUMBERS['INDENT'], text, position))
         return
 
     # pop the state pushed on INDENT
-    lexer.nextCond.pop()
+    lexer.next_cond.pop()
 
     cnt = 0
     try:
@@ -565,10 +565,10 @@ def indent(lexer, text, position):
 
     for i in range(cnt):
         # pop one further state per DEDENT
-        lexer.nextCond.pop()
+        lexer.next_cond.pop()
         lexer.push_back((lexer.TOKEN_NUMBERS['DEDENT'], text, position))
 
-    lexer.nextCond.pop()
+    lexer.next_cond.pop()
 
 class AnnotatedRuleset(object):
 
