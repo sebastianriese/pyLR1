@@ -1,11 +1,11 @@
 
 from .dfa import DFAState, LexingDFA
 from .lexactions import GetMatch
-from .alphabet import Epsilon
 
 class NFAState(object):
 
     def __init__(self):
+        self._epsilon_transitions = set()
         self._transitions = {}
         self.action = None
         self.priority = None
@@ -20,6 +20,9 @@ class NFAState(object):
         """
         return self._transitions.get(char, frozenset())
 
+    def move_epsilon(self):
+        return self._epsilon_transitions
+
     def traverse(self, f):
         """
         Do a depth-first, in-order search through the NFA.
@@ -31,6 +34,11 @@ class NFAState(object):
             return
 
         visited.add(self)
+
+        for node in self._epsilon_transitions:
+            f(self, None, node)
+            node._traverse(f, visited)
+
         for cond, nodes in self._transitions.items():
             for node in nodes:
                 f(self, cond, node)
@@ -49,7 +57,8 @@ class NFAState(object):
         def traverse_function(from_, cond, to):
             # map the symbol by the mapper, preserving epsilon
             # transitions
-            mapped_symbol = f(cond) if cond != Epsilon() else [Epsilon()]
+            if cond is not None:
+                mapped_symbol = f(cond)
 
             # from node is guaranteed to be there, as
             # we traverse in-order
@@ -63,7 +72,10 @@ class NFAState(object):
             else:
                 to_node = node_map[to]
 
-            from_node.add_transitions(mapped_symbol, to_node)
+            if cond is None:
+                from_node.add_epsilon_transition(to_node)
+            else:
+                from_node.add_transitions(mapped_symbol, to_node)
 
         self.traverse(traverse_function)
 
@@ -95,7 +107,7 @@ class NFAState(object):
         if self in visited:
             return closure
 
-        closure |= self._transitions.get(Epsilon(), set())
+        closure |= self._epsilon_transitions
 
         nc = set(closure)
         for elem in closure:
@@ -116,7 +128,7 @@ class NFAState(object):
             self.add_transition(chr, state)
 
     def add_epsilon_transition(self, state):
-        self.add_transition(Epsilon(), state)
+        self._epsilon_transitions.add(state)
 
     def add_transition(self, char, state):
         """
