@@ -21,6 +21,9 @@ from ..pyblob import PyBlobVisitor, PySuite, PyText, PyNewline, PyStackvar
 # states used for correct inline python handling
 %x PYBLOB, PYBLOBNOSPC, MLSTRD, MLSTRS, PYINLINE, PYBLOBSINGLE
 
+# states used by the option spec
+%x OPTION
+
 # states used by the autoaction spec
 %x AST
 
@@ -52,12 +55,13 @@ from ..pyblob import PyBlobVisitor, PySuite, PyText, PyNewline, PyStackvar
 #######################################################
 # section switching and uniform empty line ignorance
 #######################################################
-<$SOL,LEXER>%ast{comment}\n    %begin(AST), AST
-<$SOL,AST>%lexer{comment}\n    %begin(LEXER), LEXER
+<$SOL>%option                         %begin(OPTION), OPTION
+<$SOL,LEXER,OPTION>%ast{comment}\n    %begin(AST), AST
+<$SOL,AST,OPTION>%lexer{comment}\n    %begin(LEXER), LEXER
 <$SOL,LEXER,AST>%parser{comment}\n %begin(PARSER), PARSER
 <LEXER,AST,PARSER>%footer{comment}\n %begin(FOOTER), FOOTER
 
-<LEXER,PARSER,AST,INDENT>{comment}\n  %restart
+<LEXER,PARSER,AST,INDENT,OPTION>{comment}\n  %restart
 <INDENT>[\ \t]* %function(indent), %restart
 
 # two never matching rules to define terminal symbols
@@ -70,6 +74,19 @@ from ..pyblob import PyBlobVisitor, PySuite, PyText, PyNewline, PyStackvar
 # header and footer: PYVERB
 #######################################################
 <FOOTER,$INITIAL>[^\n]*\n PYVERB
+
+#######################################################
+# option declarations
+#######################################################
+<OPTION>{name}      SYMBOL
+<OPTION>=           EQ
+<OPTION>True        TRUE
+<OPTION>False       FALSE
+<OPTION>[0-9]+      INT
+<OPTION>'([^\']|\\.)*' STRLIT
+<OPTION>"([^\']|\\.)*" STRLIT
+<OPTION>{space}+    %restart
+<OPTION>{comment}\n NEWLINE
 
 #######################################################
 # AST directives
