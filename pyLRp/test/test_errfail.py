@@ -8,6 +8,8 @@ import logging
 
 from . import utils
 
+from ..runtime.input import StringInputBuffer
+
 class TestGeneratedLexerErrors(utils.FailOnLogTestCase):
     """
     Test the error handling of the generated lexer
@@ -21,7 +23,7 @@ class TestGeneratedLexerErrors(utils.FailOnLogTestCase):
         for source, expected in source_and_tokens:
             lexed = [(token, literal)
                      for token, literal, pos
-                     in parser["Lexer"](source, string=True).lexAll()]
+                     in parser["Lexer"](StringInputBuffer(source)).lex_all()]
 
             self.assertListEqual(expected, lexed, message)
 
