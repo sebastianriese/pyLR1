@@ -18,22 +18,23 @@ class NFAState(object):
         """
         Get the set of states reached by the transition on char.
         """
-        return self._transitions.get(char, set())
+        return self._transitions.get(char, frozenset())
 
     def traverse(self, f):
-        self._traverse(f, set())
-
-    def _traverse(self, f, visited):
         """
         Do a depth-first, in-order search through the NFA.
         """
+        self._traverse(f, set())
+
+    def _traverse(self, f, visited):
         if self in visited:
             return
 
         visited.add(self)
-        for cond, node in self._transitions.items():
-            f(self, cond, node)
-            node._traverse(f, visited)
+        for cond, nodes in self._transitions.items():
+            for node in nodes:
+                f(self, cond, node)
+                node._traverse(f, visited)
 
     def map_labels(self, f):
         """
@@ -46,17 +47,23 @@ class NFAState(object):
         node_map = {self: root_node}
 
         def traverse_function(from_, cond, to):
-            if to not in node_map:
-                to_node = NFAState()
-                to_node.action = to.action
-                to_node.priority = to.priority
-            else:
-                to_node = node_map[to]
+            # map the symbol by the mapper, preserving epsilon
+            # transitions
+            mapped_symbol = f(cond) if cond != Epsilon() else [Epsilon()]
 
             # from node is guaranteed to be there, as
             # we traverse in-order
             from_node = node_map[from_]
-            from_node.add_transitions(f(cond), to_node)
+
+            if to not in node_map:
+                to_node = NFAState()
+                to_node.action = to.action
+                to_node.priority = to.priority
+                node_map[to] = to_node
+            else:
+                to_node = node_map[to]
+
+            from_node.add_transitions(mapped_symbol, to_node)
 
         self.traverse(traverse_function)
 
@@ -123,13 +130,15 @@ class NFAState(object):
 
 class LexingNFA(object):
 
-    def __init__(self, lexing_rules, condition, inline_token_NFA, logger):
+    def __init__(self, lexing_rules, condition, alphabetizer,
+                 inline_token_NFA, logger):
         """
         A NFA annotated with actions and with rules selected according
         to `condition`.
         """
         self._logger = logger
         self._start = NFAState()
+        self._alphabetizer = alphabetizer
 
         # XXX: move the selection and NFA assembly code to an
         # appropriate place
@@ -150,7 +159,9 @@ class LexingNFA(object):
                 end.action = lexing_rule.action
             i -= 1
 
-    def create_DFA(self, alphabet):
+        self._start = alphabetizer.alphabetize(self._start)
+
+    def create_DFA(self):
         """
         Create a DFA from the NFA.
         """
@@ -169,11 +180,12 @@ class LexingNFA(object):
         dfa_states = {si: DFAState()}
         todo = [si]
 
-        # XXX: add feature to warn when there are nullmatches
+        # XXX: add feature to warn when there are nullmatches possible
         # but they are ignored (?)
         if self.nullmatch:
             dfa_states[si].action = select_action(si)
 
+        alphabet = self._alphabetizer.alphabet
         while todo:
             cur = todo.pop()
             for char in alphabet:
@@ -195,4 +207,5 @@ class LexingNFA(object):
 
                 dfa_states[cur].add_transition(dfa_states[new_state])
 
-        return LexingDFA(dfa_states[si], dfa_states.values())
+        return LexingDFA(dfa_states[si], dfa_states.values(),
+                         self._alphabetizer)

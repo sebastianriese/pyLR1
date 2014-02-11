@@ -1,19 +1,31 @@
 
 class Lextable(object):
 
-    def __init__(self, table, start, actionlist):
+    def __init__(self, table, start, actionlist, alphabetizer):
         self._table = table
         self._start = start
         self._actions = actionlist
-        self._mapping = None
+        self._alphabetizer = alphabetizer
 
+    @property
+    def table(self):
+        return self._table
 
-    def get(self):
-        return self._table, self._start, self._actions, self._mapping
+    @property
+    def start(self):
+        return self._start
 
-    def construct_equivalence_classes(self, alphabet):
+    @property
+    def actions(self):
+        return self._actions
+
+    @property
+    def alphabetizer(self):
+        return self._alphabetizer
+
+    def construct_equivalence_classes(self):
         i = 0
-        classes = [list(range(0, len(alphabet)))]
+        classes = [list(range(0, len(self._alphabetizer.alphabet)))]
 
         # determine the equivalence classes
         for line in self._table:
@@ -29,13 +41,15 @@ class Lextable(object):
             classes = newclasslist
 
         # construct the mapping from old alphabet to equivalence classes
-        self._mapping = [None] * len(alphabet)
-        mapping = self._mapping
+        mapping = [None] * len(self._alphabetizer.alphabet)
         i = 0
         for cls in classes:
             for terminal in cls:
                 mapping[terminal] = i
             i += 1
+
+        # fold the mapping with the mapping provided by the alphabetizer
+        self._alphabetizer.fold_mapping(mapping)
 
         # construct the new table
         newtable = []
@@ -48,6 +62,7 @@ class Lextable(object):
 
 
     def print(self):
+        # XXX: update this to match the new data abstraction
         print("start: %d\n" % self.start)
 
         for num, action in enumerate(self._actions):

@@ -682,7 +682,8 @@ def bind_named_pattern(self, name, regex):
     try:
         self.syntax.lexer.add_named_pattern(
             name.sem,
-            Regex(regex.sem, bindings=self.syntax.lexer.named_patterns()).ast
+            Regex(regex.sem, bindings=self.syntax.lexer.named_patterns(),
+                  ucd=self._ucd).ast
         )
     except (RegexSyntaxError, SyntaxNameError) as e:
         error(self, regex.pos,
@@ -691,7 +692,8 @@ def bind_named_pattern(self, name, regex):
 
 def add_lexrule(self, start_conditions, regex, lexaction):
     try:
-        regex = Regex(regex.sem, bindings=self.syntax.lexer.named_patterns())
+        regex = Regex(regex.sem, bindings=self.syntax.lexer.named_patterns(),
+                      ucd=self._ucd)
     except (RegexSyntaxError, SyntaxNameError) as e:
         error(self, regex.pos,
               "syntax error in regex: {}".format(e.args[0]))

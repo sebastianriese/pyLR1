@@ -64,6 +64,17 @@ arg_parser.add_argument("-o", "--output-file",
                         dest="ofile",
                         help="Set the output file to OFILE [default: derived from infile]")
 
+unicode = arg_parser.add_argument_group('unicode')
+
+unicode.add_argument("-u", "--unicode-version",
+                     default=None,
+                     help="Set the unicode version to use")
+
+unicode.add_argument("-m", '--input-mode',
+                     choices=["latin1", "utf8", "unicode"],
+                     default="latin1",
+                     help="Choose how the input file is presented to the lexer")
+
 arg_parser.add_argument("-l", "--line-tracking",
                         dest="lines",
                         action='store_true',
@@ -163,6 +174,15 @@ logging.setLoggerClass(CountingLogger)
 logger = logging.getLogger('pyLR1')
 logger.setLevel(logging.WARNING if args.quiet else logging.INFO)
 
+# open the required UCD data
+if args.unicode_version is None:
+    import unicodedata
+    args.unicode_version = unicodedata.unidata_version
+    del unicodedata
+
+ucd = None # unicode_data.DataSet(args.unicode_version)
+
+
 # parse the input file
 try:
     infile = open(args.infile, 'rt')
@@ -173,6 +193,7 @@ except IOError as e:
 if args.self_hosting:
     from .parsers.pyLRparser import Parser, Lexer, check_for_undefined_metas
     p = Parser(Lexer(MmapInputBuffer(infile, slurp=True)))
+    p._ucd = ucd
     p.parse()
     check_for_undefined_metas(p)
     syn = p.syntax
@@ -221,7 +242,15 @@ else:
     syn.symtable.require_EOF()
 
 # construct the lexer
-lexer = LexerConstructor(syn.lexer, logger)
+if args.input_mode == 'latin1':
+    alphabetizer = f.FoldASCIIAlphabetStrategy()
+elif args.input_mode == 'utf8':
+    print("utf8 input is not yet supported", file=sys.stderr)
+    sys.exit(1)
+elif args.input_mode == 'unicode':
+    alphabetizer = f.PredicateAlphabetStrategy(ucd)
+
+lexer = LexerConstructor(syn.lexer, alphabetizer, logger)
 
 lexer.construct_DFAs()
 lexer.drop_NFA()

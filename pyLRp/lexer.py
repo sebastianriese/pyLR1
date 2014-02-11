@@ -1,7 +1,7 @@
 
 from .nfa import *
 from .lexactions import Token
-from .alphabet import ByteAlphabet
+from .unicode import filter as f
 
 class LexingRule(object):
 
@@ -79,15 +79,15 @@ class LexerConstructor(object):
     applying the further manipulations to all of them.
     """
 
-    def __init__(self, lexer_spec, logger):
+    def __init__(self, lexer_spec, alphabetizer, logger):
         self.logger = logger
-
-        self._alphabet = ByteAlphabet()
+        self._alphabetizer = alphabetizer
 
         # sort initial conditions by number to create a reference
         # order for the other item lists
-        self._initial_conditions = list(sorted(lexer_spec.initial_conditions.values(),
-                                               key=lambda x: x.number))
+        self._initial_conditions = list(lexer_spec.initial_conditions.values())
+        self._initial_conditions.sort(key=lambda x: x.number)
+
         self._nfas = []
         self._dfas = []
         self._lextables = []
@@ -99,6 +99,7 @@ class LexerConstructor(object):
         for condition in self._initial_conditions:
             self._nfas.append(LexingNFA(lexer_spec,
                                         condition,
+                                        alphabetizer.clone(),
                                         inline_tokens,
                                         logger))
 
@@ -111,7 +112,7 @@ class LexerConstructor(object):
 
             for char in text:
                 new = NFAState()
-                previous.add_transition(char, new)
+                previous.add_transition(f.Character(char), new)
                 previous = new
 
             previous.priority = 0
@@ -122,7 +123,7 @@ class LexerConstructor(object):
     def construct_DFAs(self):
         self._dfas = []
         for nfa in self._nfas:
-            self._dfas.append(nfa.create_DFA(self._alphabet))
+            self._dfas.append(nfa.create_DFA())
 
     def drop_NFA(self):
         """
@@ -149,18 +150,20 @@ class LexerConstructor(object):
     def construct_equivalence_classes(self):
         self._mapping = True
         for lextable in self._lextables:
-            lextable.construct_equivalence_classes(self._alphabet)
+            lextable.construct_equivalence_classes()
+
+    @property
+    def alphabetizer(self):
+        return self._alphabetizer
 
     @property
     def mapping(self):
         return self._mapping
 
-    def get(self):
-        for cond, lextable in zip(self._initial_conditions, self._lextables):
-            yield tuple([cond] + list(lextable.get()))
+    def lextables(self):
+        return zip(self._initial_conditions, self._lextables)
 
     def print_tables(self):
         for key, table in self._lextables.items():
             print("-----------------", key.Name(), "--------------------")
             table.print()
-

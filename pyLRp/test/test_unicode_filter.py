@@ -21,7 +21,7 @@ class UnicodeFilterTest(unittest.TestCase):
     def test_operations(self):
         a = Range('a', 'z')
         b = Character('A')
-        c = Category('Lu')
+        c = Property('category', 'Lu')
         d = Character('D')
         e = Character('E')
         f = Character('F')

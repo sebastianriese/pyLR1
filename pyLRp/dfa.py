@@ -90,9 +90,10 @@ class OptimizerPartition(object):
 
 class LexingDFA(object):
 
-    def __init__(self, start, states):
+    def __init__(self, start, states, alphabetizer):
         self.start = start
         self.states = list(states)
+        self._alphabetizer = alphabetizer
 
     def optimize(self):
         # construct the initial partition
@@ -135,4 +136,5 @@ class LexingDFA(object):
             actions.append(cur.action)
             lextable.append(newline)
 
-        return Lextable(lextable, self.start.number, actions)
+        return Lextable(lextable, self.start.number, actions,
+                        self._alphabetizer)

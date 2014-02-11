@@ -16,7 +16,7 @@ from ..alphabet import Alphabet, ByteAlphabet
 # How the filters are represented:
 #
 # Keep the filter always in normal form, on addition of a new
-# constraint, just juggle back to normal form this greatly reduces
+# constraint, just juggle back to normal form. This greatly reduces
 # complexity!
 #
 # There is only one container: the normalized expression which allows
@@ -27,8 +27,10 @@ from ..alphabet import Alphabet, ByteAlphabet
 # expression may be brought to this form which is very useful for our
 # purposes.
 
-# XXX: the non-composite nature of the patterns is *not* fun
+# XXX: the non-composite nature of Filter and Matcher is *not* fun
+# (even though they duck-type one another in the relevant cases)
 # XXX: we also need solely &-connected filters with assigned truth values
+# more accurately these are bindings for the truth valies of the atomic filters
 
 class CharacterFilter:
 
@@ -45,6 +47,9 @@ class CharacterFilter:
     def __eq__(self, other):
         return isinstance(other, CharacterFilter) and \
             self._matchers == other._matchers
+
+    def __hash__(self):
+        return hash(type(self)) ^ hash(self._matchers)
 
     def __or__(self, other):
         if isinstance(other, CharacterFilter):
@@ -214,7 +219,7 @@ class Negation(CharacterMatcher):
         return self._matcher
 
     def atoms(self):
-        yield self._matcher
+        return self._matcher.atoms()
 
     def match(self, char):
         return not self._matcher.match(char)
@@ -392,22 +397,59 @@ class AlphabetStrategy(metaclass=ABCMeta):
     equivalence classes of symbols in the lextable.
     """
 
+    @abstractmethod
+    def clone(self):
+        """
+        Copy a the mapping strategy prototype
+        """
+        raise NotImplementedError
+
     @abstractproperty
     def alphabet(self):
         raise NotImplementedError
 
     @abstractmethod
     def alphabetize(self, nfa):
-        pass
+        raise NotImplementedError
 
-class FoldASCIIAlphabetStrategy(AlphabetStrategy):
+    @abstractmethod
+    def fold_mapping(self, mapping):
+        raise NotImplementedError
+
+    @abstractproperty
+    def mapping(self):
+        raise NotImplementedError
+
+class ByteAlphabetStrategy(AlphabetStrategy):
 
     def __init__(self):
-        pass
+        self._mapping = None
 
     @property
     def alphabet(self, alpha=ByteAlphabet()):
         return alpha
+
+    def fold_mapping(self, mapping):
+        if self._mapping is None:
+            self._mapping = mapping
+        else:
+            self._mapping = tuple(map(mapping.__getitem__, self._mapping))
+
+    @property
+    def mapping(self):
+        if self._mapping is None:
+            return IdMapping()
+        else:
+            # return FlatMapping(self._mapping)
+            return self._mapping
+
+class FoldASCIIAlphabetStrategy(ByteAlphabetStrategy):
+
+    def __init__(self):
+        self._mapping = None
+
+    def clone(self):
+        return FoldASCIIAlphabetStrategy()
 
     def alphabetize(self, nfa):
         def alphabet_map(cond):
@@ -417,21 +459,28 @@ class FoldASCIIAlphabetStrategy(AlphabetStrategy):
                     yield chr(i)
         return nfa.map_labels(alphabet_map)
 
-class UTF8AlphabetStrategy(AlphabetStrategy):
 
-    @property
-    def alphabet(self, alpha=ByteAlphabet()):
-        return alpha
+class UTF8AlphabetStrategy(ByteAlphabetStrategy):
+
+    def __init__(self):
+        self._mapping = None
+
+    def clone(self):
+        return UTF8AlphabetStrategy()
 
     def alphabetize(self, nfa):
         pass
 
 class PredicateAlphabetStrategy(AlphabetStrategy):
 
-    def __init__(self):
+    def __init__(self, ucd=None):
+        self._ucd = ucd
         self._predicates = set()
-        self._alphabet = []
+        self._alphabet = {}
         self._abstract_alphabet = None
+
+    def clone(self):
+        return PredicateAlphabetStrategy(ucd=self._ucd)
 
     @property
     def alphabet(self):
@@ -469,40 +518,33 @@ class PredicateAlphabetStrategy(AlphabetStrategy):
         self._predicates = None
 
         for c in chars:
-            self._alphabet.append(len(self._alphabet,
-                                      SingleCharacterFilterValue(c.single)))
+            self._alphabet[self._alphabet] = \
+                SingleCharacterFilterValue(c.single)
 
         # assign all combinations of truth values to the other
         # predicates
         for v in product((False, True), repeat=len(predicates)):
             v = chain(repeat(False, len(chars)), v)
-            self._alphabet.append((len(self._alphabet),
-                                   CharacterFilterValues(filters, v)))
+            self._alphabet[len(self._alphabet)] = \
+                CharacterFilterValues(filters, v)
 
+        self._alphabet_mapping = MultiTable(self.flat_mapping())
 
     def flat_mapping(self):
-        num = len(self._chars)
-        chars = self._chars
         filters = self._filters
         for i in range(0x110000):
-            if chr(i) in self.chars:
-                yield self.chars[chr(i)]
+            yield self._chars[tuple(f(chr(i)) for f in self._predicates)]
 
-            # TODO: is index calculation faster than dict-lookup
-            # otherwise create a dict value-tuple to alphabet entry
-            # which would be cleaner, more robust and easier to understand
-            # contra: much more mem
-            index = 0
-            for filter in filters:
-                index *= 2
-                # efficiency hack for: if ...: index += 1
-                # via n + True == n + 1, n + False == n + 0
-                index += filter.match(chr(i))
-            index += len(chars)
-            yield index
+    def fold_mapping(self, mapping):
+        self._alphabet_map = MultiTable(map(mapping.__getitem__,
+                                            self._alphabet_map))
+
+    @property
+    def mapping(self):
+        return MultiTableMapping(self._alphabet_map)
 
     def _map_alphabet(self, filter_):
-        for symbol, filter_values in self._alphabet:
+        for symbol, filter_values in self._alphabet.items():
             if filter_values.fulfills(filter_):
                 yield symbol
 
