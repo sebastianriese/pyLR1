@@ -3,7 +3,6 @@
 import unittest
 
 import sys
-import io
 import logging
 
 from . import utils
