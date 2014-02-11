@@ -8,8 +8,11 @@ class PyBlob(object, metaclass=AutoAccept):
         raise NotImplementedError()
 
 class PySuite(PyBlob):
-    def __init__(self):
-        self.code = []
+    def __init__(self, code=None):
+        if code is None:
+            self.code = []
+        else:
+            self.code = list(code)
 
     def add(self, blob):
         self.code.append(blob)
