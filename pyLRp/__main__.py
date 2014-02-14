@@ -188,7 +188,7 @@ if args.self_hosting:
     del p
 else:
     from .parsers.bootstrap import Parser
-    p = Parser(infile, logger)
+    p = Parser(infile, logger, args.infile)
     syn = p.parse()
     del p
 infile.close()
