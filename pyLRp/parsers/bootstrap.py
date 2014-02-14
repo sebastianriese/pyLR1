@@ -82,7 +82,7 @@ class Parser(object):
         self._syntax = Syntax()
 
         self._grammar_file = grammar_file
-        self._grammer_file_name = filename
+        self._grammar_file_name = filename
         self._line = 0
 
         # ugly state variable available to the subparsers
