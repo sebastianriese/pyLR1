@@ -1,5 +1,9 @@
+#% depends on input.py
 from pyLRp.runtime.input import EndOfFile
 
+#% start classes
+
+#% rename BaseLexer
 class Lexer(object):
 
     def __init__(self, input_buffer):
@@ -102,3 +106,4 @@ class Lexer(object):
             return self.lex()
         else:
             return (token, text, position)
+#% end classes

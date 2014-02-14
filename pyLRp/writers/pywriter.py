@@ -4,6 +4,7 @@ from .. import lexactions
 from .. import parsetable
 from ..syntax import Syntax, Symtable
 from ..pyblob import PySuite, PyText, PyNewline, PyStackvar
+from .runtime_copy import RuntimeCopier
 
 class PyBlobToLines(pyblob.PyBlobVisitor):
     def __init__(self, stacklen, toplevel=True):
@@ -134,21 +135,25 @@ class Writer(object):
 
         return ded, indices
 
-    def __init__(self, parser_file, logger, lines, trace,
-                 deduplicate, python3, debug=False):
+    def __init__(self, parser_file, logger, *,
+                 deduplicate, standalone, python3):
         self.logger = logger
 
         self._parser_file = parser_file
-        self._lines = lines
-        self._trace = trace
         self._deduplicate = deduplicate
         self._python3 = python3
-        self._debug = True
-        self._standalone = False
+        self._standalone = standalone
 
     def write_header(self, header):
         if self._standalone:
-            raise NotImplementedError("Can't do that yet")
+            self._parser_file.write(
+"""# this file was generated automagically by pyLR1
+# do not edit, if you want to modify the parser, adapt the grammar file
+# This is a standalone parser which includes a compy of the pyLR1 runtime
+""")
+            runtime_copier = RuntimeCopier(self._parser_file)
+            runtime_copier.load_dir(self._python3)
+            runtime_copier.copy(['input.py', 'lexer.py', 'parser.py'])
         else:
             self._parser_file.write(
 """# this file was generated automagically by pyLR1
@@ -246,9 +251,9 @@ from pyLRp.runtime.parser import Accept
                             action.add(PyStackvar(result=True))
                             action.add(PyText('.sem = ' +
                                               ast.bindings[prod] + '('))
-                            if self._lines:
-                                action.add(PyStackvar(result=True))
-                                action.add(PyText('.pos, '))
+
+                            action.add(PyStackvar(result=True))
+                            action.add(PyText('.pos, '))
 
                             for symb in prod:
                                 i += 1
@@ -272,8 +277,8 @@ class AST(object):
         raise NotImplementedError()
 """)
 
-        if self._lines:
-            self._parser_file.write("""
+
+        self._parser_file.write("""
     def Pos(self):
         return self.pos
 """)
@@ -291,8 +296,7 @@ class %s(object):
 """ % (name,))
 
         basearg = ['self']
-        if self._lines:
-            basearg.append('pos')
+        basearg.append('pos')
 
         for name, args in classes.items():
             self._parser_file.write("""
@@ -304,8 +308,8 @@ class %s(AST):
                 self._parser_file.write("""
         pass""")
 
-            if self._lines:
-                self._parser_file.write("""
+
+            self._parser_file.write("""
         self.pos = pos""")
 
             for arg in args:

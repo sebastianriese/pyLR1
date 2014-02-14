@@ -1,5 +1,7 @@
+#% depends on input.py
 from pyLRp.runtime.input import Position
 
+#% start classes
 class Accept(Exception):
     pass
 
@@ -25,6 +27,7 @@ def error(parser, pos, msg):
 def warning(parser, pos, msg):
     pass
 
+#% rename BaseParser
 class Parser(object):
     def __init__(self, lexer):
         self.lexer = lexer
@@ -163,3 +166,4 @@ class Parser(object):
 
         except Accept:
             return stack[-1].sem
+#%end classes

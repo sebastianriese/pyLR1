@@ -1,7 +1,10 @@
+#% start imports
 import sys
 from io import StringIO
 import mmap
+#% end imports
 
+#% start classes
 class Position(object):
     def __init__(self, file, line0, col0, line1, col1):
         self.file  = file
@@ -216,3 +219,4 @@ class InteractiveUnicodeInputBuffer(InputBuffer):
         string = self.buffer.getvalue()
         self.buffer = StringIO(string[self.mark:])
         return string[:self.mark], None
+#% end classes

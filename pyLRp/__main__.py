@@ -75,17 +75,17 @@ unicode.add_argument("-m", '--input-mode',
                      default="latin1",
                      help="Choose how the input file is presented to the lexer")
 
-arg_parser.add_argument("-l", "--line-tracking",
-                        dest="lines",
-                        action='store_true',
-                        default=False,
-                        help="Enable line tracking in the generated parser")
-
 arg_parser.add_argument("-L", "--lalr",
                         dest="lalr",
                         action='store_true',
                         default=False,
                         help="Generate a LALR(1) parser instead of a LR(1) parser")
+
+arg_parser.add_argument("-s", "--standalone",
+                        dest="standalone",
+                        action='store_true',
+                        default=False,
+                        help="Include the runtime in the generated parser")
 
 arg_parser.add_argument("-g", "--print-graph",
                         dest="graph",
@@ -109,29 +109,17 @@ arg_parser.add_argument("-D", "--not-deduplicate",
                         default=True,
                         help="Disable the table compression of reusing identical lines")
 
-arg_parser.add_argument("-d", "--debug",
-                        dest='debug',
-                        action='store_true',
-                        default=False,
-                        help="Write debug information to the generated file")
-
 arg_parser.add_argument("-f", "--fast",
                         dest="fast",
                         action='store_true',
                         default=False,
-                        help="Fast run, omits some compression")
+                        help="Fast run, omits some compression and optimization")
 
 arg_parser.add_argument("-q", "--quiet",
                         dest="quiet",
                         action='store_true',
                         default=False,
                         help="Print less info")
-
-arg_parser.add_argument("-T", "--trace",
-                        dest="trace",
-                        action='store_true',
-                        default=False,
-                        help="Generate a parser that prints out a trace of its state")
 
 arg_parser.add_argument("--bootstrap",
                         dest='self_hosting',
@@ -274,10 +262,8 @@ if logger.loggedErrors():
 try:
     with tempfile.TemporaryFile(mode="w+t") as temp_gen:
         writer = Writer(temp_gen, logger,
-                        lines=args.lines,
-                        trace=args.trace,
                         deduplicate=args.deduplicate,
-                        debug=args.debug,
+                        standalone=args.standalone,
                         python3=args.python3)
 
         writer.write(syn, parse_table, lexer)
