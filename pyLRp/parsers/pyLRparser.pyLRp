@@ -50,7 +50,8 @@ from ..pyblob import PyBlobVisitor, PySuite, PyText, PyNewline, PyStackvar
     tonewline [^\n]*
     name      [a-zA-Z_][a-zA-Z0-9_]*
     comment   {space}*(\#{tonewline})?
-    stoken    "([^\"]|\\\")+"|'([^\']|\\\')+'
+    stoken    "([^\"\n]|\\\")+"|'([^\'\n]|\\\')+'
+    strlit    "([^\"\n]|\\\")*"|'([^\'\n]|\\\')*'
 
 #######################################################
 # section switching and uniform empty line ignorance
@@ -153,7 +154,7 @@ from ..pyblob import PyBlobVisitor, PySuite, PyText, PyNewline, PyStackvar
 <LEXACTION>%continue CONTINUE
 <LEXACTION>%restart RESTART
 <LEXACTION>%debug   DEBUG
-<LEXACTION>"([^\"\n]|\\\")*" STRLIT
+<LEXACTION>{strlit} STRLIT
 <LEXACTION>%function FUNCTION
 <LEXACTION>{name}   SYMBOL
 <LEXACTION>$INITIAL INITIAL
@@ -430,7 +431,7 @@ stackactions:
         $$.sem.append(Function($4.sem))
     stackactions DEBUG OPAREN STRLIT CPAREN COMMA:
         $$.sem = $1.sem
-        $$.sem.append(Debug($4.sem))
+        $$.sem.append(Debug(parse_strlit($4.sem)))
 
 final:
     RESTART: $$.sem = Restart()
@@ -586,6 +587,9 @@ def indent(lexer, text, position):
         lexer.push_back((lexer.TOKEN_NUMBERS['DEDENT'], text, position))
 
     lexer.next_cond.pop()
+
+def parse_strlit(text):
+    return bytes(text[1:-1], "utf-8").decode('unicode-escape')
 
 class AnnotatedRuleset(object):
 
