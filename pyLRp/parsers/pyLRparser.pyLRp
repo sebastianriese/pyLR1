@@ -741,10 +741,10 @@ def add_error(self, prod, pos):
 
 def check_for_undefined_metas(parser):
     for symbol, posis in sorted(parser.syntax.symtable.undef(),
-                                key=lambda x: x[0].name):
+                                key=lambda x: x[0]):
         for pos in posis:
             error(parser, pos,
-                  "used undefined symbol {}".format(symbol.name))
+                  "used undefined symbol {}".format(symbol))
 
 class PyBlobBuilder(object):
     def __init__(self):
