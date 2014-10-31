@@ -171,6 +171,7 @@ from ..pyblob import PyBlobVisitor, PySuite, PyText, PyNewline, PyStackvar
 <PARSERULE>\]        CBRACKET
 <PARSERULE>{space}+  %restart
 <PARSERULE>\\\n      %restart
+<PARSERULE>{comment}\n %push(PARSERULE), %push(INDENT), NEWLINE
 <PARSERULE>\n        %push(PARSERULE), %push(INDENT), NEWLINE
 <PARSERULE>:         %push(PYINLINE), COLON
 
