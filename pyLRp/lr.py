@@ -623,8 +623,8 @@ class LR1StateTransitionGraph(StateTransitionGraph):
 
     def construct(self):
 
-        prod = Production(self.grammar.define_meta("$START"),
-                          [self.grammar.start_symbol], -1)
+        prod = Production(self.grammar.symtable.define_meta("$START"),
+                          [self.grammar.grammar.start_symbol], -1)
         prod.action = PyText("raise Accept()")
 
         self.grammar.symtable.define_meta("$START").add_prod(prod)
