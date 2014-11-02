@@ -68,8 +68,13 @@ class Parser(object):
 
                 else: # t == 2
                     if recovering:
-                        # just skip unfit tokens during recovery
-                        pass
+                        # just skip unfit tokens during recovery, but error on
+                        # $EOF to prevent a loop
+                        if token == self.lexer.TOKEN_NUMBERS["$EOF"]:
+                            raise SyntaxError(
+                                "Reached EOF during error recovery!",
+                                position=pos
+                            )
                     else:
                         # setup error recovery by shifting the $RECOVER token
                         recovering = True
