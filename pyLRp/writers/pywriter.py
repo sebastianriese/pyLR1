@@ -3,6 +3,7 @@ from .. import pyblob
 from .. import lexactions
 from .. import parsetable
 from ..syntax import Syntax, Symtable
+from ..symbol import Meta, Terminal
 from ..pyblob import PySuite, PyText, PyNewline, PyStackvar
 
 class PyBlobToLines(pyblob.PyBlobVisitor):
@@ -595,7 +596,7 @@ class Lexer(object):
         return """ + "{}".format(symtable["$ERROR"].number) + r"""
 """)
 
-    def write_parser(self, parse_table, symtable):
+    def write_parser(self, parse_table, symtable, next_table):
         # when there is no parser specified parse_table is None
         # and we don't write a parser to the output file
         if parse_table is None:
@@ -659,6 +660,21 @@ class Parser(object):
             i += 1
         reduction_str += ")"
 
+        next_table_reprable = {}
+        for state, nexts in next_table.items():
+            items = []
+            for next_symbol in nexts:
+                if isinstance(next_symbol, Meta):
+                    items.append(("meta", str(next_symbol)))
+                elif isinstance(next_symbol, Terminal):
+                    items.append(("term", str(next_symbol)))
+                else:
+                    assert False
+            next_table_reprable[state.number] = items
+
+        next_table_str = str(next_table_reprable)
+
+
         self._parser_file.write("""
     # tables
     start = %d""" % parse_table.start + """
@@ -666,6 +682,8 @@ class Parser(object):
     atable = """ + action_table_str + """
     """ + goto_table_helper + """
     gtable = """ + goto_table_str + """
+
+    ntable = """ + next_table_str + """
 
     # auto generated methods
     def __init__(self, lexer):
@@ -720,7 +738,12 @@ class Parser(object):
                         recovering = True
                         rec = """ + str(symtable["$RECOVER"].number) + r"""
 
-                        error(self, pos, "syntax error")
+                        error(self, pos, "syntax error: expected one of: {}".format(
+                            ", ".join(
+                                name
+                                for _, name in self.ntable[self.stack[-1].state]
+                            )
+                        ))
 
                         # pop tokens until error can be shifted
                         t, d = atable[stack[-1].state][rec]
@@ -817,7 +840,7 @@ class Parser(object):
             self._parser_file.write(line)
 
 
-    def write(self, syntax, parsetable, lextable):
+    def write(self, syntax, parsetable, lextable, next_table):
 
         self.write_header(syntax.header)
 
@@ -825,6 +848,6 @@ class Parser(object):
 
         self.write_lexer(lextable, syntax.symtable, syntax.lexer.initial_conditions)
 
-        self.write_parser(parsetable, syntax.symtable)
+        self.write_parser(parsetable, syntax.symtable, next_table)
 
         self.write_footer(syntax.footer)

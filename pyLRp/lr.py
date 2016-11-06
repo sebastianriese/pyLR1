@@ -466,6 +466,46 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
         for state in self.states:
             state.close()
 
+    def create_next_table(self):
+        """
+        Create a table mapping states to a reduced set of symbols which are
+        acceptable in those states.
+
+        Symbols which occur on the beginning of productions whose meta symbol
+        is acceptable as next symbol are not included.
+        """
+
+        next_table = {}
+        for state in self.states:
+            changed = True
+            transition_mapping = {}
+            in_rhs = set()
+            for elem in state.elements():
+                after_dot = elem.after_dot()
+                if after_dot is None:
+                    continue
+                transition_mapping.setdefault(
+                    elem.prod.left,
+                    set()
+                ).add(elem.after_dot())
+                in_rhs.add(elem.after_dot())
+
+            while changed:
+                new_in_rhs = set()
+                for rhs_item in in_rhs:
+                    try:
+                        del transition_mapping[rhs_item]
+                    except KeyError:
+                        pass
+                for rhs in transition_mapping.values():
+                    new_in_rhs |= rhs
+                changed = new_in_rhs != in_rhs
+                in_rhs = new_in_rhs
+
+            next_table[state] = frozenset(in_rhs)
+
+        return next_table
+
     def create_parse_table(self, terminals, metas):
         """
         Create the parse table from the LR graph. Requires two mappings
