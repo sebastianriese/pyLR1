@@ -668,11 +668,18 @@ class Parser(object):
                     items.append(("meta", str(next_symbol)))
                 elif isinstance(next_symbol, Terminal):
                     items.append(("term", str(next_symbol)))
+                elif next_symbol is None:
+                    items.append(None)
                 else:
                     assert False
             next_table_reprable[state.number] = items
 
         next_table_str = str(next_table_reprable)
+
+        symbol_names_str = str({
+            number: symbol.name
+            for symbol, number in symtable.metas().items()
+        })
 
 
         self._parser_file.write("""
@@ -684,12 +691,35 @@ class Parser(object):
     gtable = """ + goto_table_str + """
 
     ntable = """ + next_table_str + """
+    META_NAMES = """ + symbol_names_str + """
 
     # auto generated methods
     def __init__(self, lexer):
         self.lexer = lexer
         self.stack = []
         self.reductions = """ + reduction_str + """
+
+    def solve_for_next_symbols(self, state_stack, seen):
+        if state_stack in seen:
+            return set()
+        seen.add(state_stack)
+        topmost = state_stack[-1]
+        symbols = set(self.ntable[topmost])
+        if None in symbols:
+            # reduction is an option
+            for t, d in self.atable[topmost]:
+                if t != 1:
+                    continue
+                size, sym, _ = self.reductions[d]
+                next_state = self.gtable[state_stack[-size-1]][sym]
+                recurse_stack = state_stack[:-size] + (next_state,)
+                more_symbols = self.solve_for_next_symbols(
+                    recurse_stack,
+                    seen=seen
+                )
+                symbols |= more_symbols
+            symbols.remove(None)
+        return symbols
 
     def Parse(self):
         lexer = self.lexer
@@ -741,7 +771,10 @@ class Parser(object):
                         error(self, pos, "syntax error: expected one of: {}".format(
                             ", ".join(
                                 name
-                                for _, name in self.ntable[self.stack[-1].state]
+                                for _, name in self.solve_for_next_symbols(
+                                    tuple(entry.state for entry in self.stack),
+                                    seen=set()
+                                )
                             )
                         ))
 

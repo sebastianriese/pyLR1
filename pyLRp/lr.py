@@ -478,26 +478,35 @@ class StateTransitionGraph(object, metaclass=abc.ABCMeta):
         next_table = {}
         for state in self.states:
             changed = True
-            transition_mapping = {}
+            # this mapping stores (nonterminal, position) -> set_of_symbols
+            # nonterminal is the left-hand-side of the rule, position is the
+            # current position in the LR1Item. the set_of_symbols is the set
+            # of symbols reachable from that position
+            temp_mapping = {}
             in_rhs = set()
             for elem in state.elements():
                 after_dot = elem.after_dot()
-                if after_dot is None:
+                if after_dot == elem.prod.left:
                     continue
-                transition_mapping.setdefault(
-                    elem.prod.left,
+                # we track the position to be able to erase those with position
+                # 0 later, if the left hand side occurs on the right hand side
+                # of another element
+                temp_mapping.setdefault(
+                    (elem.prod.left, elem.pos),
                     set()
-                ).add(elem.after_dot())
-                in_rhs.add(elem.after_dot())
+                ).add(after_dot)
+                in_rhs.add(after_dot)
 
+            # reduce the resulting right-hand-side set by those symbols which
+            # are covered by a non-terminal
             while changed:
                 new_in_rhs = set()
                 for rhs_item in in_rhs:
                     try:
-                        del transition_mapping[rhs_item]
+                        del temp_mapping[rhs_item, 0]
                     except KeyError:
                         pass
-                for rhs in transition_mapping.values():
+                for rhs in temp_mapping.values():
                     new_in_rhs |= rhs
                 changed = new_in_rhs != in_rhs
                 in_rhs = new_in_rhs
