@@ -637,7 +637,12 @@ class SyntaxError(Exception):
 
 # default definitions of the error reporting functions there are
 # usually overwritten by the parser
-def error(parser, pos, msg):
+def error(parser, pos, msg, next_symbols):
+    if next_symbols:
+        msg = "{}: expected one of: {}".format(
+            msg,
+            ", ".join(name for _, name in next_symbols),
+        )
     raise SyntaxError(message=msg, position=pos)
 
 def warning(parser, pos, msg):
@@ -768,15 +773,10 @@ class Parser(object):
                         recovering = True
                         rec = """ + str(symtable["$RECOVER"].number) + r"""
 
-                        error(self, pos, "syntax error: expected one of: {}".format(
-                            ", ".join(
-                                name
-                                for _, name in self.solve_for_next_symbols(
-                                    tuple(entry.state for entry in self.stack),
-                                    seen=set()
-                                )
-                            )
-                        ))
+                        error(self, pos, "syntax error", self.solve_for_next_symbols(
+                            tuple(entry.state for entry in self.stack),
+                            seen=set())
+                        )
 
                         # pop tokens until error can be shifted
                         t, d = atable[stack[-1].state][rec]
