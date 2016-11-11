@@ -106,6 +106,11 @@ class FailOnLogTestCase(unittest.TestCase):
         self.logger.addHandler(FailOnLogHandler(self))
         return compile(self.logger, source, listing=listing, trace=trace)
 
+    def parse(self, source):
+        self.logger = unique_logger()
+        self.logger.addHandler(FailOnLogHandler(self))
+        return parse(self.logger, source)
+
 class MessageAssertTestCase(unittest.TestCase):
 
     def compile_checked(self, source, logcheck):
