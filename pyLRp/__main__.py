@@ -211,6 +211,8 @@ if syn.grammar.start_symbol is not None:
     if args.print_parsetable:
         parse_table.print()
 
+    next_table = graph.create_next_table()
+
     del graph
 else:
     # generate the tokens required by the parser
@@ -248,7 +250,7 @@ try:
                         debug=args.debug,
                         python3=args.python3)
 
-        writer.write(syn, parse_table, lexer)
+        writer.write(syn, parse_table, lexer, next_table)
 
         if logger.loggedErrors():
             print("error: ", e, file=sys.stderr)
