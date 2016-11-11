@@ -148,6 +148,7 @@ def compile(logger, source, listing=None, trace=False, debug=True,
     """
 
     syn = parse(logger, source, bootstrap=bootstrap)
+    next_table = {}
 
     parse_table = None
     if syn.grammar.start_symbol is not None:
@@ -161,6 +162,8 @@ def compile(logger, source, listing=None, trace=False, debug=True,
         graph.report_num_of_conflicts()
         # for state in graph.states:
         #     print(str(state))
+        next_table = graph.create_next_table()
+
         del graph
     else:
         syn.symtable.require_EOF()
@@ -177,7 +180,7 @@ def compile(logger, source, listing=None, trace=False, debug=True,
     w = Writer(code, logger,
                      lines=False, trace=trace, debug=debug,
                      deduplicate=True, python3=True)
-    w.write(syn, parse_table, lexer)
+    w.write(syn, parse_table, lexer, next_table)
     result = {}
 
     # create a listing for debugging purposes
